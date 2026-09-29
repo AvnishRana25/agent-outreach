@@ -7,4 +7,8 @@ __pycache__/
 *.pyc
 .venv/
 data/linkedin_today.md
+data/opportunities_today.md
+data/adlibrary_today.md
+data/adlibrary.csv
+data/dld_offices.csv
 data/cron.log

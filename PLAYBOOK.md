@@ -59,15 +59,19 @@ With two free inboxes you can safely send about **60-70 emails/day by week 3**, 
 **The honest answer to "where is it easiest?":** for a **freelance contract**, the UAE real-estate market, because your proof matches and the budget is there. For an **internship offer**, India is genuinely the fastest (trust, time zone, no payroll friction), which is why it keeps its 25%. Globally, remote-first startups with an India connection are the best bet. If after two weeks India produces most of the positive replies, that's the market telling you something. Rebalance `daily_new` in `config/settings.yaml`.
 
 ### Daily split (38 new/day; India 9 = 24%)
-| Segment | /day | Source (automated, free) |
+| Segment | /day | Sources |
 |---|---|---|
-| `gulf_realestate` | 8 | OpenStreetMap estate agents in Dubai/Abu Dhabi/Sharjah/Riyadh, plus their websites |
-| `uk_agencies` | 5 | OpenStreetMap marketing/advertising agencies in 5 UK cities |
+| `gulf_realestate` | 8 | **Meta Ad Library (by hand, best fit)**, Dubai Land Department broker register, OpenStreetMap, optional Google Maps via Apify |
+| `uk_agencies` | 5 | **UK Companies House (named directors)**, OpenStreetMap |
 | `us_agencies` | 3 | OpenStreetMap agencies in NYC/Austin/Miami/Chicago |
-| `intl_freelance_posts` | 2 | HN monthly "Seeking freelancer?" thread |
-| `intl_startups_intern` | 11 | YC directory (hiring, ≤60 people) + HN "Who is hiring?" posts mentioning interns, remote |
-| `india_realestate` | 6 | OpenStreetMap estate agents in Delhi NCR/Mumbai/Bengaluru/Pune |
+| `intl_freelance_posts` | 5 | HN "Seeking freelancer?" + **contract/part-time automation roles on 5 remote job boards** |
+| `intl_startups_intern` | 8 | YC directory, HN "Who is hiring?" intern posts, **Launch HN**, **intern/junior roles on remote job boards** |
+| `india_realestate` | 6 | Meta Ad Library (by hand), OpenStreetMap, optional Google Maps via Apify |
 | `india_startups_intern` | 3 | YC directory, India region |
+
+Plus, outside email: **community posts** (n8n forum Jobs, r/forhire, r/n8n, r/automation) checked every 30 minutes. These are people asking for this exact work right now; answer within the hour.
+
+**Expected supply (estimates; confirm with `report` after week 1):** the job boards and Companies House should add a few hundred companies each over the month. The Dubai register and Apify can each cover the Gulf segment on their own. The Ad Library pass gives about 10 of your best-fit brokerages a day. OpenStreetMap is now a top-up rather than the main source for the Gulf and India.
 
 ---
 
@@ -88,6 +92,13 @@ prospect ──► enrich ──► verify ──► research ──► draft �
 1. **LinkedIn prospecting and messaging.** LinkedIn's terms ban scraping and automation, and enforcement is now aggressive: a Q1 2026 test cohort saw 27% of automated accounts restricted within 90 days, roughly 40% of accounts using common automation tools were restricted in early 2026, and LinkedIn banned major tools outright ([Zeliq](https://www.zeliq.com/blog/linkedin-automation-2026), [Valley](https://www.joinvalley.co/blog/linkedin-automation-safety-2026)). Your LinkedIn profile is the page every prospect and recruiter checks, and losing it would cost more than any campaign could win. So the tool **writes** a connection note and a follow-up DM for every approved lead, plus a people-search link (`python -m outreach linkedin` → `data/linkedin_today.md`), and you send about 10 by hand each day. Free accounts get only a few custom connection notes a month; when the note box is locked, connect without one and send the DM after they accept.
 2. **Review.** Every draft gets a human read. This protects your two inboxes and catches wrong facts.
 3. **Guessed emails.** "Verified" here means published: on the company's own website, in its OpenStreetMap listing, or in its own HN post, and with a domain that accepts mail (MX record). Free tools cannot truly verify an unpublished mailbox (the SMTP probe needs port 25, which home and cloud networks block, and probing hurts your sending reputation). Pattern-guessed addresses are never sent.
+
+### 3a. Setting up the extra sources
+- **Remote job boards, Launch HN, community boards:** nothing to set up. Reddit works without a key through its public RSS feeds. If those start failing, create a free "script" app at reddit.com/prefs/apps and put its id/secret in `.env` to use the official API.
+- **UK Companies House:** register at developer.company-information.service.gov.uk, create an application, add a "REST" key, and set `COMPANIES_HOUSE_API_KEY` in `.env`. Free; limit 600 requests per 5 minutes, which the source respects. It finds each agency's website by trying name-based domains and only accepts a page that shows the company's name or registration number, so expect roughly 1 in 3 to 1 in 5 companies to yield a usable site.
+- **Dubai broker register:** download the Dubai Land Department's list of licensed real-estate brokerage **offices** as a CSV (search "DLD brokers offices open data" on the Dubai open-data portal, currently Dubai Pulse / data.dubai). Save it as `data/dld_offices.csv` and set `enabled: true` on the `dld` job. The source detects the column names itself. If the file has no email or website column, it guesses `.ae`/`.com` domains the same careful way as above.
+- **Meta Ad Library:** `python -m outreach adlib` (cron 09:45) writes three searches a day. Collecting from Facebook automatically breaks its terms, so this one stays by hand: 15 minutes, about 10 advertisers.
+- **Google Maps via Apify:** free account, set `APIFY_TOKEN`, then set `enabled: true` on the `apify_maps` jobs. The $5 monthly credit covers roughly 1,000 places. Scraping Google Maps is a grey area of Google's terms (Apify runs it, not you), so it's off until you decide.
 
 ---
 

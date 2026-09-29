@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from . import (config, db, enrich, importer, personalize, prospect, replies, report, research, review,
-               sender, transport, verify)
+from . import (community, config, db, enrich, importer, personalize, prospect, replies, report, research,
+               review, sender, sources, transport, verify)
 
 
 def main() -> None:
@@ -15,7 +15,7 @@ def main() -> None:
     sub.add_parser("init", help="create the database")
 
     p = sub.add_parser("prospect", help="find new leads from free public sources (settings.yaml -> prospecting)")
-    p.add_argument("--source", choices=sorted(prospect.RUNNERS), help="run only this source")
+    p.add_argument("--source", choices=sorted(prospect.all_runners()), help="run only this source")
 
     p = sub.add_parser("import", help="import leads from a CSV")
     p.add_argument("csv", type=Path)
@@ -44,6 +44,14 @@ def main() -> None:
 
     p = sub.add_parser("approve", help="bulk-approve drafts at or above a confidence")
     p.add_argument("--min-confidence", type=float, default=0.85)
+
+    p = sub.add_parser("community", help="check forums/Reddit for [Hiring] posts, draft replies, ping Telegram")
+    p.add_argument("--mock", action="store_true")
+
+    p = sub.add_parser("post-done", help="mark a community post as answered")
+    p.add_argument("post_id", type=int)
+
+    sub.add_parser("adlib", help="write today's Meta Ad Library searches to data/adlibrary_today.md")
 
     p = sub.add_parser("linkedin", help="write today's hand-sent LinkedIn tasks to data/linkedin_today.md")
 
@@ -99,6 +107,15 @@ def main() -> None:
         review.interactive()
     elif args.cmd == "approve":
         print(f"approved {review.bulk_approve(args.min_confidence)} sequences")
+    elif args.cmd == "community":
+        print(f"{community.run(args.mock)} new relevant posts -> data/opportunities_today.md")
+    elif args.cmd == "post-done":
+        with db.connect() as conn:
+            conn.execute("UPDATE posts SET status='done' WHERE id=?", (args.post_id,))
+        community.write_digest(config.DATA_DIR / "opportunities_today.md")
+    elif args.cmd == "adlib":
+        path = config.DATA_DIR / "adlibrary_today.md"
+        print(f"{sources.adlibrary_tasks(path)} searches written to {path}")
     elif args.cmd == "linkedin":
         path = config.DATA_DIR / "linkedin_today.md"
         print(f"{review.linkedin_tasks(path)} LinkedIn tasks written to {path}")

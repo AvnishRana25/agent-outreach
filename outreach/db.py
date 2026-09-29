@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS leads (
     segment TEXT NOT NULL,
     source TEXT, notes TEXT,
     source_text TEXT DEFAULT '',             -- the directory entry / job post the lead came from
-    email_source TEXT DEFAULT '',            -- csv | website | osm | post | guess
+    email_source TEXT DEFAULT '',            -- csv | website | osm | post | registry | maps | guess
     email_status TEXT DEFAULT 'unchecked',   -- unchecked | valid | risky | invalid | guessed
     signals TEXT DEFAULT '{}',               -- JSON from enrich
     site_text TEXT DEFAULT '',
@@ -57,6 +57,17 @@ CREATE TABLE IF NOT EXISTS send_log (
 );
 CREATE TABLE IF NOT EXISTS suppression (
     email TEXT PRIMARY KEY, reason TEXT, added_at TEXT
+);
+CREATE TABLE IF NOT EXISTS prospect_state (   -- where each paged source got to (so runs don't repeat)
+    key TEXT PRIMARY KEY, value TEXT
+);
+CREATE TABLE IF NOT EXISTS posts (            -- community "[Hiring]" posts you answer by hand, fast
+    id INTEGER PRIMARY KEY,
+    source TEXT, ext_id TEXT, title TEXT, url TEXT, author TEXT, body TEXT,
+    posted_at TEXT, found_at TEXT,
+    relevant INTEGER, reason TEXT, draft_reply TEXT,
+    status TEXT DEFAULT 'new',               -- new | notified | done
+    UNIQUE(source, ext_id)
 );
 """
 
@@ -131,6 +142,15 @@ def add_lead(conn, **fields) -> bool:
     conn.execute(f"INSERT INTO leads ({cols}) VALUES ({', '.join('?' * len(fields))})",
                  tuple(fields.values()))
     return True
+
+
+def get_state(conn, key: str, default: str = "") -> str:
+    row = conn.execute("SELECT value FROM prospect_state WHERE key=?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_state(conn, key: str, value) -> None:
+    conn.execute("INSERT OR REPLACE INTO prospect_state (key, value) VALUES (?, ?)", (key, str(value)))
 
 
 def suppressed(conn, email: str) -> bool:

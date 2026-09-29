@@ -79,6 +79,8 @@ def import_csv(path: Path, default_segment: str | None, source: str) -> tuple[in
                 email_source="csv" if email else "",
                 country=_pick(row, "country") or config.segment(seg).get("country", ""),
                 city=_pick(row, "city"), linkedin=_pick(row, "linkedin"), segment=seg,
-                source=source, notes=_pick(row, "notes"))
+                source=source, notes=_pick(row, "notes"),
+                source_text=(f"Seen in Meta Ad Library running active ads: {_pick(row, 'notes')}"
+                             if source == "adlibrary" else ""))
             added, skipped = (added + 1, skipped) if ok else (added, skipped + 1)
     return added, skipped

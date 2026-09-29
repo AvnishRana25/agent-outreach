@@ -237,14 +237,20 @@ def run_osm(job: dict) -> int:
 RUNNERS = {"yc": run_yc, "hn": run_hn, "osm": run_osm}
 
 
+def all_runners() -> dict:
+    from . import sources  # imported here: sources builds on helpers in this module
+    return {**RUNNERS, **sources.RUNNERS}
+
+
 def run(only: str | None = None) -> dict:
     results = {}
+    runners = all_runners()
     for job in config.settings().get("prospecting", []):
         if not job.get("enabled", True) or (only and job["source"] != only):
             continue
         name = f"{job['source']}->{job['segment']}"
         try:
-            results[name] = RUNNERS[job["source"]](job)
+            results[name] = runners[job["source"]](job)
         except (requests.RequestException, ValueError, KeyError) as e:
             results[name] = f"error: {e}"
         print(f"  {name}: {results[name]}")
