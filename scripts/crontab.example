@@ -24,5 +24,8 @@ APP=/home/YOU/agent-outreach
 # 09:45 Mon-Fri: today's Meta Ad Library searches in data/adlibrary_today.md (15 min by hand)
 45 9 * * 1-5  cd $APP && .venv/bin/python -m outreach adlib >> data/cron.log 2>&1
 
+# Every 10 min, 08:00-01:00: apply what you did in the dashboard, then push a fresh snapshot
+*/10 8-23,0 * * *  cd $APP && .venv/bin/python -m outreach dashboard-sync >> data/cron.log 2>&1
+
 # Nightly backup of the database
 55 23 * * *  cp $APP/data/outreach.db $APP/data/outreach.$(date +\%a).db

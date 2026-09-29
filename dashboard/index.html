@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Outreach Desk</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Cpath d='M7 11l9 6 9-6M7 11v10h18V11' stroke='white' stroke-width='2.2' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f2f1ed; --ink: #0b0b0b; --ink-2: #52514e; --muted: #6f6d68;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --border-strong: rgba(11,11,11,0.18);
+  --accent: #2a78d6; --accent-ink: #1d5fae; --accent-wash: rgba(42,120,214,0.10);
+  --series-1: #2a78d6; --series-2: #eb6834;
+  --good: #0ca30c; --good-ink: #006300; --warning: #fab219; --warning-ink: #8a5a00; --critical: #d03b3b; --critical-ink: #b02a2a;
+  --shadow: 0 1px 2px rgba(11,11,11,0.05), 0 2px 8px rgba(11,11,11,0.04);
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #9a988f;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10); --border-strong: rgba(255,255,255,0.18);
+    --accent: #3987e5; --accent-ink: #7fb2f0; --accent-wash: rgba(57,135,229,0.16);
+    --series-1: #3987e5; --series-2: #d95926;
+    --good-ink: #0ca30c; --warning-ink: #fab219; --critical-ink: #ef7a7a;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #9a988f;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10); --border-strong: rgba(255,255,255,0.18);
+  --accent: #3987e5; --accent-ink: #7fb2f0; --accent-wash: rgba(57,135,229,0.16);
+  --series-1: #3987e5; --series-2: #d95926;
+  --good-ink: #0ca30c; --warning-ink: #fab219; --critical-ink: #ef7a7a;
+  --shadow: none;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page); color: var(--ink);
+  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--accent-ink); }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px 64px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* top bar */
+header.bar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--page) 88%, transparent);
+  backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+header.bar .wrap { display: flex; align-items: center; gap: 12px; padding-top: 10px; padding-bottom: 10px; }
+.brand { font-weight: 650; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
+.brand svg { width: 22px; height: 22px; }
+.spacer { flex: 1; }
+.sync { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.btn { border: 1px solid var(--border-strong); background: var(--surface); border-radius: 8px; padding: 7px 12px;
+  cursor: pointer; line-height: 1.2; white-space: nowrap; }
+.btn:hover { background: var(--surface-2); }
+.btn:focus-visible, .tab:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn.danger { color: var(--critical-ink); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn:disabled { opacity: .5; cursor: default; }
+.icon-btn { padding: 7px 9px; }
+
+/* status */
+.status { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 550; }
+.status .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.status.good { color: var(--good-ink); } .status.good .dot { background: var(--good); }
+.status.warning { color: var(--warning-ink); } .status.warning .dot { background: var(--warning); }
+.status.critical { color: var(--critical-ink); } .status.critical .dot { background: var(--critical); }
+
+/* tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 20px 0 8px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px;
+  box-shadow: var(--shadow); min-width: 0; }
+.tile .label { font-size: 13px; color: var(--ink-2); }
+.tile .value { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; margin-top: 2px; }
+.tile .value small { font-size: 14px; font-weight: 500; color: var(--muted); }
+.tile .sub { font-size: 12.5px; color: var(--muted); margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meter { height: 6px; background: var(--surface-2); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+.meter > i { display: block; height: 100%; background: var(--series-1); border-radius: 3px; }
+
+/* tabs */
+nav.tabs { display: flex; gap: 4px; margin: 18px 0 14px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 12px; cursor: pointer;
+  color: var(--ink-2); font-weight: 550; white-space: nowrap; margin-bottom: -1px; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.count { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 6px; border-radius: 10px; font-size: 12px;
+  background: var(--surface-2); color: var(--ink-2); text-align: center; }
+.tab[aria-selected="true"] .count { background: var(--accent-wash); color: var(--accent-ink); }
+
+/* toolbar */
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+select, input[type=password] { background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 10px; }
+
+/* cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 16px; margin-bottom: 14px; }
+.card.queued { opacity: .72; }
+.card h3 { margin: 0; font-size: 17px; letter-spacing: -0.01em; }
+.card-head { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+.card-head .meta { flex: 1; min-width: 220px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--border); }
+.chip.strong { background: var(--accent-wash); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+.kv { display: grid; grid-template-columns: 88px 1fr; gap: 4px 10px; margin: 12px 0 4px; font-size: 14px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+details { margin-top: 8px; }
+summary { cursor: pointer; color: var(--ink-2); font-size: 13.5px; }
+.quote { white-space: pre-wrap; font-size: 13.5px; color: var(--ink-2); background: var(--surface-2); border-radius: 8px;
+  padding: 10px 12px; margin-top: 6px; max-height: 260px; overflow: auto; overflow-wrap: anywhere; }
+.email { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; }
+.email label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.email input[type=text], textarea { width: 100%; background: var(--page); border: 1px solid var(--border-strong); border-radius: 8px; padding: 9px 11px; }
+.email input[type=text] { margin-bottom: 8px; font-weight: 600; }
+textarea { resize: vertical; min-height: 110px; line-height: 1.5; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; align-items: center; }
+.banner { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 8px; background: var(--accent-wash);
+  color: var(--accent-ink); font-size: 14px; margin-top: 12px; flex-wrap: wrap; }
+.empty { text-align: center; color: var(--muted); padding: 48px 16px; border: 1px dashed var(--border-strong); border-radius: var(--radius); }
+.empty strong { display: block; color: var(--ink); font-size: 16px; margin-bottom: 4px; }
+h2.section { font-size: 15px; margin: 22px 0 10px; color: var(--ink-2); font-weight: 600; }
+
+/* tables */
+.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th { font-weight: 600; color: var(--ink-2); font-size: 12.5px; background: var(--surface); position: sticky; top: 0; }
+th:first-child, td:first-child { text-align: left; }
+tr:last-child td { border-bottom: 0; }
+tr.total td { font-weight: 650; border-top: 1px solid var(--axis); }
+.rate { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.rate .bar { width: 80px; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.rate .bar i { display: block; height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }
+
+/* chart */
+.chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; }
+.legend { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); margin-bottom: 6px; flex-wrap: wrap; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+svg.chart { max-width: 100%; height: auto; display: block; overflow: visible; }
+svg.chart text { fill: var(--muted); font-size: 11px; }
+.tip { position: fixed; pointer-events: none; background: var(--ink); color: var(--page); font-size: 12.5px; padding: 6px 9px;
+  border-radius: 6px; z-index: 20; display: none; white-space: nowrap; }
+
+/* login */
+.login { max-width: 360px; margin: 14vh auto 0; padding: 0 16px; }
+.login .card { padding: 24px; }
+.login h1 { font-size: 20px; margin: 10px 0 4px; }
+.login input { width: 100%; margin: 14px 0 10px; padding: 10px 12px; }
+.login .btn { width: 100%; padding: 10px; }
+.err { color: var(--critical-ink); font-size: 13.5px; min-height: 20px; }
+
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--page);
+  padding: 9px 14px; border-radius: 8px; font-size: 14px; z-index: 30; display: none; max-width: calc(100% - 32px); }
+@media (max-width: 560px) {
+  .tiles { grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+  .tile { padding: 10px 12px; }
+  .tile .value { font-size: 21px; }
+  .tile .sub { display: none; }
+  .brand span { display: none; }
+  header.bar .wrap { gap: 8px; }
+  .tab { padding: 10px 9px; }
+  .btn.ghost { padding: 7px 6px; }
+  .kv { grid-template-columns: 1fr; gap: 0; }
+  .kv dt { margin-top: 6px; }
+  .sync .label { display: none; }
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="tip" id="tip" role="tooltip"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const safeUrl = (u) => { try { const x = new URL(u); return /^https?:$/.test(x.protocol) ? x.href : ""; } catch { return ""; } };
+const LOGO = '<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M7 11l9 6 9-6M7 11v10h18V11" stroke="#fff" stroke-width="2.2" fill="none" stroke-linejoin="round"/></svg>';
+const SEGMENT_LABEL = { gulf_realestate: "Gulf real estate", uk_agencies: "UK agencies", us_agencies: "US agencies",
+  intl_freelance_posts: "Freelance posts", intl_startups_intern: "Startups · internship", india_realestate: "India real estate",
+  india_startups_intern: "India startups · internship" };
+const segName = (s) => SEGMENT_LABEL[s] || s || "—";
+const SOURCE_LABEL = { yc: "YC directory", hn_hiring: "HN Who is hiring", hn_freelance: "HN Seeking freelancer",
+  launch_hn: "Launch HN", osm: "OpenStreetMap", companies_house: "Companies House", dld: "Dubai broker register",
+  apify_maps: "Google Maps (Apify)", adlibrary: "Meta Ad Library", csv: "CSV import" };
+const srcName = (s) => SOURCE_LABEL[s] || (s && s.startsWith("jobs_") ? "Job board · " + s.slice(5) : s || "—");
+const CATEGORY_LABEL = { interested: "Interested", meeting_request: "Wants a call", question: "Question", referral: "Referral" };
+
+const state = { data: null, tab: localGet("tab") || "review", segment: "all", edits: {}, drafts: {}, loading: false };
+
+function localGet(k) { try { return localStorage.getItem("od:" + k); } catch { return null; } }
+function localSet(k, v) { try { localStorage.setItem("od:" + k, v); } catch {} }
+
+async function api(path, body) {
+  const opts = body === undefined ? { credentials: "same-origin" }
+    : { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Requested-With": "dashboard" }, body: JSON.stringify(body) };
+  const r = await fetch("/api/" + path, opts);
+  let j = {};
+  try { j = await r.json(); } catch {}
+  if (r.status === 401 && path !== "login") { renderLogin(); throw new Error("login required"); }
+  if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+  return j;
+}
+
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.t); toast.t = setTimeout(() => (t.style.display = "none"), 2600);
+}
+
+function ago(iso) {
+  if (!iso) return "never";
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (isNaN(s)) return iso;
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago";
+  return Math.round(s / 86400) + " d ago";
+}
+
+/* ------------------------------------------------------------------ login */
+function renderLogin(msg = "") {
+  $("#app").innerHTML = `
+    <div class="login"><div class="card">
+      ${LOGO.replace("<svg", '<svg width="34" height="34"')}
+      <h1>Outreach Desk</h1>
+      <div class="muted small">Review drafts, answer replies, and track results.</div>
+      <form id="lf">
+        <label class="small muted" for="pw" style="display:block;margin-top:14px">Password</label>
+        <input id="pw" type="password" autocomplete="current-password" required style="margin-top:4px">
+        <div class="err" id="lerr">${esc(msg)}</div>
+        <button class="btn primary" type="submit">Sign in</button>
+      </form>
+    </div></div>`;
+  $("#pw").focus();
+  $("#lf").onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector("button"); btn.disabled = true; $("#lerr").textContent = "";
+    try { await api("login", { password: $("#pw").value }); await load(); }
+    catch (err) { $("#lerr").textContent = err.message === "login required" ? "" : err.message; btn.disabled = false; }
+  };
+}
+
+/* ------------------------------------------------------------------ data */
+async function load(quiet) {
+  if (state.loading) return;
+  state.loading = true;
+  try { state.data = await api("data"); render(); }
+  catch (e) { if (e.message !== "login required") toast("Couldn't load: " + e.message); }
+  finally { state.loading = false; }
+}
+
+function pendingMap() {
+  const m = {};
+  for (const a of state.data.actions || []) {
+    if (a.status !== "pending") continue;
+    const fam = a.kind.startsWith("reply") ? "reply" : a.kind === "post_done" ? "post" : "review";
+    const key = fam + ":" + a.target;
+    if (!m[key]) m[key] = a;
+  }
+  return m;
+}
+
+async function act(kind, target, payload = {}, label) {
+  try {
+    await api("action", { kind, target, payload });
+    toast(label || "Queued. It applies at the next sync.");
+    await load(true);
+  } catch (e) { if (e.message !== "login required") toast("Failed: " + e.message); }
+}
+
+/* ------------------------------------------------------------------ shell */
+function syncStatus() {
+  const at = state.data.synced_at;
+  const mins = at ? (Date.now() - new Date(at).getTime()) / 60000 : Infinity;
+  const cls = mins <= 20 ? "good" : mins <= 60 ? "warning" : "critical";
+  const txt = at ? "Synced " + ago(at) : "Never synced";
+  const hint = cls === "good" ? "" : " · laptop sync may be off";
+  return `<span class="status ${cls}" title="The laptop pushes new data every 10 minutes"><span class="dot"></span><span>${esc(txt)}<span class="label">${esc(hint)}</span></span></span>`;
+}
+
+function render() {
+  const d = state.data;
+  const pend = pendingMap();
+  const review = d.review || [], reply = d.reply || [], post = d.post || [];
+  const openReview = review.filter((x) => !pend["review:" + x.id]).length;
+  const openRespond = reply.filter((x) => !pend["reply:" + x.id]).length + post.filter((x) => !pend["post:" + x.id]).length;
+  const tabs = [["review", "Review", openReview], ["respond", "Respond", openRespond], ["results", "Results", null], ["activity", "Activity", null]];
+  $("#app").innerHTML = `
+    <header class="bar"><div class="wrap">
+      <div class="brand">${LOGO}<span>Outreach Desk</span></div>
+      <div class="spacer"></div>
+      <span class="sync">${syncStatus()}</span>
+      <button class="btn icon-btn" id="refresh" title="Refresh" aria-label="Refresh">↻</button>
+      <button class="btn ghost" id="logout">Sign out</button>
+    </div></header>
+    <main class="wrap">
+      ${healthTiles(openReview, openRespond)}
+      <nav class="tabs" role="tablist">
+        ${tabs.map(([id, name, n]) => `<button class="tab" role="tab" data-tab="${id}" aria-selected="${state.tab === id}">${name}${n !== null ? `<span class="count num">${n}</span>` : ""}</button>`).join("")}
+      </nav>
+      <section id="panel"></section>
+    </main>`;
+  $("#refresh").onclick = () => load();
+  $("#logout").onclick = async () => { await api("logout", {}); renderLogin(); };
+  document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => { state.tab = b.dataset.tab; localSet("tab", state.tab); render(); }));
+  const panel = $("#panel");
+  if (state.tab === "review") renderReview(panel, pend);
+  else if (state.tab === "respond") renderRespond(panel, pend);
+  else if (state.tab === "results") renderResults(panel);
+  else renderActivity(panel);
+}
+
+function healthTiles(openReview, openRespond) {
+  const h = state.data.health || {};
+  const boxes = h.inboxes || [];
+  const sent = boxes.reduce((a, b) => a + b.sent_today, 0), cap = boxes.reduce((a, b) => a + b.cap_today, 0);
+  const s7 = boxes.reduce((a, b) => a + b.sent_7d, 0), b7 = boxes.reduce((a, b) => a + b.bounced_7d, 0);
+  const limit = boxes.length ? boxes[0].max_bounce_rate : 0.03;
+  const rate = s7 ? b7 / s7 : 0;
+  const bcls = !s7 ? "good" : rate >= limit ? "critical" : rate >= limit * 0.6 ? "warning" : "good";
+  const blabel = !s7 ? "No sends yet" : rate >= limit ? "Sending paused" : rate >= limit * 0.6 ? "Watch closely" : "Healthy";
+  const fc = h.firecrawl || { used_today: 0, cap: 0 };
+  const pct = (a, b) => (b ? Math.min(100, (100 * a) / b) : 0);
+  return `<div class="tiles">
+    <div class="tile"><div class="label">Sent today</div>
+      <div class="value num">${sent}<small> / ${cap}</small></div>
+      <div class="meter" role="img" aria-label="${sent} of ${cap} sends used"><i style="width:${pct(sent, cap)}%"></i></div>
+      <div class="sub">${boxes.map((b) => esc(b.email)).join(", ") || "No inbox enabled"}</div></div>
+    <div class="tile"><div class="label">Bounce rate · 7 days</div>
+      <div class="value num">${s7 ? (100 * rate).toFixed(1) + "%" : "—"}</div>
+      <div style="margin-top:6px"><span class="status ${bcls}"><span class="dot"></span>${blabel}</span></div>
+      <div class="sub">${b7} of ${s7} emails · pauses at ${(100 * limit).toFixed(0)}%</div></div>
+    <div class="tile"><div class="label">Waiting on you</div>
+      <div class="value num">${openRespond}</div>
+      <div class="sub">${openReview} drafts to review</div></div>
+    <div class="tile"><div class="label">Firecrawl credits today</div>
+      <div class="value num">${fc.used_today > 99999 ? "Out" : fc.used_today}<small> / ${fc.cap}</small></div>
+      <div class="meter" role="img" aria-label="${fc.used_today} of ${fc.cap} credits used"><i style="width:${pct(fc.used_today, fc.cap)}%"></i></div>
+      <div class="sub">Used only when free reading fails</div></div>
+  </div>`;
+}
+
+/* ------------------------------------------------------------------ review */
+function renderReview(panel, pend) {
+  const all = state.data.review || [];
+  const segs = [...new Set(all.map((x) => x.segment))].sort();
+  const list = all.filter((x) => state.segment === "all" || x.segment === state.segment);
+  panel.innerHTML = `
+    <div class="toolbar">
+      <label class="small muted" for="seg">Segment</label>
+      <select id="seg"><option value="all">All segments (${all.length})</option>
+        ${segs.map((s) => `<option value="${esc(s)}" ${state.segment === s ? "selected" : ""}>${esc(segName(s))} (${all.filter((x) => x.segment === s).length})</option>`).join("")}
+      </select>
+      <span class="spacer"></span>
+      <span class="small muted">Approved emails send on schedule in each market's business hours.</span>
+    </div>
+    ${list.length ? list.map((x) => reviewCard(x, pend["review:" + x.id])).join("")
+      : `<div class="empty"><strong>Nothing to review</strong>New drafts appear after the morning run on your laptop.</div>`}`;
+  $("#seg").onchange = (e) => { state.segment = e.target.value; render(); };
+  panel.querySelectorAll("[data-review]").forEach(bindReview);
+}
+
+function reviewCard(x, pending) {
+  const who = [x.first_name, x.last_name].filter(Boolean).join(" ");
+  const e = state.edits[x.id] || {};
+  const msgs = (x.messages || []).map((m) => {
+    const body = e[m.id]?.body ?? m.body, subject = e[m.id]?.subject ?? m.subject;
+    const label = m.step === 0 ? "Email 1" : `Follow-up ${m.step} · day ${esc(m.due_at)}`;
+    return `<div class="email"><label>${label}</label>
+      ${m.step === 0 ? `<input type="text" data-subject="${m.id}" value="${esc(subject)}" aria-label="Subject" ${pending ? "disabled" : ""}>` : ""}
+      <textarea data-body="${m.id}" rows="${Math.min(12, Math.max(5, Math.ceil((body || "").length / 70) + 1))}" aria-label="${label} body" ${pending ? "disabled" : ""}>${esc(body)}</textarea></div>`;
+  }).join("");
+  const conf = x.confidence != null ? Math.round(x.confidence * 100) + "%" : "—";
+  return `<article class="card ${pending ? "queued" : ""}" data-review="${x.id}">
+    <div class="card-head"><div class="meta">
+      <h3>${esc(x.company)}</h3>
+      <div class="small muted">${esc(who || "No named contact")}${x.title ? " · " + esc(x.title) : ""} · ${esc(x.email)} <span class="chip">${esc(x.email_status)}</span></div>
+      <div class="chips"><span class="chip strong">${esc(segName(x.segment))}</span>
+        <span class="chip">Fit ${x.fit ?? "—"}/10</span><span class="chip">Confidence ${conf}</span>
+        ${x.city || x.country ? `<span class="chip">${esc([x.city, x.country].filter(Boolean).join(", "))}</span>` : ""}
+        ${x.source ? `<span class="chip">via ${esc(srcName(x.source))}</span>` : ""}</div>
+    </div>${safeUrl(x.website) ? `<a class="btn" href="${esc(safeUrl(x.website))}" target="_blank" rel="noopener noreferrer">Website ↗</a>` : ""}</div>
+    <dl class="kv">
+      ${x.summary ? `<dt>Company</dt><dd>${esc(x.summary)}</dd>` : ""}
+      ${x.hook ? `<dt>Hook</dt><dd>${esc(x.hook)}</dd>` : ""}
+      ${x.fit_reason ? `<dt>Why fit</dt><dd>${esc(x.fit_reason)}</dd>` : ""}
+      ${x.review_note ? `<dt>Check</dt><dd>${esc(x.review_note)}</dd>` : ""}
+      ${x.signals?.length ? `<dt>Signals</dt><dd>${x.signals.map((s) => `<span class="chip">${esc(s.replace(/_/g, " "))}</span>`).join(" ")}</dd>` : ""}
+    </dl>
+    ${x.source_text ? `<details><summary>Where this lead came from</summary><div class="quote">${esc(x.source_text)}</div></details>` : ""}
+    ${x.linkedin_note ? `<details><summary>LinkedIn texts (send by hand)</summary><div class="quote">Note: ${esc(x.linkedin_note)}\n\nDM after accept: ${esc(x.linkedin_dm)}</div></details>` : ""}
+    ${msgs}
+    ${pending ? `<div class="banner"><span><strong>${esc(pending.kind === "approve" ? "Approved" : pending.kind === "reject" ? "Rejected" : "Regenerating")}</strong> · applies at the next sync</span><span class="spacer"></span><button class="btn" data-undo>Undo</button></div>`
+      : `<div class="actions"><button class="btn primary" data-approve>Approve${Object.keys(e).length ? " with edits" : ""}</button>
+         <button class="btn" data-regen>Regenerate</button><span class="spacer"></span><button class="btn danger" data-reject>Reject lead</button></div>`}
+  </article>`;
+}
+
+function bindReview(card) {
+  const id = Number(card.dataset.review);
+  const x = state.data.review.find((r) => r.id === id);
+  const edits = () => (state.edits[id] = state.edits[id] || {});
+  card.querySelectorAll("[data-body],[data-subject]").forEach((el) => (el.oninput = () => {
+    const mid = Number(el.dataset.body || el.dataset.subject);
+    const orig = x.messages.find((m) => m.id === mid);
+    const e = (edits()[mid] = edits()[mid] || { subject: orig.subject, body: orig.body });
+    if (el.dataset.body) e.body = el.value; else e.subject = el.value;
+    const b = card.querySelector("[data-approve]"); if (b) b.textContent = "Approve with edits";
+  }));
+  const on = (sel, fn) => { const b = card.querySelector(sel); if (b) b.onclick = fn; };
+  on("[data-approve]", () => {
+    const e = state.edits[id] || {};
+    const list = Object.entries(e).map(([mid, v]) => ({ id: Number(mid), subject: v.subject, body: v.body }));
+    delete state.edits[id];
+    act("approve", id, { edits: list }, "Approved. It sends after the next sync.");
+  });
+  on("[data-regen]", () => act("regenerate", id, {}, "Queued for a fresh draft."));
+  on("[data-reject]", () => { if (confirm("Reject this lead? It won't be emailed.")) act("reject", id, {}, "Lead rejected."); });
+  on("[data-undo]", () => act("cancel", id, { family: "review" }, "Undone."));
+}
+
+/* ------------------------------------------------------------------ respond */
+function renderRespond(panel, pend) {
+  const reply = state.data.reply || [], post = state.data.post || [];
+  panel.innerHTML = `
+    <h2 class="section">Email replies <span class="count num">${reply.length}</span></h2>
+    ${reply.length ? reply.map((r) => replyCard(r, pend["reply:" + r.id])).join("")
+      : `<div class="empty"><strong>No replies waiting</strong>Positive replies appear here within 20 minutes of arriving.</div>`}
+    <h2 class="section">Community posts <span class="count num">${post.length}</span></h2>
+    ${post.length ? post.map((p) => postCard(p, pend["post:" + p.id])).join("")
+      : `<div class="empty"><strong>No open posts</strong>New [Hiring] posts from the n8n forum and Reddit land here.</div>`}`;
+  panel.querySelectorAll("[data-draft]").forEach((t) => (t.oninput = () => (state.drafts[t.dataset.draft] = t.value)));
+  panel.querySelectorAll("[data-reply]").forEach((card) => {
+    const id = Number(card.dataset.reply);
+    const on = (sel, fn) => { const b = card.querySelector(sel); if (b) b.onclick = fn; };
+    on("[data-send]", () => {
+      const body = card.querySelector("textarea").value.trim();
+      if (!body) return toast("The reply is empty.");
+      if (confirm("Send this reply from your inbox at the next sync?")) { delete state.drafts["reply:" + id]; act("reply_send", id, { body }, "Reply queued. It sends at the next sync."); }
+    });
+    on("[data-done]", () => act("reply_done", id, {}, "Marked done."));
+    on("[data-copy]", () => copy(card.querySelector("textarea").value));
+    on("[data-undo]", () => act("cancel", id, { family: "reply" }, "Undone."));
+  });
+  panel.querySelectorAll("[data-post]").forEach((card) => {
+    const id = Number(card.dataset.post);
+    const on = (sel, fn) => { const b = card.querySelector(sel); if (b) b.onclick = fn; };
+    on("[data-copy]", () => copy(card.querySelector("textarea").value));
+    on("[data-done]", () => act("post_done", id, {}, "Marked answered."));
+    on("[data-undo]", () => act("cancel", id, { family: "post" }, "Undone."));
+  });
+}
+
+function replyCard(r, pending) {
+  return `<article class="card ${pending ? "queued" : ""}" data-reply="${r.id}">
+    <div class="card-head"><div class="meta">
+      <h3>${esc(r.first_name || r.from)}${r.company ? " · " + esc(r.company) : ""}</h3>
+      <div class="small muted">${esc(r.from)} · ${esc(ago(r.received_at))}</div>
+      <div class="chips"><span class="chip strong">${esc(CATEGORY_LABEL[r.category] || r.category)}</span><span class="chip">${esc(segName(r.segment))}</span></div>
+    </div></div>
+    <dl class="kv"><dt>Summary</dt><dd>${esc(r.summary)}</dd></dl>
+    <details open><summary>Their message</summary><div class="quote">${esc(r.body)}</div></details>
+    <div class="email"><label>Your reply</label><textarea rows="6" data-draft="reply:${r.id}" ${pending ? "disabled" : ""}>${esc(state.drafts["reply:" + r.id] ?? r.suggested_reply)}</textarea></div>
+    ${pending ? `<div class="banner"><span><strong>${pending.kind === "reply_send" ? "Sending" : "Marked done"}</strong> · applies at the next sync</span><span class="spacer"></span><button class="btn" data-undo>Undo</button></div>`
+      : `<div class="actions"><button class="btn primary" data-send>Send reply</button><button class="btn" data-copy>Copy</button><span class="spacer"></span><button class="btn" data-done>Mark done</button></div>`}
+  </article>`;
+}
+
+function postCard(p, pending) {
+  return `<article class="card ${pending ? "queued" : ""}" data-post="${p.id}">
+    <div class="card-head"><div class="meta">
+      <h3>${esc(p.title)}</h3>
+      <div class="small muted">${esc(p.source)}${p.author ? " · " + esc(p.author) : ""} · posted ${esc(ago(p.posted_at))}</div>
+    </div>${safeUrl(p.url) ? `<a class="btn" href="${esc(safeUrl(p.url))}" target="_blank" rel="noopener noreferrer">Open post ↗</a>` : ""}</div>
+    ${p.reason ? `<dl class="kv"><dt>Why fit</dt><dd>${esc(p.reason)}</dd></dl>` : ""}
+    ${p.body ? `<details><summary>Post text</summary><div class="quote">${esc(p.body)}</div></details>` : ""}
+    <div class="email"><label>Drafted reply (post it yourself)</label><textarea rows="6" data-draft="post:${p.id}" ${pending ? "disabled" : ""}>${esc(state.drafts["post:" + p.id] ?? p.draft_reply)}</textarea></div>
+    ${pending ? `<div class="banner"><span><strong>Answered</strong> · clears at the next sync</span><span class="spacer"></span><button class="btn" data-undo>Undo</button></div>`
+      : `<div class="actions"><button class="btn primary" data-copy>Copy reply</button><span class="spacer"></span><button class="btn" data-done>Mark answered</button></div>`}
+  </article>`;
+}
+
+async function copy(text) {
+  try { await navigator.clipboard.writeText(text); toast("Copied."); }
+  catch { toast("Copy failed. Select the text and copy it by hand."); }
+}
+
+/* ------------------------------------------------------------------ results */
+function renderResults(panel) {
+  const st = state.data.stats || { segments: [], sources: [] };
+  const h = state.data.health || {};
+  const status = h.lead_status || {};
+  const order = ["new", "enriched", "verified", "researched", "drafted", "approved", "active", "replied", "finished", "bounced", "unsubscribed", "rejected", "unfit", "invalid"];
+  panel.innerHTML = `
+    <h2 class="section" style="margin-top:4px">Emails sent per day · last 30 days</h2>
+    <div class="chart-card">${sendsChart(h.daily_sends || [])}</div>
+    <h2 class="section">By segment</h2>${funnelTable(st.segments, "Segment", segName)}
+    <h2 class="section">By lead source</h2>${funnelTable(st.sources, "Source", srcName)}
+    <h2 class="section">Pipeline</h2>
+    <div class="table-wrap"><table><thead><tr><th>Stage</th><th>Leads</th></tr></thead><tbody>
+      ${order.filter((k) => status[k]).map((k) => `<tr><td>${esc(k)}</td><td class="num">${status[k]}</td></tr>`).join("") || `<tr><td class="muted">No leads yet</td><td></td></tr>`}
+    </tbody></table></div>
+    <p class="small muted">Rule of thumb from the playbook: after about 60 first emails in a segment, under 3% replies means change the angle, and over 3% bounces means clean the list.</p>`;
+  bindChartTips(panel);
+}
+
+function funnelTable(rows, label, name) {
+  if (!rows || !rows.length) return `<div class="empty"><strong>No data yet</strong>Numbers appear after the first sends.</div>`;
+  const maxRate = Math.max(5, ...rows.filter((r) => r.name !== "ALL").map((r) => r.reply_rate || 0));
+  const rate = (v, bar) => v == null ? `<span class="muted">—</span>`
+    : `<span class="rate">${bar ? `<span class="bar" aria-hidden="true"><i style="width:${(100 * v) / maxRate}%"></i></span>` : ""}<span class="num">${v.toFixed(1)}%</span></span>`;
+  return `<div class="table-wrap"><table>
+    <thead><tr><th>${label}</th><th>Leads</th><th>Queued</th><th>Sent</th><th>Replied</th><th>Positive</th><th>Bounced</th><th>Reply rate</th><th>Positive rate</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr class="${r.name === "ALL" ? "total" : ""}">
+      <td>${esc(r.name === "ALL" ? "All" : name(r.name))}</td><td class="num">${r.leads}</td><td class="num">${r.queued}</td>
+      <td class="num">${r.sent}</td><td class="num">${r.replied}</td><td class="num">${r.positive}</td><td class="num">${r.bounced}</td>
+      <td>${rate(r.reply_rate, r.name !== "ALL")}</td><td>${rate(r.positive_rate, false)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function sendsChart(days) {
+  const byDay = Object.fromEntries(days.map((d) => [d.day, d]));
+  const end = new Date((state.data.health || {}).today || Date.now());
+  const series = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(end); d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const row = byDay[key] || {};
+    series.push({ day: key, first: row.first || 0, followup: row.followup || 0 });
+  }
+  const max = Math.max(10, ...series.map((s) => s.first + s.followup));
+  const W = Math.max(300, Math.round((($("#panel") || {}).clientWidth || 600) - 34)), H = 170, left = 28, bottom = 20, top = 6, plotH = H - bottom - top, step = (W - left) / series.length, bw = Math.max(4, step - 4);
+  const y = (v) => top + plotH - (v / max) * plotH;
+  const ticks = [0, Math.round(max / 2), max];
+  const bar = (x, y0, h, fill, rTop) => h <= 0 ? "" : rTop
+    ? `<path d="M${x},${y0 + h} V${y0 + Math.min(4, h)} q0,-${Math.min(4, h)} ${Math.min(4, bw / 2)},-${Math.min(4, h)} H${x + bw - Math.min(4, bw / 2)} q${Math.min(4, bw / 2)},0 ${Math.min(4, bw / 2)},${Math.min(4, h)} V${y0 + h} Z" fill="${fill}"/>`
+    : `<rect x="${x}" y="${y0}" width="${bw}" height="${h}" fill="${fill}"/>`;
+  const bars = series.map((s, i) => {
+    const x = left + i * step + 2;
+    const hf = (s.first / max) * plotH, hu = (s.followup / max) * plotH;
+    const gap = hf > 0 && hu > 0 ? 2 : 0;
+    const label = `${s.day}: ${s.first} first emails, ${s.followup} follow-ups`;
+    return `<g data-tip="${esc(label)}">
+      <rect x="${left + i * step}" y="${top}" width="${step}" height="${plotH}" fill="transparent"/>
+      ${bar(x, y(s.first), hf, "var(--series-1)", hu === 0)}
+      ${bar(x, y(s.first + s.followup), Math.max(0, hu - gap), "var(--series-2)", true)}</g>`;
+  }).join("");
+  const labels = [0, 10, 20, 29].map((i) => `<text x="${left + i * step + step / 2}" y="${H - 4}" text-anchor="middle">${series[i].day.slice(5)}</text>`).join("");
+  const grid = ticks.map((t) => `<line x1="${left}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="${t === 0 ? "var(--axis)" : "var(--grid)"}" stroke-width="1"/><text x="${left - 6}" y="${y(t) + 4}" text-anchor="end">${t}</text>`).join("");
+  const total = series.reduce((a, s) => a + s.first + s.followup, 0);
+  return `<div class="legend"><span><i style="background:var(--series-1)"></i>First emails</span><span><i style="background:var(--series-2)"></i>Follow-ups</span><span class="spacer"></span><span class="muted num">${total} sent in 30 days</span></div>
+    <svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Emails sent per day over the last 30 days: ${total} in total">${grid}${bars}${labels}</svg>
+    <details><summary>Show as table</summary><div class="table-wrap" style="margin-top:8px;max-height:240px"><table><thead><tr><th>Day</th><th>First emails</th><th>Follow-ups</th></tr></thead>
+      <tbody>${series.filter((s) => s.first || s.followup).reverse().map((s) => `<tr><td>${s.day}</td><td class="num">${s.first}</td><td class="num">${s.followup}</td></tr>`).join("") || `<tr><td class="muted">No sends yet</td><td></td><td></td></tr>`}</tbody></table></div></details>`;
+}
+
+function bindChartTips(root) {
+  const tip = $("#tip");
+  root.querySelectorAll("[data-tip]").forEach((g) => {
+    g.onmousemove = (e) => { tip.textContent = g.dataset.tip; tip.style.display = "block";
+      tip.style.left = Math.min(e.clientX + 12, innerWidth - tip.offsetWidth - 8) + "px"; tip.style.top = e.clientY - 34 + "px"; };
+    g.onmouseleave = () => (tip.style.display = "none");
+  });
+}
+
+/* ------------------------------------------------------------------ activity */
+function renderActivity(panel) {
+  const acts = state.data.actions || [];
+  const label = { approve: "Approve", reject: "Reject", regenerate: "Regenerate", reply_send: "Send reply", reply_done: "Reply done", post_done: "Post answered" };
+  panel.innerHTML = acts.length ? `<div class="table-wrap"><table>
+    <thead><tr><th>When</th><th>Action</th><th>Item</th><th>Status</th><th>Result</th></tr></thead>
+    <tbody>${acts.map((a) => {
+      const cls = a.status === "applied" ? "good" : a.status === "error" ? "critical" : "warning";
+      const st = a.status === "pending" ? "Waiting for sync" : a.status === "applied" ? "Applied" : "Error";
+      return `<tr><td>${esc(ago(a.created_at))}</td><td>${esc(label[a.kind] || a.kind)}</td><td class="num">#${a.target}</td>
+        <td><span class="status ${cls}"><span class="dot"></span>${st}</span></td><td style="text-align:left;white-space:normal">${esc(a.result || "")}</td></tr>`;
+    }).join("")}</tbody></table></div>`
+    : `<div class="empty"><strong>No activity yet</strong>Everything you approve, send or mark done is listed here with its result.</div>`;
+}
+
+let resizeT;
+addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (state.data && state.tab === "results") render(); }, 200); });
+
+/* ------------------------------------------------------------------ boot */
+(async () => {
+  try { const me = await api("me"); if (me.authed) await load(); else renderLogin(); }
+  catch (e) { renderLogin("Can't reach the dashboard API: " + e.message); }
+  setInterval(() => { if (state.data && document.visibilityState === "visible" && !document.querySelector("textarea:focus,input:focus")) load(true); }, 60000);
+})();
+</script>
+</body>
+</html>

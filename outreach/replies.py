@@ -195,10 +195,19 @@ def send_reply(reply_id: int) -> None:
     if not body or input("Send this reply? [y/N] ").strip().lower() != "y":
         print("not sent")
         return
+    deliver_reply(reply_id, body)
+    print("sent")
+
+
+def deliver_reply(reply_id: int, body: str) -> None:
+    """Send `body` as a threaded answer to reply #id from the inbox it arrived in, and mark it handled."""
+    with db.connect() as conn:
+        r = conn.execute("SELECT * FROM replies WHERE id=?", (reply_id,)).fetchone()
+    if not r:
+        raise ValueError(f"no reply #{reply_id}")
     box = config.inbox(r["inbox"])
-    subject = r["subject"] if r["subject"].lower().startswith("re:") else "Re: " + r["subject"]
+    subject = r["subject"] if (r["subject"] or "").lower().startswith("re:") else "Re: " + (r["subject"] or "")
     transport.send(box, r["from_addr"], subject, body,
                    {"message_id": r["message_id"], "provider_id": r["imap_uid"]})
     with db.connect() as conn:
         conn.execute("UPDATE replies SET handled=1 WHERE id=?", (reply_id,))
-    print("sent")
