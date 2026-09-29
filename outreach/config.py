@@ -44,10 +44,12 @@ def segment(name: str) -> dict:
     return segs[name]
 
 
-def inboxes() -> list[dict]:
-    """Inboxes from settings.yaml; passwords come from the env var each one names."""
+def inboxes(include_disabled: bool = False) -> list[dict]:
+    """Inboxes from settings.yaml (enabled ones unless asked); passwords come from the env var each one names."""
     result = []
     for box in settings().get("inboxes", []):
+        if not include_disabled and not box.get("enabled", True):
+            continue
         box = dict(box)
         box["password"] = os.getenv(box.get("password_env", ""), "")
         result.append(box)
@@ -55,7 +57,7 @@ def inboxes() -> list[dict]:
 
 
 def inbox(email: str) -> dict:
-    for box in inboxes():
+    for box in inboxes(include_disabled=True):
         if box["email"].lower() == email.lower():
             return box
     raise KeyError(f"Inbox {email} is not configured in settings.yaml")

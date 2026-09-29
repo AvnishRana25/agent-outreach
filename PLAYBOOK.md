@@ -105,6 +105,8 @@ prospect ──► enrich ──► verify ──► research ──► draft �
 ## 4. Zero-budget infrastructure
 
 ### Sending
+- [x] **Chosen setup:** one free Zoho inbox, `workwithavnish@zohomail.in`, for freelance and internship emails, sending through Zoho's REST API (steps below). The Gmail inbox stays in `settings.yaml` switched off. One inbox means about 35 sends a day including follow-ups, so roughly 35 new emails a day in week 1 and 15-20 a day once follow-ups start. Turning the Gmail inbox on is the quickest way to double that.
+- [ ] **Zoho's terms:** Zoho can suspend free accounts that look like bulk mail. Keep to the ramp, keep every email personal, and watch `report` for bounces (the sender pauses itself above 3%).
 - [ ] **Gmail (free, works now):** turn on 2-step verification, create an app password, and put it in `.env` as `GMAIL_APP_PASSWORD`. The limit is 500 recipients/day, but for cold email stay at 35/day max; the ramp starts at 10/day in week 0. ([Gmail limits](https://reply.io/blog/gmail-sending-limits/))
 - [ ] **Zoho (check first):** Zoho's free plan is webmail-only, and IMAP/POP/SMTP now need a paid plan ([Zoho community](https://help.zoho.com/portal/ja/community/topic/no-more-imap-pop-smtp-on-free-plans-even-on-referrals-with-no-notice?page=96)). The tool can instead send through the **Zoho Mail REST API**, but it's unclear whether the API is enabled on free plans. Test it (about 10 minutes):
   1. Go to `api-console.zoho.in` (or `.com`) → Add Client → **Self Client** → Generate Code with scopes `ZohoMail.accounts.READ,ZohoMail.messages.ALL,ZohoMail.folders.READ`.

@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import json
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
-from . import db
+from . import db, firecrawl
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
 EXTRA_PATHS = ["/about", "/about-us", "/contact", "/contact-us", "/services", "/careers", "/team"]
@@ -57,33 +57,64 @@ def _visible_text(html: str, limit: int) -> str:
     return text[:limit]
 
 
+PAGE_HINTS = re.compile(r"contact|touch|reach|enquir|about|team|people|founder|leadership|who-we-are|our-story|"
+                        r"company|careers|jobs|join", re.I)
+
+
+def _thin(html: str) -> bool:
+    """Empty, or a JavaScript shell with almost no readable text (Wix, Webflow, React apps)."""
+    return len(_visible_text(html, 2000)) < 300 if html else True
+
+
+def _load(url: str) -> tuple[str, str]:
+    """(raw html, readable text) for one page: plain download first, Firecrawl if that's too thin."""
+    html = _fetch(url)
+    if _thin(html):
+        fc = firecrawl.scrape(url)
+        if fc and (fc["html"] or fc["markdown"]):
+            return fc["html"] or html, fc["markdown"][:1500] or _visible_text(fc["html"], 1500)
+    return html, _visible_text(html, 1500) if html else ""
+
+
 def analyse(website: str) -> tuple[dict, str]:
     base = website if "://" in website else "https://" + website
-    home = _fetch(base)
-    if not home:
+    home, home_text = _load(base)
+    if not home and not home_text:
         return {"reachable": False}, ""
-    pages = {"home": home}
+    pages = {"home": (home, home_text)}
     for path in EXTRA_PATHS:
         html = _fetch(urljoin(base, path))
         if html:
-            pages[path] = html
-    raw = "\n".join(pages.values())
+            pages[path] = (html, _visible_text(html, 1500))
+    # Contact/about pages not at the usual addresses: ask Firecrawl for the site's real page list.
+    if len(pages) < 3 or not EMAIL_RE.search("\n".join(h for h, _ in pages.values())):
+        host = urlparse(base).netloc.removeprefix("www.")
+        for url in firecrawl.site_map(base)[:200]:
+            if len(pages) >= 6:
+                break
+            path = urlparse(url).path.rstrip("/") or "/"
+            if (host in urlparse(url).netloc and path not in pages and path.count("/") <= 2
+                    and PAGE_HINTS.search(path)):
+                html, text = _load(url)
+                if html or text:
+                    pages[path] = (html, text)
+    raw = "\n".join(h for h, _ in pages.values())
 
     soup = BeautifulSoup(home, "html.parser")
     meta = soup.find("meta", attrs={"name": "description"})
     found = {k: bool(re.search(p, raw, re.I)) for k, p in DETECTORS.items()}
-    emails = sorted({e.lower() for e in EMAIL_RE.findall(raw)
+    emails = sorted({e.lower() for e in EMAIL_RE.findall(raw + " " + " ".join(t for _, t in pages.values()))
                      if not e.lower().endswith((".png", ".jpg", ".webp", ".svg", ".gif"))})
     sig = {
         "reachable": True,
-        "title": (soup.title.string or "").strip()[:150] if soup.title else "",
+        "title": (soup.title.string or "").strip()[:150] if soup.title and soup.title.string else "",
         "meta_description": (meta.get("content", "") if meta else "")[:300],
         "headings": [h.get_text(" ", strip=True)[:120] for h in soup.find_all(["h1", "h2"])][:8],
         "pages_found": list(pages),
         "emails_on_site": emails[:5],
         **found,
     }
-    text = " | ".join(f"[{name}] {_visible_text(html, 1500)}" for name, html in pages.items())
+    text = " | ".join(f"[{name}] {t}" for name, (_, t) in pages.items() if t)
     return sig, text[:5000]
 
 

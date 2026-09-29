@@ -203,7 +203,7 @@ def run_jobs(job: dict) -> int:
             checked += 1
             email = _email_in(post["text"])
             site = website.find(post["company"], post["text"] + " " + post["apply"],
-                                job.get("tlds", ["com", "io", "ai", "co", "dev", "app"]))
+                                job.get("tlds", ["com", "io", "ai", "co", "dev", "app"]), hint="company")
             if not site and not email:
                 continue
             posted = post["posted"].date().isoformat() if post["posted"] else "recently"
@@ -341,7 +341,8 @@ def run_companies_house(job: dict) -> int:
             if not directors or len(directors) > job.get("max_directors", 5):
                 continue  # no named person, or too big to be a small agency
             name = c.get("company_name", "")
-            site = website.guess(name, job.get("tlds", ["co.uk", "com", "agency", "uk", "io"]), must_contain=num)
+            site = website.resolve(name, job.get("tlds", ["co.uk", "com", "agency", "uk", "io"]),
+                                   must_contain=num, hint="UK agency")
             if not site:
                 continue
             town = (c.get("registered_office_address") or {}).get("locality", loc)
@@ -420,7 +421,7 @@ def run_dld(job: dict) -> int:
         if site and "://" not in site:
             site = "https://" + site
         if not site:
-            site = website.guess(name, job.get("tlds", ["ae", "com"]), must_contain="")
+            site = website.resolve(name, job.get("tlds", ["ae", "com"]), hint="real estate Dubai")
         if not site and not email:
             continue
         phone = (row.get(cols.get("phone", ""), "") or "").strip()

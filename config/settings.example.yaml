@@ -16,9 +16,22 @@ sequence:
   # Two follow-ups, not three: on free inboxes, send capacity is the bottleneck.
   followup_days: [4, 10]
 
-# Zero-budget setup: your aged Gmail (SMTP/IMAP with an app password) + Zoho through its API.
-# Run `python -m outreach zoho-check` before enabling the Zoho inbox.
+# One free Zoho Mail inbox sends both freelance and internship emails.
+# Zoho's free plan has no SMTP/IMAP, so it sends through Zoho's REST API: run
+# `python -m outreach zoho-check --send-test yourgmail@gmail.com` before the first real send.
+# A brand-new address: the ramp (10 -> 20 -> 30 -> 35/day, follow-ups included) is its warm-up.
 inboxes:
+  - email: workwithavnish@zohomail.in
+    display_name: Avnish Rana
+    transport: zoho_api          # use "smtp" + smtp.zoho.in/imap.zoho.in only on a paid plan
+    zoho_dc: in                  # zohomail.in accounts live in Zoho's India data centre
+    client_id_env: ZOHO_CLIENT_ID
+    client_secret_env: ZOHO_CLIENT_SECRET
+    refresh_token_env: ZOHO_REFRESH_TOKEN
+    max_per_day: 35
+    warmup_start: 2026-10-01     # set to the day you actually start sending
+
+  # Optional second inbox, off: it would double capacity, but you chose one address for everything.
   - email: avnishrana797@gmail.com
     display_name: Avnish Rana
     transport: smtp
@@ -27,21 +40,20 @@ inboxes:
     smtp_port: 465
     imap_host: imap.gmail.com
     drafts_folder: "[Gmail]/Drafts"
-    max_per_day: 35          # personal Gmail: keep cold volume modest
-    warmup_start: 2026-10-01 # ramps 10 -> 20 -> 30 -> 35/day; aged, but new to cold email
-
-  - email: you@yourdomain.com   # your Zoho address
-    display_name: Avnish Rana
-    transport: zoho_api          # use "smtp" + smtp.zoho.in/imap.zoho.in only on a paid plan
-    zoho_dc: in                  # "in" for zoho.in accounts, "com" for zoho.com
-    client_id_env: ZOHO_CLIENT_ID
-    client_secret_env: ZOHO_CLIENT_SECRET
-    refresh_token_env: ZOHO_REFRESH_TOKEN
     max_per_day: 35
     warmup_start: 2026-10-01
-    enabled: false               # set true once zoho-check passes
+    enabled: false
 
-# Segments. daily_new sums to 38; India-market segments = 9 (24%).
+# Firecrawl: fallback for sites a plain download can't read, for finding contact/team pages,
+# and for looking up a company's website by name. Every call counts against the daily cap;
+# at the cap (or with no credits left) the engine carries on without it.
+firecrawl:
+  enabled: true
+  use_for: [scrape, map, search]
+  daily_credit_cap: 60           # raise if you're on a paid plan or self-hosting
+
+# Segments. daily_new sums to 38; India-market segments = 9 (24%). With one inbox (35 sends/day including
+# follow-ups) the sender reaches ~35 new/day in week 1 and ~15-20 new/day once follow-ups start.
 segments:
   gulf_realestate:
     daily_new: 8

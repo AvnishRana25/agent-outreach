@@ -74,6 +74,8 @@ def main() -> None:
     p = sub.add_parser("suppress", help="never email this address, or a whole @domain")
     p.add_argument("email")
 
+    sub.add_parser("telegram-setup", help="find your Telegram chat id and send a test message")
+
     p = sub.add_parser("zoho-check", help="test Zoho API access for each zoho_api inbox")
     p.add_argument("--send-test", metavar="EMAIL", help="also send a test email to this address")
 
@@ -134,12 +136,14 @@ def main() -> None:
         with db.connect() as conn:
             db.suppress(conn, args.email, "manual")
         print(f"suppressed {args.email}")
+    elif args.cmd == "telegram-setup":
+        replies.telegram_setup()
     elif args.cmd == "zoho-check":
         zoho_check(args.send_test)
 
 
 def zoho_check(send_to: str | None) -> None:
-    boxes = [b for b in config.inboxes() if b.get("transport") == "zoho_api"]
+    boxes = [b for b in config.inboxes(include_disabled=True) if b.get("transport") == "zoho_api"]
     if not boxes:
         print("no inbox in settings.yaml uses transport: zoho_api")
     for box in boxes:

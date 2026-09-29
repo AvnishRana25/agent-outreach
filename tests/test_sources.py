@@ -77,7 +77,7 @@ def test_wwr_rss_parse():
 def test_run_jobs_adds_once(monkeypatch):
     from outreach import sources
     monkeypatch.setattr(sources, "board_jobs", lambda name: (_job(),) if name == "remotive" else ())
-    monkeypatch.setattr(sources.website, "find", lambda name, text, tlds: "https://acme.io")
+    monkeypatch.setattr(sources.website, "find", lambda name, text, tlds, hint="": "https://acme.io")
     job = {**FREELANCE_RULE, "segment": "intl_freelance_posts", "boards": ["remotive", "jobicy"], "max_new": 5}
     assert sources.run_jobs(job) == 1
     assert sources.run_jobs(job) == 0          # the same post is never processed twice
@@ -120,8 +120,8 @@ def test_companies_house(monkeypatch):
             return officers
         return {"accounts": {"last_accounts": {"type": "micro-entity"}}}
     monkeypatch.setattr(sources, "_ch", fake_ch)
-    monkeypatch.setattr(sources.website, "guess",
-                        lambda name, tlds, must_contain="": f"https://{name.split()[1]}.co.uk")
+    monkeypatch.setattr(sources.website, "resolve",
+                        lambda name, tlds, must_contain="", hint="": f"https://{name.split()[1]}.co.uk")
     job = {"segment": "uk_agencies", "locations": ["Leeds"], "sic_codes": ["73110"], "max_new": 2}
     assert sources.run_companies_house(job) == 2
     first = _leads()[0]
@@ -143,7 +143,7 @@ def test_dld_csv(tmp_path, monkeypatch):
                         "1003,x,NO TRACE BROKERS,+9714002,,\n")
     cols = sources.dld_columns(["OFFICE_NUMBER", "OFFICE_NAME_AR", "OFFICE_NAME_EN", "PHONE", "EMAIL", "WEBPAGE"])
     assert cols["name"] == "OFFICE_NAME_EN" and cols["licence"] == "OFFICE_NUMBER"
-    monkeypatch.setattr(sources.website, "guess", lambda *a, **k: "")
+    monkeypatch.setattr(sources.website, "resolve", lambda *a, **k: "")
     job = {"segment": "gulf_realestate", "csv": str(csv_path), "max_new": 10}
     assert sources.run_dld(job) == 2
     a, b = _leads()

@@ -85,6 +85,31 @@ def notify(text: str) -> None:
             pass
 
 
+def telegram_setup() -> None:
+    """Find the numeric chat id Telegram needs (a @username only works for public channels)."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise SystemExit("Set TELEGRAM_BOT_TOKEN in .env first")
+    r = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=20).json()
+    if not r.get("ok"):
+        raise SystemExit(f"Telegram rejected the token: {r.get('description')}")
+    chats = {}
+    for u in r.get("result", []):
+        chat = (u.get("message") or u.get("edited_message") or {}).get("chat") or {}
+        if chat.get("id"):
+            chats[chat["id"]] = chat
+    if not chats:
+        print("No messages yet. Open your bot in Telegram, press Start, send it any message, then rerun this.")
+        return
+    for cid, chat in chats.items():
+        who = chat.get("username") or chat.get("first_name") or chat.get("title")
+        print(f"@{who}: TELEGRAM_CHAT_ID={cid}")
+        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", timeout=10,
+                      json={"chat_id": cid, "text": "agent-outreach is connected. Put this chat id in .env: "
+                                                    f"TELEGRAM_CHAT_ID={cid}"})
+    print("Copy the TELEGRAM_CHAT_ID line for your account into .env.")
+
+
 def sync(days: int = 4, use_mock: bool = False) -> int:
     handled = 0
     for box in config.inboxes():

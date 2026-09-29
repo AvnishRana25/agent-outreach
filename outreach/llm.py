@@ -1,8 +1,9 @@
 """Gemini wrapper: JSON output validated against a Pydantic schema, paced for the free tier.
 
-Free-tier limits change without notice (check yours in AI Studio). Defaults assume the
-gemini-2.5-flash free tier of ~10 requests/minute and ~250/day; each lead uses 2 calls
-(research + draft), so 38 leads/day plus reply triage fits.
+Free-tier limits change without notice (check yours in AI Studio -> Rate limits). Each lead
+uses 2 calls (research + draft), so 38 leads/day is ~80-100 calls plus reply triage.
+Google retires model names for new keys (the 2.5 models already return 404 for them), so the
+defaults are the 3.5 family; override with GEMINI_MODEL / GEMINI_RESEARCH_MODEL / GEMINI_REPLY_MODEL.
 """
 from __future__ import annotations
 
@@ -38,10 +39,10 @@ def client() -> genai.Client:
 
 def model(kind: str = "draft") -> str:
     if kind == "research":
-        return os.getenv("GEMINI_RESEARCH_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+        return os.getenv("GEMINI_RESEARCH_MODEL", os.getenv("GEMINI_MODEL", "gemini-3.5-flash"))
     if kind == "reply":
-        return os.getenv("GEMINI_REPLY_MODEL", "gemini-2.5-flash-lite")
-    return os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        return os.getenv("GEMINI_REPLY_MODEL", "gemini-3.5-flash-lite")
+    return os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 
 def _pace() -> None:
@@ -68,6 +69,10 @@ def generate(system: str, prompt: str, schema: type[T], kind: str = "draft",
         try:
             resp = client().models.generate_content(model=model(kind), contents=prompt, config=cfg)
         except errors.ClientError as e:
+            if e.code == 404:
+                raise SystemExit(f"Gemini model '{model(kind)}' is not available to this key: {e.message}\n"
+                                 "Set GEMINI_MODEL / GEMINI_RESEARCH_MODEL / GEMINI_REPLY_MODEL in .env to a "
+                                 "model listed in AI Studio.") from e
             if e.code == 429:
                 msg = str(e).lower()
                 if "per day" in msg or "perday" in msg or "daily" in msg:

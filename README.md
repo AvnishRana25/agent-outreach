@@ -12,7 +12,7 @@ Strategy, market research and the 30-day plan are in **[PLAYBOOK.md](PLAYBOOK.md
 | Ad Library | `adlib` | cron → you | `data/adlibrary_today.md`: 3 Meta Ad Library searches for brokerages running click-to-WhatsApp ads; you add ~10 to `data/adlibrary.csv` and `import --source adlibrary` |
 | Community | `community` | cron, every 30 min | New "[Hiring]" posts on the n8n forum and Reddit → Gemini checks fit and drafts a reply → `data/opportunities_today.md` + Telegram. **You reply by hand**, then `post-done <id>` |
 | Import | `import leads.csv --segment X` | you, optional | Add your own lists |
-| Enrich | `enrich` | cron | Reads home/about/contact/services/careers/team pages: signals + published emails |
+| Enrich | `enrich` | cron | Reads home/about/contact/services/careers/team pages: signals + published emails. Firecrawl steps in only for JavaScript-only sites and to find contact/team pages at unusual addresses (daily credit cap) |
 | Verify | `verify` | cron | Syntax, MX and role-address checks. Only published emails are ever sent |
 | Research | `research` | cron | Gemini brief from source post + website + Google News headlines; fit score 0-10, under 6 dropped |
 | Draft | `draft` | cron | Gemini writes email 1 + 2 follow-ups + a LinkedIn note/DM; India share capped at 25% |
@@ -35,7 +35,8 @@ cp config/settings.example.yaml config/settings.yaml  # inboxes, segments, quota
 cp config/profile.example.yaml  config/profile.yaml   # your facts, proof points, signatures
 
 python -m outreach init
-python -m outreach zoho-check --send-test you@gmail.com   # only if using the Zoho API inbox
+python -m outreach zoho-check --send-test you@gmail.com   # the Zoho inbox must pass this before sending
+python -m outreach telegram-setup                     # after messaging your bot once: prints TELEGRAM_CHAT_ID
 python -m outreach prepare --mock                     # pipeline check without Gemini calls
 python -m outreach prepare                            # real: prospect -> research -> drafts
 python -m outreach review
@@ -49,6 +50,14 @@ Then install `scripts/crontab.example` on a machine that's on from 09:00 to midn
 - **Gmail** (`transport: smtp`): free, and works with an app password. Replies are read over IMAP and drafted answers land in Gmail Drafts.
 - **Zoho free plan**: webmail only, with no SMTP/IMAP. The `zoho_api` transport uses Zoho's REST API with a Self Client refresh token. Whether your plan allows it is only knowable by trying: `zoho-check`. Follow-ups thread through the API's reply action when Zoho returns a message id; otherwise they go as new emails with a "Re:" subject.
 - **Zoho paid plan**: use `transport: smtp` with `smtp.zoho.in:465` / `imap.zoho.in`.
+
+## Firecrawl
+Set `FIRECRAWL_API_KEY` (or `FIRECRAWL_API_URL` for a self-hosted copy). It is used only when the free path fails:
+- **scrape:** a website that downloads empty or as a JavaScript shell is rendered, so research has real text.
+- **map:** finds the real contact/about/team/careers pages when they aren't at the usual addresses.
+- **search:** finds a company's website from its name (job boards, Companies House, Dubai register) after domain guessing fails. The page must still name the company.
+
+`firecrawl.daily_credit_cap` in `settings.yaml` limits spend (default 60/day). At the cap, or when the account is out of credits, the engine carries on without it.
 
 ## Tuning
 - Prompts: `prompts/research_system.md`, `prompts/draft_system.md`, `prompts/reply_system.md`.

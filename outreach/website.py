@@ -102,5 +102,25 @@ def guess(name: str, tlds: list[str], must_contain: str = "") -> str:
     return ""
 
 
-def find(name: str, text: str = "", tlds: list[str] | None = None, must_contain: str = "") -> str:
-    return from_text(text) or guess(name, tlds or ["com", "io", "ai", "co"], must_contain)
+def search_site(name: str, hint: str = "", must_contain: str = "") -> str:
+    """Firecrawl web search for the company's site; only a page that names the company is accepted."""
+    from . import firecrawl
+    for hit in firecrawl.search(f"{name} {hint}".strip(), limit=5):
+        host = urlparse(hit["url"]).netloc.lower()
+        if not host or any(bad in host for bad in NOT_COMPANY + ("wikipedia.org", "bayut.com",
+                                                                  "propertyfinder", "dubizzle", "yelp.",
+                                                                  "companieshouse", "find-and-update")):
+            continue
+        url = f"https://{host}"
+        if page_matches(_fetch(url) or f"{hit['title']} {hit['description']}", name, must_contain):
+            return url
+    return ""
+
+
+def resolve(name: str, tlds: list[str], must_contain: str = "", hint: str = "") -> str:
+    """Guess the domain for free first; spend a Firecrawl search only if that fails."""
+    return guess(name, tlds, must_contain) or search_site(name, hint, must_contain)
+
+
+def find(name: str, text: str = "", tlds: list[str] | None = None, must_contain: str = "", hint: str = "") -> str:
+    return from_text(text) or resolve(name, tlds or ["com", "io", "ai", "co"], must_contain, hint)
