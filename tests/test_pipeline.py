@@ -1,0 +1,139 @@
+"""Offline tests: parsers, prompt rendering, LLM wrapper and the send/reply flow (no network)."""
+from datetime import datetime, timezone
+from unittest import mock
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def tmp_db(tmp_path, monkeypatch):
+    monkeypatch.setenv("OUTREACH_DB", str(tmp_path / "t.db"))
+    from outreach import db
+    db.init()
+    yield
+
+
+def test_hn_post_parsing():
+    from outreach.prospect import parse_hn_post
+    post = parse_hn_post("Acme AI | Software Engineering Intern | REMOTE (global) | "
+                         "<a href=\"https://acme.ai\">https://acme.ai</a><p>Email jobs [at] acme [dot] ai")
+    assert post["company"] == "Acme AI"
+    assert post["email"] == "jobs@acme.ai"
+    assert post["website"] == "https://acme.ai"
+    assert post["remote"]
+    free = parse_hn_post("SEEKING FREELANCER | Bob's Bakery | need a CRM integration<p>bob at gmail dot com")
+    assert free["company"] == "Bob's Bakery" and free["email"] == "bob@gmail.com"
+
+
+def test_yc_filter():
+    from outreach.prospect import yc_candidates
+    data = [
+        {"name": "A", "isHiring": True, "status": "Active", "team_size": 12, "regions": ["Remote", "United States of America"], "batch": "Summer 2024", "website": "https://a.com"},
+        {"name": "B", "isHiring": True, "status": "Active", "team_size": 900, "regions": ["Remote"], "batch": "Winter 2023", "website": "https://b.com"},
+        {"name": "C", "isHiring": False, "status": "Active", "team_size": 5, "regions": ["Remote"], "batch": "Winter 2024", "website": "https://c.com"},
+        {"name": "D", "isHiring": True, "status": "Active", "team_size": 8, "regions": ["India"], "batch": "Winter 2024", "website": "https://d.com"},
+    ]
+    names = [c["name"] for c in yc_candidates(data, ["United States of America", "Remote"], [], 60, 2022)]
+    assert names == ["A"]
+
+
+def test_osm_parse_and_query():
+    from outreach.prospect import overpass_query, parse_osm
+    q = overpass_query([1, 2, 3, 4], ["office=estate_agent"])
+    assert '"office"="estate_agent"' in q and "(1,2,3,4)" in q
+    rows = parse_osm([{"tags": {"name": "Palm Realty", "website": "https://palmrealty.ae", "email": "info@palmrealty.ae", "office": "estate_agent"}},
+                      {"tags": {"name": "No Site"}}])
+    assert len(rows) == 1 and rows[0]["email"] == "info@palmrealty.ae"
+
+
+def test_prompts_render():
+    from outreach import config, personalize, replies, research
+    for seg in config.settings()["segments"]:
+        text = personalize.system_prompt(seg)
+        assert "{" not in text.replace("{{", ""), seg
+    assert "re_pipeline" in research._system()
+    assert "booking link" in replies._system().lower()
+
+
+def test_free_mail_not_deduped():
+    from outreach import db
+    with db.connect() as conn:
+        assert db.add_lead(conn, email="a@gmail.com", domain="", segment="intl_freelance_posts")
+        assert db.add_lead(conn, email="b@gmail.com", domain="", segment="intl_freelance_posts")
+        assert db.add_lead(conn, email="x@acme.com", domain="acme.com", segment="uk_agencies")
+        assert not db.add_lead(conn, email="y@acme.com", domain="acme.com", segment="uk_agencies")
+
+
+def test_llm_wrapper_parses_and_detects_daily_quota(monkeypatch):
+    from google.genai import errors
+    from outreach import llm, research
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    monkeypatch.setenv("GEMINI_RPM", "100000")
+    brief = research.Brief(company_summary="s", facts=[], pains=[], best_hook="h", proof_id="re_pipeline",
+                           angle="a", contact_first_name="", contact_role="Founder", fit_score=8, fit_reason="r")
+    fake = mock.MagicMock()
+    fake.models.generate_content.return_value = mock.MagicMock(parsed=brief, text=brief.model_dump_json())
+    monkeypatch.setattr(llm, "_client", fake)
+    assert llm.generate("sys", "prompt", research.Brief).fit_score == 8
+    fake.models.generate_content.side_effect = errors.ClientError(
+        429, {"error": {"code": 429, "message": "Quota exceeded", "status": "RESOURCE_EXHAUSTED",
+                        "details": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}})
+    with pytest.raises(llm.QuotaExhausted):
+        llm.generate("sys", "prompt", research.Brief)
+
+
+def test_india_share_cap():
+    from outreach import db, personalize
+    with db.connect() as conn:
+        for i in range(30):
+            db.add_lead(conn, email=f"o{i}@ind{i}.in", domain=f"ind{i}.in", segment="india_realestate", status="researched", fit=9)
+        for i in range(30):
+            db.add_lead(conn, email=f"g{i}@gulf{i}.ae", domain=f"gulf{i}.ae", segment="gulf_realestate", status="researched", fit=7)
+        picked = personalize.pick_leads(conn, 38)
+    india = sum(r["segment"] == "india_realestate" for r in picked)
+    assert india <= int(38 * 0.25)
+    assert len(picked) > 30
+
+
+def test_full_flow_with_zoho_transport(monkeypatch):
+    from outreach import db, personalize, research, review, sender, transport, replies
+    with db.connect() as conn:
+        db.add_lead(conn, email="omar@palmrealty.ae", domain="palmrealty.ae", company="Palm Realty",
+                    first_name="Omar", segment="gulf_realestate", status="verified", email_status="valid")
+    research.run(10, use_mock=True)
+    assert personalize.run(10, use_mock=True) == 1
+    assert review.bulk_approve(0) == 1
+
+    sent = []
+    def fake_send(box, to, subject, body, thread):
+        sent.append((box["email"], to, subject, thread, body))
+        return f"<m{len(sent)}@x>", f"z{len(sent)}"
+    monkeypatch.setattr(transport, "send", fake_send)
+    boxes = [{"email": "me@zoho.in", "transport": "zoho_api", "max_per_day": 35, "password": ""}]
+    monkeypatch.setattr(sender.config, "inboxes", lambda: boxes)
+
+    def at(*a):
+        class F(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(*a, tzinfo=timezone.utc)
+        return F
+    with mock.patch.object(sender, "datetime", at(2026, 10, 14, 6, 0)):   # Wed 10:00 Dubai
+        assert sender.tick(5) == 1
+    with mock.patch.object(sender, "datetime", at(2026, 10, 19, 6, 0)):   # Mon, day 5
+        assert sender.tick(5) == 1
+    assert sent[1][3]["provider_id"] == "z1"  # follow-up replies in the same thread
+    assert sent[1][2].startswith("Re: ")
+    assert "reply \"no\" and I won't email again" in sent[0][4]
+
+    # an unsubscribe reply cancels the rest and suppresses the address
+    monkeypatch.setattr(transport, "fetch", lambda box, days: [transport.Incoming(
+        message_id="<r1@x>", from_addr="omar@palmrealty.ae", from_header="Omar", subject="Re: x",
+        body="please remove me", received_at="2026-10-19T08:00:00+00:00", refs="<m1@x>")])
+    monkeypatch.setattr(replies, "classify", lambda lead, s, b: replies.ReplyClass(
+        category="unsubscribe", summary="asked to stop", suggested_reply=""))
+    monkeypatch.setattr(replies.config, "inboxes", lambda: boxes)
+    assert replies.sync(4) == 1
+    with db.connect() as conn:
+        assert db.suppressed(conn, "omar@palmrealty.ae")
+        assert conn.execute("SELECT COUNT(*) FROM messages WHERE status='approved'").fetchone()[0] == 0

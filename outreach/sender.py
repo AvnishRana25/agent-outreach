@@ -9,13 +9,10 @@ from __future__ import annotations
 
 import random
 import smtplib
-import ssl
 from datetime import date, datetime, time, timezone
-from email.message import EmailMessage
-from email.utils import formataddr, formatdate, make_msgid
 from zoneinfo import ZoneInfo
 
-from . import config, db, personalize
+from . import config, db, personalize, transport
 
 
 def daily_cap(box: dict, today: date) -> int:
@@ -44,36 +41,6 @@ def in_window(seg: dict, now_utc: datetime) -> bool:
 def _signature(seg: dict) -> str:
     sigs = config.profile()["signatures"]
     return sigs.get(seg.get("signature", "freelance"), sigs["freelance"])
-
-
-def build(box: dict, lead, msg, seg: dict, thread_id: str | None) -> EmailMessage:
-    em = EmailMessage()
-    em["From"] = formataddr((box.get("display_name") or config.profile()["name"], box["email"]))
-    em["To"] = lead["email"]
-    em["Subject"] = msg["subject"]
-    em["Date"] = formatdate(localtime=True)
-    em["Message-ID"] = make_msgid(domain=box["email"].split("@")[1])
-    if thread_id:
-        em["In-Reply-To"] = thread_id
-        em["References"] = thread_id
-    # One-click-free opt-out that mailbox providers recognise; replies are handled by `sync`.
-    em["List-Unsubscribe"] = f"<mailto:{box['email']}?subject=unsubscribe>"
-    em.set_content(f"{msg['body'].strip()}\n\n{_signature(seg)}\n")
-    return em
-
-
-def smtp_send(box: dict, em: EmailMessage) -> None:
-    ctx = ssl.create_default_context()
-    port = int(box.get("smtp_port", 465))
-    if port == 465:
-        with smtplib.SMTP_SSL(box["smtp_host"], port, context=ctx, timeout=30) as s:
-            s.login(box.get("username", box["email"]), box["password"])
-            s.send_message(em)
-    else:
-        with smtplib.SMTP(box["smtp_host"], port, timeout=30) as s:
-            s.starttls(context=ctx)
-            s.login(box.get("username", box["email"]), box["password"])
-            s.send_message(em)
 
 
 def _bounce_rate(conn, inbox: str) -> tuple[int, int]:
@@ -133,19 +100,20 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
             box = _choose_inbox(conn, msg, seg, boxes, paused, today, now, s)
             if not box:
                 continue
-            thread_id = None
+            thread = None
             if msg["step"] > 0:
-                first = conn.execute("SELECT message_id FROM messages WHERE lead_id=? AND step=0", (lead["id"],)).fetchone()
-                thread_id = first["message_id"] if first else None
-            em = build(box, lead, msg, seg, thread_id)
+                first = conn.execute("SELECT message_id, provider_id FROM messages WHERE lead_id=? AND step=0",
+                                     (lead["id"],)).fetchone()
+                thread = dict(first) if first else None
+            body = f"{msg['body'].strip()}\n\n{_signature(seg)}\n"
 
             if dry_run:
                 print(f"  [dry-run] {box['email']} -> {lead['email']} step {msg['step']}: {msg['subject']}")
                 sent += 1
                 continue
             try:
-                smtp_send(box, em)
-            except (smtplib.SMTPException, OSError) as e:
+                message_id, provider_id = transport.send(box, lead["email"], msg["subject"], body, thread)
+            except transport.SEND_ERRORS as e:
                 conn.execute("UPDATE messages SET error=? WHERE id=?", (str(e)[:300], msg["id"]))
                 print(f"  ! send failed {box['email']} -> {lead['email']}: {e}")
                 if isinstance(e, smtplib.SMTPRecipientsRefused):
@@ -153,13 +121,13 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
                     db.set_lead(conn, lead["id"], status="bounced")
                 continue
 
-            conn.execute("UPDATE messages SET status='sent', sent_at=?, message_id=?, inbox=? WHERE id=?",
-                         (now.isoformat(), em["Message-ID"], box["email"], msg["id"]))
+            conn.execute("UPDATE messages SET status='sent', sent_at=?, message_id=?, provider_id=?, inbox=? "
+                         "WHERE id=?", (now.isoformat(), message_id, provider_id, box["email"], msg["id"]))
             db.bump_send_count(conn, today, box["email"], "first" if msg["step"] == 0 else "followup")
             if msg["step"] == 0:
                 db.set_lead(conn, lead["id"], status="active", inbox=box["email"])
                 personalize.schedule_followups(conn, lead["id"], now)
-            elif msg["step"] == 3:
+            elif msg["step"] >= len(config.settings()["sequence"]["followup_days"]):
                 db.set_lead(conn, lead["id"], status="finished")
             conn.commit()
             sent += 1

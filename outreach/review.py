@@ -22,14 +22,21 @@ def _show(lead, msgs) -> None:
     print(f"{lead['company'] or lead['domain']}  |  {lead['first_name']} {lead['last_name']} "
           f"<{lead['email']}> [{lead['email_status']}]  |  {lead['segment']}  score={lead['score']}")
     print(f"site: {lead['website']}   signals: {', '.join(on) or '-'}")
+    brief = db.research(lead)
+    if brief:
+        print(f"brief: {brief.get('company_summary', '')}")
+        print(f"hook:  {brief.get('best_hook', '')}   fit={lead['fit']} ({brief.get('fit_reason', '')[:80]})")
     if msgs and msgs[0]["review_note"]:
-        print(f"note: {msgs[0]['review_note']}   confidence={msgs[0]['confidence']:.2f}")
+        print(f"note:  {msgs[0]['review_note']}   confidence={msgs[0]['confidence']:.2f}")
     for m in msgs:
         label = "EMAIL 1" if m["step"] == 0 else f"FOLLOW-UP {m['step']} (day {m['due_at']})"
         print(SEP.format(label=label).rstrip())
         if m["step"] == 0:
             print(f"Subject: {m['subject']}\n")
         print(textwrap.fill(m["body"], 78, replace_whitespace=False))
+    if lead["linkedin_note"]:
+        print(SEP.format(label="LINKEDIN (send by hand)").rstrip())
+        print(f"note: {lead['linkedin_note']}\ndm:   {lead['linkedin_dm']}")
 
 
 def _edit(msgs) -> list[tuple[int, str, str]] | None:
@@ -92,8 +99,7 @@ def interactive() -> None:
                                      (lead["id"], lead["id"]))
                 continue  # show again so you can approve
             if choice == "r":
-                import anthropic
-                seq = personalize.generate(lead, anthropic.Anthropic())
+                seq = personalize.generate(lead)
                 if seq:
                     personalize.save(lead["id"], seq)
                 continue
@@ -112,8 +118,28 @@ def bulk_approve(min_confidence: float) -> int:
     with db.connect() as conn:
         rows = conn.execute(
             "SELECT l.id FROM leads l JOIN messages m ON m.lead_id=l.id AND m.step=0 "
-            "WHERE l.status='drafted' AND m.confidence >= ? AND l.email_status='valid'",
+            "WHERE l.status='drafted' AND m.confidence >= ? AND l.email_status IN ('valid','risky')",
             (min_confidence,)).fetchall()
         for r in rows:
             approve_lead(conn, r["id"])
+    return len(rows)
+
+
+def linkedin_tasks(path) -> int:
+    """Today's hand-sent LinkedIn touches: newly approved/active leads with a drafted note."""
+    from urllib.parse import quote
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM leads WHERE linkedin_note != '' AND status IN ('approved','active') "
+            "AND date(updated_at) >= date('now','-1 day') ORDER BY fit DESC LIMIT 15").fetchall()
+    lines = ["# LinkedIn touches for today (by hand, max ~10/day)\n",
+             "Free accounts get only a few custom notes a month: if the note box is locked, connect "
+             "without a note and send the DM after they accept.\n"]
+    for r in rows:
+        who = f"{r['first_name']} {r['last_name']}".strip() or "founder"
+        q = quote(f"{who if r['first_name'] else 'founder'} {r['company']}")
+        lines += [f"## {r['company']} ({who})",
+                  f"- Find: https://www.linkedin.com/search/results/people/?keywords={q}",
+                  f"- Note: {r['linkedin_note']}", f"- DM after accept: {r['linkedin_dm']}", ""]
+    path.write_text("\n".join(lines))
     return len(rows)

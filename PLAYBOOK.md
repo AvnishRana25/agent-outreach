@@ -1,301 +1,161 @@
-# 30-Day Outbound Playbook: Avnish Rana
+# 30-Day Outbound Playbook (zero budget, 75% outside India)
 
-**Goal by Oct 30, 2026:** 4-5 freelance contracts at $10-12/hr (₹800-1,000/hr), **or** 2-3 product/AI-engineering internship offers.
-**Engine:** 38 new, researched, personalised prospects per day, each on a 4-email threaded sequence. Your manual work is about 20 minutes a day reviewing drafts, plus answering replies.
+**Goal:** freelance contracts at $10-12/hr and/or product/AI-engineering internship offers within 30 days (Oct 1-30, 2026).
+**Budget:** ₹0. Gmail + Zoho Mail, the Gemini API free tier, free public data sources.
+**Your daily work:** about 20 minutes reviewing drafts, about 10 minutes of LinkedIn by hand, and answering replies fast.
 
 ---
 
-## 0. An honest read of where you stand
+## 1. Brutally honest: where you stand
 
-**Stronger than you think:**
-- You have a **production system with real users and real numbers**: the real-estate CRM, WhatsApp bot, ad attribution and LLM lead classification. Most freelancers pitching "AI automation" have demos. You have a live system a sales team uses every day. Every email should lead with this.
-- Your resume shows **commercial thinking** (ROI models used in live sales, funnel work, PRDs). Owners pay for that, not for code.
-- A current title, **AI Researcher at Caudal AI**, which answers "are you any good?" without you having to say more (NDA-safe).
-
-**What makes you read as a beginner, and the fix:**
-
-| Reads as junior | Reads as experienced |
+### What a stranger sees in 30 seconds
+| They see | How it reads |
 |---|---|
-| "Intern at X, Y, Z" as the headline | "I built and run the CRM + WhatsApp automation a Delhi-NCR brokerage's sales team uses daily" |
-| Listing technologies | One outcome with a number: "recovered 722 of 746 blank leads (97%)" |
-| "I'd love the opportunity to learn" | "Here's what I'd build for you in 2 weeks, fixed price" |
-| Asking for a call in email 1 | Offering a free 1-page plan (lower friction, and it shows expertise) |
-| Hourly rate first | Fixed-scope milestones that work out to $10-12/hr |
+| 4 roles of 2-4 months each (PM, product, project, iOS) | "Serial intern." Short stints read as junior no matter what you did in them |
+| A PM-heavy resume | Engineering hiring managers file you as "product person", and product managers file you as "engineer" |
+| B.Sc. graduating May 2027 | Still a student: expect questions about hours per week and availability |
+| "AI Researcher, Caudal AI" (NDA) | Positive but unverifiable. It helps as a title and can't carry a pitch |
+| One freelance client | Your **single strongest asset**, but there's no public case study, no testimonial and no name |
+| Email from @gmail.com / a free Zoho address, no website | Cheaper-looking than a custom domain. Recipients and spam filters both trust it less |
 
-**Rules you keep:** never claim years of experience or clients you don't have. Specific, verifiable outcomes do the work. The drafting prompt enforces this (`config/profile.yaml` is the only source of facts it may use).
+### What is genuinely strong
+- You **built and run a production system with real users and real numbers**: portal/ad/WhatsApp lead capture, auto-assignment, calendar SLAs, ad attribution, and an LLM backfill that recovered 722 of 746 blank leads. Most people pitching "AI automation" in 2026 have demos and templates. You have a live system in a real business. This is the whole pitch.
+- Commercial thinking: ROI models used in live sales, funnel work, PRDs. Owners pay for outcomes, and you can talk in outcomes.
+- Discipline signals (NDA AIR 416, HackCBS top 10) help a little with startup founders and not at all with business owners.
 
-**Do this on day 1:** ask the brokerage owner (Puneet) for (a) permission to name the brokerage, (b) a 2-line testimonial, (c) one referral to another broker or builder they know. A warm intro from a paying client is worth more than 200 cold emails. Until you have permission, the copy says "a Delhi-NCR real-estate brokerage".
+### The market you're walking into (2026)
+- **Freelance AI work has split in two.** Complex, AI-augmented work earned about 45% more in Q1 2026, while low-complexity "AI execution" work earned about 28% less than a year earlier. AI/ML categories on Upwork are saturated, with proposal reply rates around 5-7%, and n8n searches rose 125% because everyone is selling the same thing. ([9am.works](https://www.9am.works/freelancer-academy/blog/ai-premium-or-ai-discount-two-track-freelance-market), [GigRadar Upwork report](https://gigradar.io/blog/upwork-market-report-2026))
+  → **At $10-12/hr, "I do AI automation" puts you in the commodity lane with thousands of others.** The only way out is to be *specific*: a domain system you've already built (lead handling for property brokerages), sold as an outcome at a fixed price.
+- **Entry-level tech hiring is the worst it has been in a decade.** Tech internships are down about 30% since 2023 while applications rose 7% (Handshake), and junior postings fell sharply from 2022. The one growing lane is AI/ML: "AI engineer" is the fastest-growing title for young workers. ([hakia](https://hakia.com/news/entry-level-tech-hiring-crisis-2026/), [letsdatascience](https://letsdatascience.com/news/linkedin-identifies-ai-engineer-as-fastest-growing-role-e82f85f1))
+  → Applying through portals is a lottery. A direct email to a founder, with a concrete idea for their product and proof you ship to production, is one of the few channels that still works.
 
----
+### Realistic outcome for 30 days at ₹0
+With two free inboxes you can safely send about **60-70 emails/day by week 3**, which is **about 25-30 new people/day** once follow-ups are included. **38 new/day is only reachable in the first week or two**, before follow-ups pile up. The sender enforces this automatically. Expect roughly **550-650 prospects contacted** in the month.
 
-## 1. Niche choice: where 38 emails a day turn into offers
-
-The winning niche is **the one where your proof matches the buyer's pain exactly**, the buyer can say yes without a committee, and few competitors pitch them.
-
-| Segment | Daily | Why it fits you | Competition | Deal shape |
-|---|---|---|---|---|
-| **Real-estate brokerages & channel partners, India** (NCR, Mumbai, Pune, Bengaluru, Hyderabad) | 12 | Your case study *is* their business: 99acres/MagicBricks/FB leads, WhatsApp, agents, site visits | Low for custom builders. They get pitched SaaS CRMs, not someone who wires their actual workflow | ₹25-45k 2-week build + ₹8-15k/month upkeep |
-| **Real-estate brokerages, UAE** (Dubai, Sharjah, Abu Dhabi; many Indian-run) | 6 | Same workflow on Bayut/Property Finder/Dubizzle; WhatsApp-first market; higher budgets; IST≈GST | Low-medium | AED 1,500-3,000 builds, $10-15/hr |
-| **Digital/web agencies, India** (5-50 people, selling to SMBs) | 4 | Their clients ask for WhatsApp bots, CRM and AI features; you become their white-label dev | Medium | Repeat hourly work; one agency can supply 2-3 contracts |
-| **Small agencies, UK/Ireland** | 4 | Local devs cost £50-90/hr; $10-12/hr with UK overlap is an easy yes for small tasks | Medium, but most offshore pitches are generic | Hourly, recurring |
-| **Seed-Series A AI/SaaS startups, India** (internships) | 12 | Founders want people who ship end to end; you have production + product proof | High volume of applicants, but almost none email founders with a product idea | Internship offer |
-
-**Why not general SMBs, D2C or clinics:** your proof doesn't mirror their pain, so you'd be one more "AI automation" pitch. Stay narrow for 30 days. Narrow looks experienced.
-
-**Rebalance at day 14** using `python -m outreach report`: move the daily quota from the segment with the lowest positive-reply rate to the highest. Change `daily_new` in `config/settings.yaml`.
-
----
-
-## 2. Offers (what the emails actually sell)
-
-Buyers don't buy hours; they buy an outcome with a date. Price by project and make sure it works out to $10-12/hr (keep that math to yourself).
-
-1. **Lead Leak Fix (real estate)**, 2 weeks: every portal/ad/website/WhatsApp lead goes into one CRM (theirs, or a lightweight one you set up), gets an instant WhatsApp reply, is auto-assigned to an agent with a call-within-30-minutes reminder, and gets a source tag so the owner sees which portal or ad produces deals. **₹25-45k** or **AED 1,500-3,000**. Then upkeep at ₹8-15k/month.
-2. **Paid pilot (anyone hesitant):** one fixed-price milestone, ₹8-15k / $150-250, delivered in 5 days. It de-risks the first "yes" and nearly always turns into the full project.
-3. **White-label automation dev (agencies):** $10-12/hr or fixed per task. WhatsApp Cloud API, CRM/lead routing, n8n/Zapier, Meta Lead Ads sync, LLM features. First task at a fixed price.
-4. **Free 1-page plan (the CTA):** sent within 24 hours of a yes. It shows expertise at no cost to them and leads naturally to the proposal.
-
-**Delivery promise (your differentiator, and you must keep it):** written scope within 24 hours, working demo in week 1, a daily async update, on-time or a discount you state up front.
-
----
-
-## 3. Funnel math: what it takes to hit the target
-
-At 38 new prospects a day on Mon-Fri (plus Saturdays for Indian brokers), you'll contact about **750-800 people by day 30**, split 26 freelance and 12 internship per day. Freelance sending starts on day 8, so it has about 3 weeks.
-
-Rates below are realistic for **researched, plain-text, 4-touch** sequences to a narrow niche. Generic blasts get about a third of this.
-
-| Freelance (≈450 contacted) | Conservative | Good |
+| Outcome in 30 days | Likely | Stretch |
 |---|---|---|
-| Reply rate (after 4 touches) | 6% → 27 | 10% → 45 |
-| Positive (want the plan / call) | 3% → 13 | 5% → 22 |
-| Calls held | 8 | 14 |
-| Closed (pilot or project) | 2-3 | 4-6 |
+| Freelance contracts (pilot or project) | 1-2 | 3-4 |
+| Internship offers | 1-2 | 3 |
 
-| Internships (≈300 contacted) | Conservative | Good |
+**4-5 freelance contracts in 30 days from zero budget is unlikely.** It's not impossible, but plan for 1-2 and treat anything more as upside. The biggest multipliers aren't volume: replying within an hour, sending a 1-page plan within 24 hours, and a small fixed-price pilot.
+
+**If you can ever spend ₹800:** buy one domain (e.g. `avnishrana.com`), point it at a free GitHub Pages portfolio, and set up email on it. It's the highest-return rupee you can spend on this.
+
+---
+
+## 2. Which economies to target (and why)
+
+| Rank | Market | For | Why it's easier for *you* | Why it's hard | Verdict |
+|---|---|---|---|---|---|
+| 1 | **UAE (Dubai, Abu Dhabi, Sharjah) + Riyadh**, real-estate brokerages | Freelance | ~9,800 brokerage offices and ~32-40k licensed brokers in Dubai alone; broker commissions rose ~31% to about AED 13.6B in 2025; Q1 2026 transaction value up 18% YoY ([DLD](https://dubailand.gov.ae/en/news-media/dubai-s-real-estate-brokerage-sector-witnessed-a-notable-transformation-in-scale-and-impact-in-2025-reaffirming-its-position-as-a-key-regulatory-and-economic-driver-within-the-real-estate-ecosystem-this-development-was-driven-by-higher-leve/), [Khaleej Times](https://www.khaleejtimes.com/business/dubai-property-brokers-rake-in-dh1373-billion-in-2025), [Dubizzle](https://www.dubizzle.com/blog/property/uae-property-news-march-2026/)). WhatsApp-first, portal-driven (Bayut/Property Finder), English-speaking. IST is only 1.5h ahead. **Your case study is literally their workflow.** $10-12/hr is cheap to them | Many CRM vendors and South Asian freelancers pitch them; 2026 has shown some volatility; some owners prefer Arabic | **Best freelance market for you** |
+| 2 | **UK small agencies** (marketing/web/CRM, 2-30 people) | Freelance | Cold B2B email to corporate addresses is legal under PECR with an opt-out ([Cleverly](https://www.cleverly.co/blog/cold-email-laws)). Local devs cost £50-90/hr, so your rate is an easy yes for small tasks. Their workday overlaps your afternoon, and agencies bring repeat work | They're already pitched by offshore dev shops; generic pitches die | **Strong, if specific** |
+| 3 | **Hacker News "Seeking freelancer" posters** (global) | Freelance | People who *publicly asked* for a freelancer and published an email. Highest intent there is | Small volume (dozens a month); competitive | **Always take these** |
+| 4 | **US small agencies** | Freelance | Biggest budgets; CAN-SPAM allows B2B cold email with opt-out + postal address ([Cleverly](https://www.cleverly.co/blog/cold-email-laws)). Their morning is your evening | The most-pitched market on earth; trust barrier for an unknown overseas freelancer | **Small share; test it** |
+| 5 | **Remote-first startups (US/UK/Singapore/UAE)** that are hiring, especially with an India team or "remote (global)" | Internship | Founders read direct emails; YC and HN list who's hiring; paying you $10-12/hr is cheap for them | Many can't hire interns abroad (payroll, visas). Pitch a contractor internship or a paid trial project | **Main internship lane** |
+| 6 | **India** (real estate + startups), capped at 25% | Both | Fastest trust, same time zone, your case study is Indian | ₹800-1,000/hr is at the top of what Indian SMBs pay; internship stipends are lower | **Easiest to convert, lowest rate** |
+
+**Avoid:** Germany/Austria (the UWG requires prior consent even for B2B email), Canada (CASL requires consent, unless the address is conspicuously published for business enquiries and your message fits the recipient's role), and any company whose post says "must be authorised to work in the US". The research prompt scores these as unfit automatically.
+
+**The honest answer to "where is it easiest?":** for a **freelance contract**, the UAE real-estate market, because your proof matches and the budget is there. For an **internship offer**, India is genuinely the fastest (trust, time zone, no payroll friction), which is why it keeps its 25%. Globally, remote-first startups with an India connection are the best bet. If after two weeks India produces most of the positive replies, that's the market telling you something. Rebalance `daily_new` in `config/settings.yaml`.
+
+### Daily split (38 new/day; India 9 = 24%)
+| Segment | /day | Source (automated, free) |
 |---|---|---|
-| Reply rate | 8% → 24 | 14% → 42 |
-| Interviews | 8 | 15 |
-| Offers | 1-2 | 3-4 |
-
-**The target is reachable, but only in the "good" column.** Four levers move you there, and they matter more than volume:
-1. **Reply to positive replies within 1 hour** (the tool drafts the reply and pings your phone).
-2. **Deliver the 1-page plan within 24 hours.** It closes more deals than any call.
-3. **Warm channel on the side:** the referral from your current client, plus a LinkedIn connection request (no pitch) to the same person on the day email 1 goes out, for the top 5 leads each day. Do this by hand; automating LinkedIn gets accounts banned.
-4. **For the top 10 startups:** attach real work. A 1-page teardown of their onboarding or a small prototype turns a cold email into an interview.
-
-Checkpoints: by **day 14**, ≥4% reply rate and ≥2 calls booked. By **day 21**, ≥1 pilot signed or ≥3 interviews. If you're behind, see section 9.
+| `gulf_realestate` | 8 | OpenStreetMap estate agents in Dubai/Abu Dhabi/Sharjah/Riyadh, plus their websites |
+| `uk_agencies` | 5 | OpenStreetMap marketing/advertising agencies in 5 UK cities |
+| `us_agencies` | 3 | OpenStreetMap agencies in NYC/Austin/Miami/Chicago |
+| `intl_freelance_posts` | 2 | HN monthly "Seeking freelancer?" thread |
+| `intl_startups_intern` | 11 | YC directory (hiring, ≤60 people) + HN "Who is hiring?" posts mentioning interns, remote |
+| `india_realestate` | 6 | OpenStreetMap estate agents in Delhi NCR/Mumbai/Bengaluru/Pune |
+| `india_startups_intern` | 3 | YC directory, India region |
 
 ---
 
-## 4. Infrastructure checklist
-
-### 4.1 Domains (day 1), ~₹1,800 total
-- [ ] **Never cold-email from your main portfolio domain.** Keep `avnishrana.<tld>` (or a GitHub Pages site) as the portfolio.
-- [ ] Buy **2 sending domains** that look like you, e.g. `avnishrana.co`, `getavnish.com`, `avnishbuilds.com`, `ranaautomation.com`. Use Cloudflare Registrar (at-cost) or Porkbun. Pick .com/.co/.in over cheap TLDs (.xyz, .top), which are spam-filtered.
-- [ ] Redirect both sending domains' web root to your portfolio (Cloudflare → Rules → Redirect). A prospect who checks the domain should land on your case study.
-
-### 4.2 Inboxes (day 1), ~₹400-500/month
-- [ ] **Zoho Mail Lite**, 2 users per domain = 4 inboxes (about ₹59-90/user/month + GST; IMAP/SMTP included, which the pipeline needs). The Zoho *free* plan has no IMAP/SMTP, so it won't work. Google Workspace (~$7/user) also works if you prefer it.
-- [ ] Names: `avnish@domain1`, `rana@domain1`, `avnish@domain2`, `hello@domain2`. Display name "Avnish Rana" on all of them, plus the same profile photo.
-- [ ] **Personal Gmail** (`avnishrana797@gmail.com`, years old = good reputation) sends **internship emails only**, capped at 20/day. Founders are used to personal emails from candidates.
-- [ ] Create app passwords (Gmail: 2-step verification → App passwords; Zoho: Security → App passwords) and put them in `.env`.
-
-### 4.3 DNS for each sending domain (day 1, 30 minutes)
-- [ ] **MX** records from Zoho's setup wizard.
-- [ ] **SPF** (one TXT record only): `v=spf1 include:zoho.in ~all` (`zoho.com` for a non-India data centre; Zoho's wizard shows the exact value).
-- [ ] **DKIM**: generate it in the Zoho admin panel (Domains → Email configuration → DKIM), add the TXT record, click Verify.
-- [ ] **DMARC**: TXT at `_dmarc`: `v=DMARC1; p=none; rua=mailto:hello@domain2`. Move to `p=quarantine` after 2 clean weeks.
-- [ ] **No open or click tracking.** Tracking pixels and rewritten links hurt deliverability, and Apple Mail makes open rates meaningless anyway. We measure replies only (the pipeline doesn't track).
-- [ ] Check each inbox: send to the address shown on **mail-tester.com** (aim for ≥9/10). Check the domain on **MXToolbox** (SPF/DKIM/DMARC/blacklists). Sign up for **Google Postmaster Tools** for both domains.
-
-### 4.4 Warm-up (day 1 onward; keep it running all month)
-New domains have no reputation. Blasting from them on day 1 lands you in spam and burns the domain.
-- [ ] Turn on a warm-up network for the 4 domain inboxes. Truly free options are rare now: **TrulyInbox** has a free tier (1 inbox, 10/day). Warmup Inbox, Mailivery and Warmy offer ~7-day trials. Instantly bundles warm-up into its paid plan. Recommended: the free tier on one inbox, stagger trials across the others, and add the manual warm-up below.
-- [ ] Manual warm-up, days 1-7: have 10-15 friends/classmates on Gmail and Outlook email each inbox and get real replies back. Subscribe to 5 newsletters per inbox. Move anything that lands in spam to the inbox.
-- [ ] The ramp is automatic in `settings.yaml → ramp_by_week: [0, 12, 25, 35]`: week 0 no cold sends, week 1 up to 12/inbox/day, week 2 25, week 3+ 35. Follow-ups count toward the cap.
-- **The trade-off:** standard advice is 2-3 weeks of warm-up. You have 30 days, so cold sending starts at low volume after 1 week. If mail-tester drops below 8 or Postmaster shows reputation "Low/Bad", hold the ramp (edit `ramp_by_week`) until it recovers.
-
-### 4.5 Capacity (why 5 inboxes)
-38 new/day is the *new* prospects. Each gets up to 3 follow-ups, so by week 3 you're sending **~150 emails/day in total**. Safe per-inbox volume is ≤35/day, so: freelance runs on 3 domain inboxes (26 new + follow-ups ≈ 100/day), and internship on Gmail (20) + 1 domain inbox (35).
-
-### 4.6 Trust assets (days 1-3); prospects *will* check you
-- [ ] **One-page portfolio** (GitHub Pages/Vercel, free): headline "I build WhatsApp, CRM & AI automations that stop businesses losing leads", then the brokerage case study (problem → what you built → numbers → screenshot with client data blurred), then 2-3 other proof points, then contact and booking link.
-- [ ] **2-minute Loom demo** of the CRM flow with dummy data: lead arrives → WhatsApp auto-reply → agent assigned → calendar reminder. Link it only in follow-ups or replies, never in email 1.
-- [ ] **Cal.com** free booking link (20-minute slots, IST and GST/UK hours).
-- [ ] LinkedIn headline: "AI Researcher @ Caudal AI | Building WhatsApp, CRM & AI automations | ex-Klimashift". Pin the case study as a featured post.
-- [ ] Payment setup: Razorpay payment links/UPI for India; Wise or Payoneer for USD/AED/GBP. Keep a simple 1-page contract and invoice template ready.
-
-**Budget for the month:** domains ~₹1,800 + Zoho ~₹500 + Claude API ~₹4,000-5,000 (about $2/day on the default model, roughly half with `OUTREACH_MODEL=claude-sonnet-5-5`) + warm-up trials ₹0-1,000. **About ₹7-8k in total**, less than half of one small project.
-
----
-
-## 5. Lead sourcing (free), ~150 leads/day, done in batches
-
-Build lists **2-3 days ahead** of sending. Each row needs: first name, company, website, email (if known), city, segment, plus a **notes** column with one fact you noticed. The notes column is what makes the AI draft sharp.
-
-**Real estate, India**
-- Google Maps: "real estate agent Noida sector 150", "property dealer Gurgaon Golf Course Road", "real estate consultant Baner Pune". Export with a free scraper extension (e.g. Instant Data Scraper) to get name, website and phone.
-- **RERA agent registries** (UP-RERA, MahaRERA, HRERA, K-RERA): public lists of registered agents, often with firm names and emails.
-- 99acres/MagicBricks dealer profiles → firm name → website → email.
-- Pick firms **with a website** and **active listings/ads**: they already spend on leads, so leaking leads costs them money.
-- Notes ideas: "running FB ads for Sector 150 project", "40 listings on 99acres", "only a phone number on site, no WhatsApp".
-
-**Real estate, UAE**
-- Bayut and Property Finder agency directories (agency pages show agent count and listing volume). Target 5-50 agents.
-- DLD (Dubai Land Department) registered broker lookup; LinkedIn "Managing Director" + "real estate" + Dubai.
-
-**Agencies (India, UK)**
-- Clutch.co, GoodFirms, DesignRush: filter by country, team size 2-49, services "digital marketing" / "web development". Skip agencies that already sell "AI automation".
-- Signals: a job post for "automation", "n8n", "WhatsApp API" or "Zapier" developer means active demand right now.
-
-**Startups (internships)**
-- YC company directory (filter India, recent batches, "hiring"), Wellfound, Inc42/Entrackr funding news from the last 90 days, LinkedIn posts saying "we're hiring interns/founding engineer", Hacker News "Who is hiring".
-- Email the **founder or CTO**, not HR. Use the product first, and put one concrete observation in notes (the model builds the email on it).
-
-**Finding emails (free tiers):** the company site's contact/about pages (the pipeline scrapes these automatically), Hunter (free monthly searches), Apollo (free credits), Snov.io (free credits). The pipeline guesses `first.last@domain` patterns but **won't send to guesses** unless you pass `--allow-guessed`. Run guessed or uncertain emails through a verifier's free credits first. Bounces are the #1 way new domains die.
-
----
-
-## 6. The automation
+## 3. What's automated, and what isn't
 
 ```
-          (you, 2-3x/week)                (cron, 07:30)                  (you, ~20 min)
-CSV lists ───────────────► import ──► enrich ──► verify ──► draft ───────────► review
-                                     website     MX/role    Claude writes        approve / edit /
-                                     signals     scoring    email + 3 follow-ups regenerate / reject
-                                                                                     │
-       ┌─────────────────────────────────────────────────────────────────────────────┘
-       ▼   (cron, every 10 min)                      (cron, every 15 min)
-     send ── inside each lead's business hours ──► sync replies ──► classify ──► stop sequence
-     2 per run, 7-13 min gaps, warm-up ramp,         IMAP             Claude       suppress unsubscribes
-     per-inbox caps, follow-ups threaded,                                          draft reply in Drafts
-     auto-pause if bounces >3%                                                    + Telegram ping
+prospect ──► enrich ──► verify ──► research ──► draft ──► REVIEW ──► send ──► sync
+ YC, HN,     website    MX, role,   Gemini brief   Gemini      you,       business   replies → stop sequence,
+ OSM, CSV    pages +    published   + news         email +     ~20 min    hours per  Gemini triage, draft answer,
+             published  emails      headlines,     2 follow-   /day       market,    suppress opt-outs, Telegram
+             emails     only        fit score 0-10 ups +                  throttled
+                                    (<6 dropped)   LinkedIn texts
 ```
 
-**What runs without you:** list enrichment, email checks, prioritisation, writing, business-hours scheduling across IST/GST/UK, throttling, warm-up ramp, threaded follow-ups on days 3/7/14, stopping on reply, unsubscribes, bounce protection, reply triage, and drafting your answers.
+**Fully automated:** finding companies, reading their websites, pulling recent news headlines, finding published emails, checking email domains, researching each company and scoring fit, writing the emails, scheduling by time zone, throttling and warm-up, threaded follow-ups, stopping on reply, unsubscribes, bounce protection, reply triage, and drafted answers.
 
-**What stays with you, deliberately:**
-1. **Review (~20 min/day).** Every draft is read by a human. This protects your domains, catches wrong facts, and gives you a daily read on quality. Use `approve --min-confidence 0.85` for the obvious ones and read the rest.
-2. **Replies and calls.** Nobody hires an auto-responder.
-3. **Adding lead lists** 2-3 times a week.
-
-**Where to run it:** a machine that's on all day. Your laptop works if it stays on from 09:00 to 23:00. A free always-on VM is better: Oracle Cloud Always Free or Google Cloud e2-micro free tier. SMTP over ports 465/587 works on both. See `README.md` and `scripts/crontab.example`.
+**Deliberately not automated:**
+1. **LinkedIn prospecting and messaging.** LinkedIn's terms ban scraping and automation, and enforcement is now aggressive: a Q1 2026 test cohort saw 27% of automated accounts restricted within 90 days, roughly 40% of accounts using common automation tools were restricted in early 2026, and LinkedIn banned major tools outright ([Zeliq](https://www.zeliq.com/blog/linkedin-automation-2026), [Valley](https://www.joinvalley.co/blog/linkedin-automation-safety-2026)). Your LinkedIn profile is the page every prospect and recruiter checks, and losing it would cost more than any campaign could win. So the tool **writes** a connection note and a follow-up DM for every approved lead, plus a people-search link (`python -m outreach linkedin` → `data/linkedin_today.md`), and you send about 10 by hand each day. Free accounts get only a few custom connection notes a month; when the note box is locked, connect without one and send the DM after they accept.
+2. **Review.** Every draft gets a human read. This protects your two inboxes and catches wrong facts.
+3. **Guessed emails.** "Verified" here means published: on the company's own website, in its OpenStreetMap listing, or in its own HN post, and with a domain that accepts mail (MX record). Free tools cannot truly verify an unpublished mailbox (the SMTP probe needs port 25, which home and cloud networks block, and probing hurts your sending reputation). Pattern-guessed addresses are never sent.
 
 ---
 
-## 7. What good emails look like (the quality bar for your review)
+## 4. Zero-budget infrastructure
 
-Rules the drafting prompt enforces: 50-110 words; plain text; **no links in email 1**; one specific observation about *them*; one proof point that mirrors their situation; one low-friction question. Never "I hope this finds you well", "intern", "student", "fresher", or "quick call".
+### Sending
+- [ ] **Gmail (free, works now):** turn on 2-step verification, create an app password, and put it in `.env` as `GMAIL_APP_PASSWORD`. The limit is 500 recipients/day, but for cold email stay at 35/day max; the ramp starts at 10/day in week 0. ([Gmail limits](https://reply.io/blog/gmail-sending-limits/))
+- [ ] **Zoho (check first):** Zoho's free plan is webmail-only, and IMAP/POP/SMTP now need a paid plan ([Zoho community](https://help.zoho.com/portal/ja/community/topic/no-more-imap-pop-smtp-on-free-plans-even-on-referrals-with-no-notice?page=96)). The tool can instead send through the **Zoho Mail REST API**, but it's unclear whether the API is enabled on free plans. Test it (about 10 minutes):
+  1. Go to `api-console.zoho.in` (or `.com`) → Add Client → **Self Client** → Generate Code with scopes `ZohoMail.accounts.READ,ZohoMail.messages.ALL,ZohoMail.folders.READ`.
+  2. Exchange the code for a refresh token: `curl -X POST "https://accounts.zoho.in/oauth/v2/token?grant_type=authorization_code&client_id=ID&client_secret=SECRET&code=CODE"`.
+  3. Put the ID, secret and refresh token in `.env`, set `enabled: true` on the Zoho inbox in `settings.yaml`, and run `python -m outreach zoho-check --send-test yourgmail@gmail.com`.
+  4. If it fails with a plan/permission error, keep Zoho for manual replies and run on Gmail alone. The sender just gets a lower daily cap.
+- [ ] If your Zoho address is on your own domain, make sure SPF, DKIM and DMARC are set in Zoho's admin console (free). A @gmail.com sender needs nothing.
+- [ ] **Warm-up at ₹0:** the ramp in `settings.yaml` (10 → 20 → 30 → 35/day per inbox) is the warm-up. In week 0, also exchange real emails with 10-15 friends' accounts and reply to them, and move anything that lands in spam into the inbox. TrulyInbox's free tier (1 inbox, 10/day) works with Gmail ([HotHawk](https://hothawk.ai/compare/best-free-email-warmup-tools)).
+- [ ] Test placement: send one email to the address mail-tester.com gives you (3 free tests/day). Aim for 9/10 or better.
 
-**Real estate, India**
-> **Subject:** 99acres leads at sharma realty
->
-> Hi Rohit,
->
-> Sharma Realty has 40+ listings on 99acres and MagicBricks, but the site routes every enquiry to one WhatsApp number. When that number is busy, a 9 pm enquiry usually gets its first reply the next morning, after the buyer has spoken to three other dealers.
->
-> For a Delhi-NCR brokerage I built the fix: every portal, Facebook and WhatsApp lead becomes a deal, is assigned to an agent, and shows up as a "call within 30 minutes" reminder on that agent's calendar.
->
-> Should I send you a one-page plan for your team? No call needed.
+### Free trust assets (prospects *will* check you)
+- [ ] **GitHub Pages portfolio** (free): the headline "I build lead-handling systems: WhatsApp, CRM and AI automations", then the real-estate case study (problem → what you built → numbers → blurred screenshots), 2-3 other proof points, and contact details. Put its URL in `config/profile.yaml` signatures.
+- [ ] **2-minute Loom** (free) walking through the CRM flow with dummy data. Share it only in replies.
+- [ ] **Cal.com** free booking link with IST, Gulf, UK and US-morning slots.
+- [ ] **Permission from your client:** ask the brokerage owner if you can name them, for a two-line testimonial, and for one referral (a warm introduction beats 200 cold emails).
+- [ ] **Postal address:** US law (CAN-SPAM) requires one in commercial email to US recipients. Use a real address you can receive mail at, in the `freelance_us` signature.
 
-**Agency, UK**
-> **Subject:** whatsapp + crm work for your clients
->
-> Hi Tom,
->
-> Your case studies are mostly lead-gen for trades and clinics, which are exactly the clients who then ask for WhatsApp follow-ups and CRM routing. That work is fiddly and eats margin at UK dev rates.
->
-> I build it white-label: most recently a WhatsApp bot and lead-routing system that a 9-person sales team runs on every day. I work UK mornings, send written specs, and charge a fixed price per task.
->
-> Is there one small automation job in your backlog you'd trust to a fixed-price trial?
-
-**Startup, internship**
-> **Subject:** idea for acme's onboarding
->
-> Hi Priya,
->
-> Congrats on the seed round. I signed up for Acme, and the empty dashboard after sign-up asks new users to connect a data source before showing any value. A pre-loaded sample workspace would let them see the aha moment first. I've seen that cut setup from 15 minutes to 2 on a dev tool.
->
-> I'm an AI Researcher at Caudal AI and I also built and run the production CRM and WhatsApp AI system a brokerage's sales team uses daily.
->
-> I'm looking for a product-engineering internship where I ship from week one. Open to 15 minutes, or is someone else on the team better to talk to?
+### Gemini free tier
+- [ ] Get a key at aistudio.google.com/apikey and set `GEMINI_API_KEY`. Each lead uses 2 calls (research + draft), so about 80-100 calls/day, inside the free `gemini-2.5-flash` quota (~10 requests/min, ~250/day as of 2026; Google changes these without notice, so check AI Studio). Reply triage uses `gemini-2.5-flash-lite`, which has its own, larger quota ([Gemini rate limits](https://ai.google.dev/gemini-api/docs/rate-limits), [QuestLoops](https://questloops.com/blog/how-to-use-google-gemini-for-free-in-2026-api-limits-explained)).
+- [ ] If the daily quota runs out, the tool stops cleanly and continues the next day.
+- [ ] Free-tier prompts may be used by Google to improve its products. Only public company information goes in, but keep that in mind.
 
 ---
 
-## 8. Reply → call → close
+## 5. The prompts (edit them in `prompts/`)
+- `prompts/research_system.md`: turns website + news + source post into a brief with verified facts, pain hypotheses, the best hook, the matching proof point and a strict 0-10 fit score. Anything under 6 is never emailed.
+- `prompts/draft_system.md`: the main copywriting prompt. It covers the structure (hook → proof → offer → one question), 50-110 words, plain text with no links, per-market style, banned phrases (including "intern", "student", "I came across", "quick call"), a worked example and a counter-example, and a self-check before answering.
+- `prompts/reply_system.md`: classifies replies and drafts answers (two time slots + booking link; price questions get a fixed-price first milestone).
 
-**Within 1 hour of a positive reply** (Telegram pings you, and the draft is already in the inbox's Drafts folder): edit and send. Run `python -m outreach report` to see open replies, then `outreach done <id>` when handled.
-
-**If they want the plan:** send a 1-page Google Doc within 24 hours. Sections: *What you have today* (from their site/reply), *What leaks*, *What I'd build* (3-5 bullets), *Timeline* (week 1 demo, week 2 live), *Price* (the fixed number plus the pilot option), *Next step* (a 20-minute call, or "reply yes and I'll send the invoice for milestone 1").
-
-**20-minute discovery call:**
-1. (3 min) "Walk me through what happens from the moment a lead enquires to the site visit."
-2. (5 min) Where it breaks: how many leads a month, how fast the first reply is, who follows up, what a lost deal is worth.
-3. (5 min) "If this worked perfectly in 3 weeks, what would be different?"
-4. (5 min) Your plan in plain language, and your proof (show the Loom).
-5. (2 min) "I'll send a fixed-price proposal today. If it looks right, we start with a 5-day paid pilot."
-
-**Proposal and terms:** fixed scope, out-of-scope list, 2-3 milestones, 50% upfront (or the pilot paid in full upfront), a written delivery date, and 2 weeks of free fixes after go-live. Get paid through Razorpay/UPI or Wise before you start the work.
-
-**Internship replies:** reply the same day with 3 time slots. Before the interview, prepare one concrete idea for their product and bring it. Ask for a 1-week paid/unpaid trial project if they hesitate. It's the same "pilot" logic.
+Your facts live in `config/profile.yaml`, and the prompt forbids using anything else. Check every line is true and that your client agrees to what you say about their business.
 
 ---
 
-## 9. 30-day calendar (Day 1 = Thu Oct 1)
+## 6. Reply → call → close
+- **Reply within 1 hour.** A positive reply pings Telegram. Gmail replies already have a draft answer in Gmail Drafts. For Zoho replies, run `python -m outreach reply <id>`, edit, and send.
+- **"Send the plan":** a 1-page Google Doc within 24 hours covering what they have now, what leaks, what you'd build (3-5 bullets), a timeline (demo in week 1, live in week 2), a fixed price with a pilot option, and the next step.
+- **20-minute call:** walk through their lead flow → where it breaks and what a lost deal is worth → what "fixed" looks like → your plan + the Loom → "I'll send a fixed quote today; we can start with a 5-day paid pilot."
+- **Pricing (keep the $10-12/hr math to yourself):** Gulf: AED 1,500-3,000 per 2-week build; UK/US agencies: $10-12/hr or a fixed price per task; pilot $150-250. Take 50% upfront (pilots 100%) through Wise, Payoneer or PayPal. India: UPI/Razorpay.
+- **Internship replies:** offer 3 slots the same day, bring one concrete idea for their product to the call, and if they can't hire abroad, offer a paid trial project as a contractor.
 
-### Week 0: build the machine (Oct 1-7)
-| Day | Do |
+---
+
+## 7. 30-day calendar (Day 1 = Thu Oct 1)
+
+| When | Do |
 |---|---|
-| 1 Thu | Buy 2 domains, set up Zoho (4 inboxes), SPF/DKIM/DMARC, redirects. Start warm-up. **Message Puneet** for permission, a testimonial and a referral. |
-| 2 Fri | Portfolio page + case study. Cal.com. Update LinkedIn. Record the Loom demo (dummy data). |
-| 3 Sat | Install the pipeline (`README.md`), fill `profile.yaml` + `settings.yaml`, create the Telegram bot. Build the first **120 startup leads** with notes. |
-| 4 Sun | mail-tester every inbox (aim ≥9/10). Build **250 real-estate India leads**. |
-| 5 Mon | **Internship sends start** from Gmail (12/day). First morning review. Build 120 UAE leads. |
-| 6 Tue | Build 150 agency leads (India + UK). Manual warm-up exchanges continue. |
-| 7 Wed | Dry run for freelance: `send --dry-run`. Check that DNS and Postmaster are clean. |
+| **Days 1-2** (Oct 1-2) | Gmail app password; run the Zoho API test; Gemini key; GitHub Pages portfolio + case study; Cal.com; message your client (permission, testimonial, referral). Fill `profile.yaml` and `settings.yaml`. |
+| **Days 3-4** | `pip install`, `init`, `prepare --mock`, then `prepare` for real. Read 10 drafts critically and tighten `prompts/draft_system.md` and your segment text until you'd happily send every one. Record the Loom. |
+| **Days 5-7** (Mon Oct 5 →) | Sending starts at the week-0 ramp (10/day per inbox). Install the crontab. Daily routine: review at 08:00, LinkedIn 10 touches, replies at lunch and in the evening (US replies arrive in your evening). |
+| **Week 2** (Oct 8-14) | Ramp to 20/day per inbox. Every positive reply gets a plan within 24 hours. **Day 14 checkpoint:** `report`. For any segment under 3% reply rate, rewrite its pain/offer/CTA or cut its quota; move quota to the best segment (keeping India ≤25%). |
+| **Week 3** (Oct 15-21) | Ramp to 30/day. Follow-ups now make up about half the sends. Hand-send a 1-page teardown to the top 5 startups. Aim for 3+ calls this week. |
+| **Week 4** (Oct 22-30) | Close: turn calls into paid pilots, ask every client and every "not now" for one referral, and keep the machine running. Sequences started in late October keep producing replies into November. |
 
-### Week 1: soft launch (Oct 8-14)
-- Freelance sending starts on **Thu Oct 8** at the automatic week-1 cap (12/inbox/day).
-- Daily loop: 07:30 drafts ready → review by 09:30 → handle replies at lunch and evening → add leads 3x/week.
-- Top 5 leads/day: send a LinkedIn connection request (no pitch).
-- **Day 14 checkpoint (Oct 14):** run `report`. Rewrite the segment playbook text for any segment under 3% reply rate, and move quota toward the best segment.
-
-### Week 2: full volume (Oct 15-21)
-- Ramp to 25/inbox/day automatically. Follow-ups now make up about half the sends.
-- Every positive reply gets a 1-page plan within 24 hours. Aim for **3+ calls** this week.
-- For the top 10 startups: send a teardown or prototype as a follow-up reply by hand.
-
-### Week 3: close (Oct 22-30)
-- Ramp to 35/inbox/day. Keep lists topped up; the machine now runs itself.
-- Convert calls to pilots: the fixed-price 5-day milestone.
-- Ask every client and every warm "not now" for one referral.
-- **Day 30:** keep what worked. Sequences started late in the month keep following up into November, so replies keep arriving after day 30.
-
-### If you're behind at day 21
-- Reply rate under 3%: the problem is targeting or the hook. Tighten the list (only brokers running ads, only agencies hiring), rewrite the offer, and check inbox placement with a seed test.
-- Replies but no calls: the offer is too big. Lead with the ₹8-15k / $150-250 pilot.
-- Calls but no closes: send proposals the same day, lower the first-milestone price, and add a delivery guarantee.
+**If you're behind at day 21:**
+- Under 3% reply rate: the problem is targeting or the hook. Raise `min_fit` to 7 and make segment pains more concrete.
+- Replies but no calls: the offer is too big. Lead with the $150-250 pilot.
+- Calls but no closes: send quotes the same day, add a delivery-date guarantee, and show the Loom.
 
 ---
 
-## 10. KPIs to watch (from `python -m outreach report`)
-
-| Metric | Healthy | Action if not |
-|---|---|---|
-| Bounce rate | < 2% | > 3% pauses the inbox automatically. Verify the list before resuming |
-| mail-tester score | ≥ 9/10 | Fix DNS; remove links/signature URLs; slow the ramp |
-| Reply rate, per segment | ≥ 5% | Rewrite the hook/offer; re-target the list |
-| Positive reply rate | ≥ 2% | Lower-friction CTA; smaller pilot |
-| Reply → call | ≥ 50% | Answer faster; send 2 concrete slots + the booking link |
-| Call → close | ≥ 30% | Same-day proposal; paid pilot; show the Loom |
-
----
-
-## 11. Risk and compliance
-
-- **Consent and opt-out:** B2B cold email to business addresses is common practice in India/UAE. The UK/EU rely on "legitimate interest", so keep it relevant, identify yourself, and honour opt-outs immediately. Every email carries a `List-Unsubscribe` header, and any "stop/unsubscribe/not interested" reply is suppressed automatically, including all future imports. For US prospects (CAN-SPAM), add a postal address to the signature.
-- **Don't email consumers**, don't buy "verified lists" of personal emails, and don't scrape LinkedIn at scale.
-- **Protect your personal Gmail:** it only sends internship emails, capped at 20/day.
-- **NDA:** Caudal AI appears only as a title. The prompt forbids elaborating on it.
-- **Client data:** never show real client leads or phone numbers in demos or screenshots.
+## 8. Compliance (built in)
+- Every email identifies you and carries an opt-out line plus a `List-Unsubscribe` header. "No", "stop" or "remove me" replies are suppressed permanently, including the whole domain on future imports if you run `suppress @domain`.
+- Only published business addresses are emailed, which is also what makes UK (PECR corporate), Australian (inferred consent) and Canadian (conspicuous publication) rules workable. Germany is excluded.
+- US emails use the `freelance_us` signature with a postal address (CAN-SPAM).
+- Data sources are used as intended: OpenStreetMap through the public Overpass API at a polite rate, the open YC directory JSON, HN through Algolia's public API, and company websites (a few pages each).

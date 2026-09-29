@@ -17,13 +17,18 @@ CREATE TABLE IF NOT EXISTS leads (
     country TEXT, city TEXT, linkedin TEXT,
     segment TEXT NOT NULL,
     source TEXT, notes TEXT,
+    source_text TEXT DEFAULT '',             -- the directory entry / job post the lead came from
+    email_source TEXT DEFAULT '',            -- csv | website | osm | post | guess
     email_status TEXT DEFAULT 'unchecked',   -- unchecked | valid | risky | invalid | guessed
     signals TEXT DEFAULT '{}',               -- JSON from enrich
     site_text TEXT DEFAULT '',
     score INTEGER DEFAULT 0,
+    research TEXT DEFAULT '',                -- JSON brief from the research step
+    fit INTEGER,                             -- 0-10 from the research step
+    linkedin_note TEXT DEFAULT '', linkedin_dm TEXT DEFAULT '',
     status TEXT DEFAULT 'new',
-    -- new -> enriched -> verified -> drafted -> approved -> active
-    --   -> replied | bounced | unsubscribed | finished | rejected | invalid
+    -- new -> enriched -> verified -> researched -> drafted -> approved -> active
+    --   -> replied | bounced | unsubscribed | finished | rejected | invalid | unfit
     inbox TEXT,
     created_at TEXT, updated_at TEXT
 );
@@ -35,7 +40,7 @@ CREATE TABLE IF NOT EXISTS messages (
     status TEXT DEFAULT 'draft',             -- draft | approved | sent | cancelled | failed
     confidence REAL, review_note TEXT,
     due_at TEXT, sent_at TEXT,
-    message_id TEXT, inbox TEXT, error TEXT,
+    message_id TEXT, provider_id TEXT, inbox TEXT, error TEXT,
     UNIQUE(lead_id, step)
 );
 CREATE TABLE IF NOT EXISTS replies (
@@ -77,6 +82,17 @@ def connect():
 def init() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        # Add columns introduced after a database was first created.
+        for table, cols in {
+            "leads": ["source_text TEXT DEFAULT ''", "email_source TEXT DEFAULT ''",
+                      "research TEXT DEFAULT ''", "fit INTEGER",
+                      "linkedin_note TEXT DEFAULT ''", "linkedin_dm TEXT DEFAULT ''"],
+            "messages": ["provider_id TEXT"],
+        }.items():
+            have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for col in cols:
+                if col.split()[0] not in have:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col}")
 
 
 def set_lead(conn, lead_id: int, **fields) -> None:
@@ -90,6 +106,31 @@ def signals(row) -> dict:
         return json.loads(row["signals"] or "{}")
     except json.JSONDecodeError:
         return {}
+
+
+def research(row) -> dict:
+    try:
+        return json.loads(row["research"] or "{}")
+    except json.JSONDecodeError:
+        return {}
+
+
+def add_lead(conn, **fields) -> bool:
+    """Insert a lead unless its email or company domain is already known or suppressed."""
+    email = (fields.get("email") or "").lower() or None
+    domain = fields.get("domain") or ""
+    if email and suppressed(conn, email):
+        return False
+    if domain and (suppressed(conn, "x@" + domain) or
+                   conn.execute("SELECT 1 FROM leads WHERE domain = ?", (domain,)).fetchone()):
+        return False
+    if email and conn.execute("SELECT 1 FROM leads WHERE email = ?", (email,)).fetchone():
+        return False
+    fields.update(email=email, created_at=now(), updated_at=now())
+    cols = ", ".join(fields)
+    conn.execute(f"INSERT INTO leads ({cols}) VALUES ({', '.join('?' * len(fields))})",
+                 tuple(fields.values()))
+    return True
 
 
 def suppressed(conn, email: str) -> bool:

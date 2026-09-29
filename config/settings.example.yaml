@@ -1,175 +1,262 @@
-# Copy to config/settings.yaml and fill in your inboxes. (settings.yaml is git-ignored.)
+# Copy to config/settings.yaml (git-ignored) and fill in your inboxes.
+
+targeting:
+  india_share_max: 0.25       # at most 25% of each day's new emails go to India-market segments
+  min_fit: 6                  # research fit score (0-10) needed before a lead is drafted
 
 sending:
-  home_timezone: Asia/Kolkata     # which calendar day the daily caps count against
-  min_gap_minutes: 7              # never two sends from one inbox closer than this...
-  gap_jitter_minutes: 6           # ...plus a random 0-6 min, so the rhythm looks human
-  max_bounce_rate: 0.03           # an inbox pauses itself above 3% bounces over 7 days
-  # Max cold sends (first emails + follow-ups) per inbox per day, by week since warmup_start.
-  # Week 0 is warm-up only. Keep the warm-up tool running the whole month.
-  ramp_by_week: [0, 12, 25, 35]
+  home_timezone: Asia/Kolkata
+  min_gap_minutes: 8          # never two sends from one inbox closer than this...
+  gap_jitter_minutes: 7       # ...plus a random 0-7 min
+  max_bounce_rate: 0.03       # an inbox pauses itself above 3% bounces over 7 days
+  # Cold sends (first emails + follow-ups) per inbox per day, by week since warmup_start.
+  ramp_by_week: [10, 20, 30, 35]
 
 sequence:
-  followup_days: [3, 7, 14]       # days after email 1; all follow-ups thread under it
+  # Two follow-ups, not three: on free inboxes, send capacity is the bottleneck.
+  followup_days: [4, 10]
 
-# One entry per mailbox. Passwords live in .env under the name given in password_env.
+# Zero-budget setup: your aged Gmail (SMTP/IMAP with an app password) + Zoho through its API.
+# Run `python -m outreach zoho-check` before enabling the Zoho inbox.
 inboxes:
-  - email: avnishrana797@gmail.com          # aged personal Gmail: internship emails only
+  - email: avnishrana797@gmail.com
     display_name: Avnish Rana
+    transport: smtp
     password_env: GMAIL_APP_PASSWORD
     smtp_host: smtp.gmail.com
     smtp_port: 465
     imap_host: imap.gmail.com
     drafts_folder: "[Gmail]/Drafts"
-    max_per_day: 20
-    # no warmup_start: the account is years old
+    max_per_day: 35          # personal Gmail: keep cold volume modest
+    warmup_start: 2026-10-01 # ramps 10 -> 20 -> 30 -> 35/day; aged, but new to cold email
 
-  - email: avnish@DOMAIN-ONE.com            # freelance, domain 1
+  - email: you@yourdomain.com   # your Zoho address
     display_name: Avnish Rana
-    password_env: INBOX1_PASSWORD
-    smtp_host: smtp.zoho.in                   # smtp.zoho.com if your Zoho account is not India DC
-    smtp_port: 465
-    imap_host: imap.zoho.in
-    drafts_folder: Drafts
+    transport: zoho_api          # use "smtp" + smtp.zoho.in/imap.zoho.in only on a paid plan
+    zoho_dc: in                  # "in" for zoho.in accounts, "com" for zoho.com
+    client_id_env: ZOHO_CLIENT_ID
+    client_secret_env: ZOHO_CLIENT_SECRET
+    refresh_token_env: ZOHO_REFRESH_TOKEN
     max_per_day: 35
     warmup_start: 2026-10-01
+    enabled: false               # set true once zoho-check passes
 
-  - email: rana@DOMAIN-ONE.com              # freelance, domain 1
-    display_name: Avnish Rana
-    password_env: INBOX2_PASSWORD
-    smtp_host: smtp.zoho.in
-    smtp_port: 465
-    imap_host: imap.zoho.in
-    drafts_folder: Drafts
-    max_per_day: 35
-    warmup_start: 2026-10-01
-
-  - email: avnish@DOMAIN-TWO.com            # freelance, domain 2
-    display_name: Avnish Rana
-    password_env: INBOX3_PASSWORD
-    smtp_host: smtp.zoho.in
-    smtp_port: 465
-    imap_host: imap.zoho.in
-    drafts_folder: Drafts
-    max_per_day: 35
-    warmup_start: 2026-10-01
-
-  - email: hello@DOMAIN-TWO.com             # internship overflow, domain 2
-    display_name: Avnish Rana
-    password_env: INBOX4_PASSWORD
-    smtp_host: smtp.zoho.in
-    smtp_port: 465
-    imap_host: imap.zoho.in
-    drafts_folder: Drafts
-    max_per_day: 35
-    warmup_start: 2026-10-01
-
-# Segments: who you email, what you offer them, and how many new leads per day.
-# daily_new across all segments = 38. Rebalance at the end of week 2 using `outreach report`.
+# Segments. daily_new sums to 38; India-market segments = 9 (24%).
 segments:
-  realestate_in:
-    daily_new: 12
-    country: India
-    timezone: Asia/Kolkata
-    send_days: [1, 2, 3, 4, 5, 6]            # brokers work Saturdays
-    send_windows: ["10:30-13:00", "15:00-18:30"]
-    inboxes: [avnish@DOMAIN-ONE.com, rana@DOMAIN-ONE.com, avnish@DOMAIN-TWO.com]
-    signature: freelance
-    audience: >
-      Owners/directors of Indian real-estate brokerages, channel partners and small developers
-      (3-40 person sales teams) in NCR, Mumbai, Pune, Bengaluru, Hyderabad who buy leads from
-      99acres/MagicBricks/Housing and Facebook ads and work them on WhatsApp.
-    pain: >
-      Portal and ad leads are answered hours late or never; leads live in Excel and personal
-      WhatsApp; no one knows which ad or portal actually produced a deal; agents leave with the leads.
-    offer: >
-      A 2-week fixed-scope build: every portal/ad/website lead lands in one CRM, gets an instant
-      WhatsApp reply with matching properties, is auto-assigned to an agent with a call-in-30-minutes
-      reminder, and every deal is tied back to its source. Built on their existing tools where possible.
-    cta: "Ask if they'd like a 1-page plan of what this would look like for their team, free, no call needed."
-    tone: "Direct and practical, owner to operator. Use rupees and minutes, not jargon."
-    score_signals: {whatsapp_link: 10, portals: 15, no_crm: 15, no_whatsapp_tool: 10, form_tool: 5, analytics: 5}
-
-  realestate_uae:
-    daily_new: 6
+  gulf_realestate:
+    daily_new: 8
+    market: gulf
     country: UAE
     timezone: Asia/Dubai
     send_days: [1, 2, 3, 4, 5]
-    send_windows: ["09:30-12:30", "14:00-17:00"]
-    inboxes: [avnish@DOMAIN-ONE.com, rana@DOMAIN-ONE.com, avnish@DOMAIN-TWO.com]
+    send_windows: ["09:30-12:30", "14:00-17:30"]
     signature: freelance
     audience: >
-      Founders/managing directors of small and mid-size Dubai/Sharjah/Abu Dhabi brokerages
-      (often Indian or Pakistani-run, 5-50 agents) that list on Bayut, Property Finder and Dubizzle.
+      Owners and managing directors of small and mid-size real-estate brokerages in Dubai, Abu Dhabi,
+      Sharjah and Riyadh (5-60 agents) that list on Bayut, Property Finder and Dubizzle.
     pain: >
-      Portal leads cost a lot per lead and are answered slowly; agents handle WhatsApp on personal
-      phones; no clean lead-to-deal tracking across agents and portals.
+      Portal leads cost a lot and are answered slowly; agents handle WhatsApp on personal phones; the
+      owner can't see which portal or campaign produces deals, or which agent dropped a lead.
     offer: >
-      Same lead-capture + instant WhatsApp + auto-assignment + source attribution build, fixed price,
-      delivered in 2 weeks, remote, with async daily updates across IST/GST.
-    cta: "Ask if they'd like a short written plan for their brokerage."
-    tone: "Professional, concise, international English."
+      A fixed-price 2-week build: every portal, website and ad lead gets an instant WhatsApp reply,
+      is assigned to an agent with a call-within-30-minutes reminder, and is tagged with its source,
+      so the owner sees cost per deal by portal.
+    cta: "Ask if they'd like a one-page plan for their brokerage, free, no call needed."
+    tone: "Professional, concise, respectful."
+    market_style: >
+      Polite, slightly formal international English. Prices in AED or USD. Their week runs Monday to
+      Friday. Never assume nationality or religion.
     score_signals: {whatsapp_link: 10, portals: 15, no_crm: 15, no_whatsapp_tool: 10, form_tool: 5}
 
-  agencies_in:
-    daily_new: 4
-    country: India
-    timezone: Asia/Kolkata
-    send_days: [1, 2, 3, 4, 5]
-    send_windows: ["10:00-13:00", "15:00-18:00"]
-    inboxes: [avnish@DOMAIN-ONE.com, rana@DOMAIN-ONE.com, avnish@DOMAIN-TWO.com]
-    signature: freelance
-    audience: >
-      Founders of Indian digital marketing, web-dev and performance agencies (5-50 people) that
-      sell to SMBs: real estate, clinics, coaching, D2C.
-    pain: >
-      Clients ask for WhatsApp bots, CRM integrations, lead automation and "AI"; the agency either
-      says no, or its web devs take 3x longer than planned and margins disappear.
-    offer: >
-      White-label automation developer on call: WhatsApp Cloud API bots, CRM/lead routing, n8n/Zapier,
-      Meta ads lead sync, LLM features. Fixed-price per project or hourly, under the agency's brand.
-    cta: "Ask if they currently turn down or struggle with any automation/WhatsApp/AI requests from clients."
-    tone: "Partner to partner. Emphasise reliability, margins and delivering under their name."
-    score_signals: {no_whatsapp_tool: 5, cms_wordpress: 5, careers: 10, analytics: 5}
-
-  agencies_uk:
-    daily_new: 4
+  uk_agencies:
+    daily_new: 5
+    market: uk
     country: United Kingdom
     timezone: Europe/London
-    send_days: [2, 3, 4]                     # Tue-Thu only for UK
+    send_days: [2, 3, 4]
     send_windows: ["09:00-11:30", "13:30-16:00"]
-    inboxes: [avnish@DOMAIN-ONE.com, rana@DOMAIN-ONE.com, avnish@DOMAIN-TWO.com]
     signature: freelance
     audience: >
-      Owners of small UK/Ireland marketing, web and HubSpot/automation agencies (2-30 people) that
-      already outsource or would benefit from an offshore automation developer.
+      Owners of small UK marketing, web and CRM agencies (2-30 people) that sell to SMBs.
     pain: >
-      Automation and AI projects are in demand but local developers cost £50-90/hr, which kills
-      margin on small SMB projects.
+      Clients ask for WhatsApp/SMS follow-ups, CRM routing and AI features; UK developers cost
+      £50-90/hr, which kills the margin on small projects, so the agency says no or loses money.
     offer: >
-      White-label automation and AI integration developer at $10-12/hr (or fixed price), UK hours
-      overlap, written specs and daily async updates, first small task at a fixed price to de-risk.
-    cta: "Ask if they have one small automation task in the backlog they'd trust to a fixed-price trial."
-    tone: "Understated, British-friendly, no hype."
-    score_signals: {careers: 10, no_whatsapp_tool: 0, analytics: 5, framework_next: 5}
+      White-label automation and AI integration developer at $10-12/hr or fixed price per task,
+      working UK mornings, with written specs and daily updates. The first task is fixed-price.
+    cta: "Ask if there's one small automation task in their backlog they'd trust to a fixed-price trial."
+    tone: "Understated partner-to-partner, no hype."
+    market_style: British spelling, understated, no exclamation marks, money in GBP or USD.
+    score_signals: {careers: 10, analytics: 5, cms_wordpress: 5}
 
-  startups_intern:
-    daily_new: 12
+  us_agencies:
+    daily_new: 3
+    market: us
+    country: United States
+    timezone: America/New_York
+    send_days: [2, 3, 4]
+    send_windows: ["08:00-12:30"]            # = 17:30-22:00 IST, the top of their morning inbox
+    signature: freelance_us
+    audience: Owners of small US marketing, web and automation agencies (2-30 people).
+    pain: >
+      Automation and AI work is in demand, but US contractors at $75-150/hr make small client
+      projects unprofitable.
+    offer: >
+      White-label automation and AI developer at $10-12/hr or fixed price, overlapping the US morning,
+      with written specs and daily async updates. The first task is fixed-price.
+    cta: "Ask if they have one automation task they'd trust to a small fixed-price trial."
+    tone: "Direct, concise, value-first."
+    market_style: American spelling, direct, money in USD.
+    score_signals: {careers: 10, analytics: 5}
+
+  intl_freelance_posts:
+    daily_new: 2
+    market: global
+    country: ""
+    timezone: America/New_York
+    send_days: [1, 2, 3, 4, 5]
+    send_windows: ["08:00-12:30"]
+    signature: freelance_us
+    audience: People who publicly posted that they are looking for a freelancer (Hacker News).
+    pain: They have a defined project and need someone reliable now.
+    offer: >
+      Deliver the posted project at a fixed price or $10-12/hr, with a written plan within 24 hours
+      and a working demo in the first week.
+    cta: "Ask if they'd like a short written plan and a fixed quote for their project."
+    tone: "Direct, specific to their post, businesslike."
+    market_style: International English, match the post's tone, money in USD.
+    score_signals: {}
+
+  intl_startups_intern:
+    daily_new: 11
+    market: global
+    country: ""
+    timezone: America/New_York
+    send_days: [1, 2, 3, 4, 5]
+    send_windows: ["08:00-12:30"]            # US Eastern morning = IST evening
+    signature: internship
+    audience: >
+      Founders and CTOs of seed-to-Series-A AI and SaaS startups in the US, UK, Singapore, UAE and
+      remote-first teams (2-60 people) that are hiring, especially ones with an India team or a
+      "remote (global)" policy.
+    pain: >
+      They need people who can ship end to end (spec, code, production, metrics) without
+      hand-holding, and most applicants can't show that.
+    offer: >
+      A remote product-engineering or AI-engineering internship (or a paid trial project), where
+      Avnish contributes from week one, with one concrete idea for their product in the email.
+    cta: "Ask if they're open to a 15-minute chat, or if someone else on the team is better to talk to."
+    tone: "Confident, specific, respectful of their time."
+    market_style: International English, founder-to-builder, no flattery.
+    score_signals: {careers: 20, ai_mention: 10, framework_next: 5}
+
+  india_realestate:
+    daily_new: 6
+    market: india
+    country: India
+    timezone: Asia/Kolkata
+    send_days: [1, 2, 3, 4, 5, 6]
+    send_windows: ["10:30-13:00", "15:00-18:30"]
+    signature: freelance
+    audience: >
+      Owners of Indian real-estate brokerages, channel partners and small developers (3-40 person
+      sales teams) that buy leads from 99acres, MagicBricks, Housing and Facebook ads.
+    pain: >
+      Portal and ad leads are answered hours late or never; leads live in Excel and personal
+      WhatsApp; no one knows which source produced a deal.
+    offer: >
+      A 2-week fixed-scope build: every lead goes into one CRM, gets an instant WhatsApp reply, is
+      auto-assigned with a call-in-30-minutes reminder, and is tied to its source.
+    cta: "Ask if they'd like a 1-page plan for their team, free, no call needed."
+    tone: "Direct and practical, owner to operator."
+    market_style: Indian English is fine; money in rupees.
+    score_signals: {whatsapp_link: 10, portals: 15, no_crm: 15, no_whatsapp_tool: 10}
+
+  india_startups_intern:
+    daily_new: 3
+    market: india
     country: India
     timezone: Asia/Kolkata
     send_days: [1, 2, 3, 4, 5]
-    send_windows: ["09:30-12:00", "14:00-17:30", "21:00-22:30"]   # founders read email late at night
-    inboxes: [avnishrana797@gmail.com, hello@DOMAIN-TWO.com]
+    send_windows: ["09:30-12:00", "14:00-17:30"]
     signature: internship
-    audience: >
-      Founders / CTOs / heads of product at seed-to-Series-A AI and SaaS startups in India
-      (Bengaluru, Gurgaon, Delhi, Mumbai, remote), especially recently funded or visibly hiring.
-    pain: >
-      They need someone who can ship end-to-end (spec -> code -> production -> metrics) without
-      hand-holding, and most internship applicants can't.
-    offer: >
-      A product-engineering / AI-engineering internship (remote or on-site), where Avnish
-      contributes from week one, with a concrete idea for their product in the email.
-    cta: "Ask if they'd be open to a 15-minute chat, or if there is a better person on the team to talk to."
-    tone: "Confident, specific, respectful of their time. Show you studied their product."
-    score_signals: {careers: 20, ai_mention: 10, framework_next: 5}
+    audience: Founders/CTOs of funded Indian AI and SaaS startups that are hiring.
+    pain: They need interns who ship to production from week one.
+    offer: A product/AI-engineering internship with a concrete product idea in the email.
+    cta: "Ask if they're open to a 15-minute chat."
+    tone: "Confident, specific."
+    market_style: Indian English is fine.
+    score_signals: {careers: 20, ai_mention: 10}
+
+# Automated prospecting (run by `prospect` and `prepare`). max_new = leads added per run.
+prospecting:
+  - source: osm
+    segment: gulf_realestate
+    country: UAE
+    cities: [Dubai, Abu Dhabi, Sharjah, Riyadh]
+    tags: ["office=estate_agent", "shop=estate_agent"]
+    max_new: 20
+  - source: osm
+    segment: uk_agencies
+    country: United Kingdom
+    cities: [London, Manchester, Birmingham, Leeds, Bristol]
+    tags: ["office=advertising_agency", "office=marketing"]
+    max_new: 12
+  - source: osm
+    segment: us_agencies
+    country: United States
+    cities: [New York, Austin, Miami, Chicago]
+    tags: ["office=advertising_agency", "office=marketing"]
+    max_new: 8
+  - source: hn
+    thread: freelance
+    segment: intl_freelance_posts
+    include_any: [automation, whatsapp, crm, ai, llm, react, next.js, python, node, zapier, n8n, scraping, dashboard]
+    exclude_any: [senior only, "10+ years", unpaid]
+    max_new: 10
+  - source: hn
+    thread: hiring
+    segment: intl_startups_intern
+    include_regex: "\\bintern(s|ship|ships)?\\b"
+    exclude_any: ["us citizens only", "must be located in the us", "no remote", "onsite only"]
+    require_remote: true
+    max_new: 15
+  - source: yc
+    segment: intl_startups_intern
+    regions: ["United States of America", "United Kingdom", "Singapore", "United Arab Emirates", "Remote"]
+    exclude_regions: []
+    max_team: 60
+    min_batch_year: 2022
+    max_new: 15
+  - source: yc
+    segment: india_startups_intern
+    regions: [India]
+    max_team: 80
+    min_batch_year: 2020
+    max_new: 6
+  - source: osm
+    segment: india_realestate
+    country: India
+    cities: [Delhi NCR, Mumbai, Bengaluru, Pune]
+    tags: ["office=estate_agent", "shop=estate_agent"]
+    max_new: 12
+
+# Bounding boxes [south, west, north, east] for OpenStreetMap searches.
+cities:
+  Dubai: [24.95, 55.05, 25.35, 55.60]
+  Abu Dhabi: [24.30, 54.30, 24.55, 54.70]
+  Sharjah: [25.25, 55.35, 25.40, 55.55]
+  Riyadh: [24.45, 46.50, 24.95, 46.95]
+  London: [51.38, -0.35, 51.62, 0.10]
+  Manchester: [53.40, -2.35, 53.55, -2.15]
+  Birmingham: [52.40, -2.00, 52.55, -1.75]
+  Leeds: [53.75, -1.65, 53.85, -1.45]
+  Bristol: [51.40, -2.68, 51.52, -2.50]
+  New York: [40.60, -74.05, 40.88, -73.85]
+  Austin: [30.15, -97.90, 30.45, -97.60]
+  Miami: [25.70, -80.35, 25.90, -80.12]
+  Chicago: [41.75, -87.80, 41.98, -87.55]
+  Delhi NCR: [28.40, 76.95, 28.75, 77.45]
+  Mumbai: [18.90, 72.77, 19.30, 72.99]
+  Bengaluru: [12.85, 77.45, 13.10, 77.75]
+  Pune: [18.45, 73.75, 18.63, 73.98]

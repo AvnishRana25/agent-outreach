@@ -6,3 +6,5 @@ config/profile.yaml
 __pycache__/
 *.pyc
 .venv/
+data/linkedin_today.md
+data/cron.log

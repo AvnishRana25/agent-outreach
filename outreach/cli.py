@@ -4,38 +4,48 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from . import db, enrich, importer, personalize, replies, report, review, sender, verify
+from . import (config, db, enrich, importer, personalize, prospect, replies, report, research, review,
+               sender, transport, verify)
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(prog="outreach", description="Personalised cold email pipeline")
+    ap = argparse.ArgumentParser(prog="outreach", description="Automated, personalised cold email pipeline")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init", help="create the database")
+
+    p = sub.add_parser("prospect", help="find new leads from free public sources (settings.yaml -> prospecting)")
+    p.add_argument("--source", choices=sorted(prospect.RUNNERS), help="run only this source")
 
     p = sub.add_parser("import", help="import leads from a CSV")
     p.add_argument("csv", type=Path)
     p.add_argument("--segment", help="segment for rows without a segment column")
     p.add_argument("--source", default="csv")
 
-    p = sub.add_parser("enrich", help="scrape lead websites for personalisation signals")
+    p = sub.add_parser("enrich", help="scrape lead websites for signals and published emails")
     p.add_argument("--limit", type=int, default=150)
 
     sub.add_parser("verify", help="check emails (syntax, MX, role) and score leads")
 
-    p = sub.add_parser("draft", help="write sequences for today's best leads")
-    p.add_argument("--limit", type=int, default=38)
-    p.add_argument("--mock", action="store_true", help="placeholder drafts, no API calls")
-    p.add_argument("--allow-guessed", action="store_true", help="also draft for pattern-guessed emails")
-
-    p = sub.add_parser("prepare", help="morning job: enrich + verify + draft")
-    p.add_argument("--limit", type=int, default=38)
+    p = sub.add_parser("research", help="Gemini company research + fit score")
+    p.add_argument("--limit", type=int, default=45)
     p.add_argument("--mock", action="store_true")
 
-    sub.add_parser("review", help="approve / edit / reject today's drafts")
+    p = sub.add_parser("draft", help="write sequences for today's best researched leads")
+    p.add_argument("--limit", type=int, default=38)
+    p.add_argument("--mock", action="store_true", help="placeholder drafts, no API calls")
+
+    p = sub.add_parser("prepare", help="daily job: prospect + enrich + verify + research + draft")
+    p.add_argument("--limit", type=int, default=38)
+    p.add_argument("--mock", action="store_true")
+    p.add_argument("--skip-prospect", action="store_true")
+
+    sub.add_parser("review", help="approve / edit / regenerate / reject today's drafts")
 
     p = sub.add_parser("approve", help="bulk-approve drafts at or above a confidence")
     p.add_argument("--min-confidence", type=float, default=0.85)
+
+    p = sub.add_parser("linkedin", help="write today's hand-sent LinkedIn tasks to data/linkedin_today.md")
 
     p = sub.add_parser("send", help="send due emails (run from cron every ~10 min)")
     p.add_argument("--max", type=int, default=2)
@@ -45,19 +55,27 @@ def main() -> None:
     p.add_argument("--days", type=int, default=4)
     p.add_argument("--mock", action="store_true")
 
+    p = sub.add_parser("reply", help="edit and send the drafted answer to reply #id")
+    p.add_argument("reply_id", type=int)
+
     sub.add_parser("report", help="funnel numbers")
 
     p = sub.add_parser("done", help="mark a positive reply as handled")
     p.add_argument("reply_id", type=int)
 
-    p = sub.add_parser("suppress", help="never email this address or @domain")
+    p = sub.add_parser("suppress", help="never email this address, or a whole @domain")
     p.add_argument("email")
+
+    p = sub.add_parser("zoho-check", help="test Zoho API access for each zoho_api inbox")
+    p.add_argument("--send-test", metavar="EMAIL", help="also send a test email to this address")
 
     args = ap.parse_args()
     db.init()
 
     if args.cmd == "init":
         print("database ready")
+    elif args.cmd == "prospect":
+        prospect.run(args.source)
     elif args.cmd == "import":
         added, skipped = importer.import_csv(args.csv, args.segment, args.source)
         print(f"imported {added}, skipped {skipped} (duplicates, suppressed or missing email+website)")
@@ -65,20 +83,31 @@ def main() -> None:
         print(f"enriched {enrich.run(args.limit)} leads")
     elif args.cmd == "verify":
         print(verify.run())
+    elif args.cmd == "research":
+        print(research.run(args.limit, args.mock))
     elif args.cmd == "draft":
-        print(f"drafted {personalize.run(args.limit, args.mock, args.allow_guessed)} sequences")
+        print(f"drafted {personalize.run(args.limit, args.mock)} sequences")
     elif args.cmd == "prepare":
-        enrich.run(args.limit * 3)
+        if not args.skip_prospect:
+            prospect.run()
+        enrich.run(args.limit * 4)
         print(verify.run())
+        # Research more than we draft: the fit filter drops some.
+        print(research.run(int(args.limit * 1.3), args.mock))
         print(f"drafted {personalize.run(args.limit, args.mock)} sequences. Next: python -m outreach review")
     elif args.cmd == "review":
         review.interactive()
     elif args.cmd == "approve":
         print(f"approved {review.bulk_approve(args.min_confidence)} sequences")
+    elif args.cmd == "linkedin":
+        path = config.DATA_DIR / "linkedin_today.md"
+        print(f"{review.linkedin_tasks(path)} LinkedIn tasks written to {path}")
     elif args.cmd == "send":
         print(f"sent {sender.tick(args.max, args.dry_run)}")
     elif args.cmd == "sync":
         print(f"processed {replies.sync(args.days, args.mock)} replies")
+    elif args.cmd == "reply":
+        replies.send_reply(args.reply_id)
     elif args.cmd == "report":
         report.run()
     elif args.cmd == "done":
@@ -88,6 +117,29 @@ def main() -> None:
         with db.connect() as conn:
             db.suppress(conn, args.email, "manual")
         print(f"suppressed {args.email}")
+    elif args.cmd == "zoho-check":
+        zoho_check(args.send_test)
+
+
+def zoho_check(send_to: str | None) -> None:
+    boxes = [b for b in config.inboxes() if b.get("transport") == "zoho_api"]
+    if not boxes:
+        print("no inbox in settings.yaml uses transport: zoho_api")
+    for box in boxes:
+        z = transport.zoho(box)
+        try:
+            z.token()
+            print(f"{box['email']}: token OK")
+            print(f"{box['email']}: account id {z.account_id()}")
+            print(f"{box['email']}: read {len(z.fetch(2))} recent inbox messages")
+            if send_to:
+                mid, pid = z.send(send_to, "zoho api test", "Test from agent-outreach.", None)
+                print(f"{box['email']}: test email sent (message id {mid or '?'}, provider id {pid or '?'})")
+                if not pid:
+                    print("  note: no message id returned, so follow-ups will go as new emails with 'Re:' subjects")
+        except (transport.ZohoError, OSError) as e:
+            print(f"{box['email']}: FAILED -> {e}")
+            print("  If this says the feature needs a paid plan, send from Gmail over SMTP instead (see README).")
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 from . import db
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
-EXTRA_PATHS = ["/about", "/about-us", "/contact", "/contact-us", "/careers"]
+EXTRA_PATHS = ["/about", "/about-us", "/contact", "/contact-us", "/services", "/careers", "/team"]
 
 # name -> regex searched in raw HTML
 DETECTORS = {
@@ -27,7 +27,8 @@ DETECTORS = {
     "form_tool": r"typeform|docs\.google\.com/forms|jotform|tally\.so|wpforms|contact-form-7|elementor-form",
     "booking": r"calendly|cal\.com|youcanbook|zcal",
     "analytics": r"googletagmanager|gtag\(|fbq\(|facebook\.net/.*/fbevents",
-    "portals": r"99acres|magicbricks|housing\.com|nobroker|squareyards|bayut|propertyfinder|dubizzle",
+    "portals": r"99acres|magicbricks|housing\.com|nobroker|squareyards|bayut|propertyfinder|dubizzle"
+               r"|rightmove|zoopla|onthemarket|zillow|realtor\.com|realestate\.com\.au|domain\.com\.au",
     "cms_wordpress": r"wp-content|wordpress",
     "cms_wix": r"wix\.com|wixstatic",
     "cms_shopify": r"cdn\.shopify|myshopify",
@@ -110,6 +111,7 @@ def run(limit: int = 100) -> int:
             fields = {"signals": json.dumps(sig), "site_text": text, "status": "enriched"}
             if not row["email"] and sig.get("emails_on_site"):
                 fields["email"] = _best_email(sig["emails_on_site"], row["domain"])
+                fields["email_source"] = "website"
             if not sig.get("reachable"):
                 fields["notes"] = ((row["notes"] or "") + " | website unreachable").strip(" |")
             db.set_lead(conn, row["id"], **fields)

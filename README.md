@@ -1,60 +1,60 @@
 # agent-outreach
 
-A personalised cold-email engine: **38 researched prospects a day**, each on a 4-email threaded sequence, sent from warmed inboxes inside the prospect's business hours. Replies are triaged automatically, and your answer is already drafted when you open the inbox.
+A zero-budget, automated cold-outreach engine. It finds companies from free public sources, researches each one with Gemini, writes a personalised email plus follow-ups and LinkedIn texts, sends from Gmail or Zoho within each market's business hours, and triages the replies.
 
-The strategy (niche, offers, infrastructure, 30-day calendar) is in **[PLAYBOOK.md](PLAYBOOK.md)**. This file covers running the tool.
+Strategy, market research and the 30-day plan are in **[PLAYBOOK.md](PLAYBOOK.md)**.
 
-## How it works
+## Pipeline
 
 | Step | Command | Runs | What it does |
 |---|---|---|---|
-| Import | `import leads.csv --segment realestate_in` | you, 2-3x/week | Loads leads; one per company domain; skips suppressed addresses |
-| Enrich | `enrich` | cron (in `prepare`) | Reads home/about/contact/careers pages: WhatsApp links, CRM/chat tools, portals, hiring, emails on the site |
-| Verify | `verify` | cron (in `prepare`) | Syntax, MX and role-address checks; scores leads per segment |
-| Draft | `draft` | cron (in `prepare`) | Claude writes email 1 + 3 follow-ups from the signals, your profile and the segment playbook |
-| Review | `review` / `approve --min-confidence 0.85` | **you, ~20 min/day** | Approve, edit in `$EDITOR`, regenerate or reject |
-| Send | `send` | cron, every 10 min | 2 per run, 7-13 min gaps, per-inbox warm-up ramp, segment time zones, threaded follow-ups on days 3/7/14, pauses an inbox above 3% bounces |
-| Sync | `sync` | cron, every 15 min | IMAP replies → stop the sequence → classify → suppress opt-outs → save a threaded draft reply → Telegram alert |
-| Report | `report` | you | Funnel per segment and positive replies waiting on you |
+| Prospect | `prospect` | cron (in `prepare`) | YC directory (hiring startups), HN "Who is hiring" / "Seeking freelancer" posts, OpenStreetMap businesses (estate agents, agencies) per city |
+| Import | `import leads.csv --segment X` | you, optional | Add your own lists |
+| Enrich | `enrich` | cron | Reads home/about/contact/services/careers/team pages: signals + published emails |
+| Verify | `verify` | cron | Syntax, MX and role-address checks. Only published emails are ever sent |
+| Research | `research` | cron | Gemini brief from source post + website + Google News headlines; fit score 0-10, under 6 dropped |
+| Draft | `draft` | cron | Gemini writes email 1 + 2 follow-ups + a LinkedIn note/DM; India share capped at 25% |
+| Review | `review` / `approve --min-confidence 0.85` | **you, ~20 min/day** | Approve, edit, regenerate or reject |
+| LinkedIn | `linkedin` | cron → you | `data/linkedin_today.md`: people-search links + texts to send **by hand** |
+| Send | `send` | cron, every 10 min | 2 per run, 8-15 min gaps, per-inbox warm-up ramp, market time zones, threaded follow-ups, bounce auto-pause |
+| Sync | `sync` | cron, every 20 min | Replies → stop sequence → Gemini triage → suppress opt-outs → draft answer → Telegram |
+| Reply | `reply <id>` | you | Edit and send a drafted answer (needed for Zoho API inboxes) |
+| Report | `report` | you | Funnel per segment + positive replies waiting on you |
 
-## Setup (about 30 minutes, after the domains and inboxes in PLAYBOOK §4)
+## Setup
 
 ```bash
 git clone <this repo> && cd agent-outreach
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env                                  # API key + inbox app passwords
-cp config/settings.example.yaml config/settings.yaml  # inboxes, segments, quotas, ramp
-cp config/profile.example.yaml  config/profile.yaml   # your facts and proof points: check every line
+cp .env.example .env                                  # Gemini key, Gmail app password, Zoho API creds
+cp config/settings.example.yaml config/settings.yaml  # inboxes, segments, quotas, sources, cities
+cp config/profile.example.yaml  config/profile.yaml   # your facts, proof points, signatures
 
 python -m outreach init
-python -m outreach import data/leads_template.csv     # replace with your real lists
-python -m outreach prepare --mock                     # pipeline check without API calls
-python -m outreach prepare                            # real drafts
+python -m outreach zoho-check --send-test you@gmail.com   # only if using the Zoho API inbox
+python -m outreach prepare --mock                     # pipeline check without Gemini calls
+python -m outreach prepare                            # real: prospect -> research -> drafts
 python -m outreach review
-python -m outreach send --dry-run                     # shows what would go out right now
+python -m outreach send --dry-run
+python -m pytest -q tests                             # offline tests
 ```
 
-Then install `scripts/crontab.example` on a machine that stays on (laptop or a free VM).
+Then install `scripts/crontab.example` on a machine that's on from 09:00 to midnight IST (the US morning is your evening).
 
-## CSV format
+## Sending: Gmail vs Zoho
+- **Gmail** (`transport: smtp`): free, and works with an app password. Replies are read over IMAP and drafted answers land in Gmail Drafts.
+- **Zoho free plan**: webmail only, with no SMTP/IMAP. The `zoho_api` transport uses Zoho's REST API with a Self Client refresh token. Whether your plan allows it is only knowable by trying: `zoho-check`. Follow-ups thread through the API's reply action when Zoho returns a message id; otherwise they go as new emails with a "Re:" subject.
+- **Zoho paid plan**: use `transport: smtp` with `smtp.zoho.in:465` / `imap.zoho.in`.
 
-`first_name, last_name, title, company, website, email, city, country, segment, notes`. Common export headers (Google Maps scrapers, Apollo, Hunter) are recognised too. **`notes` is the most valuable column**: one thing you noticed about the lead ("raised seed Aug 2026", "running FB ads for Sector 150") gives the draft its hook.
+## Tuning
+- Prompts: `prompts/research_system.md`, `prompts/draft_system.md`, `prompts/reply_system.md`.
+- Markets and offers: `segments` in `config/settings.yaml` (audience, pain, offer, CTA, market style, send windows, daily quota).
+- Sources: `prospecting` jobs and `cities` bounding boxes in `config/settings.yaml`.
+- Models and pace: `GEMINI_MODEL`, `GEMINI_RESEARCH_MODEL`, `GEMINI_REPLY_MODEL`, `GEMINI_RPM` in `.env`.
 
-Rows with no email but a website get one from the site's contact pages. Rows with only a name and domain get a pattern guess (`first.last@`), and guessed emails are **not** drafted unless you pass `draft --allow-guessed`.
-
-## Useful commands
-
-```bash
-python -m outreach report                 # funnel + open positive replies
-python -m outreach done 12                # mark reply #12 handled
-python -m outreach suppress @competitor.com   # never email a domain
-OUTREACH_MODEL=claude-sonnet-5-5 python -m outreach draft   # cheaper drafting
-```
-
-## Notes
-
-- State lives in `data/outreach.db` (SQLite, git-ignored). The crontab keeps a rolling 7-day backup.
-- Drafting uses `claude-opus-5-5` by default (about $2/day for 38 sequences). The system prompt is cached across leads. A refused or unparseable draft is skipped and retried on the next run.
-- Nothing is sent that you haven't approved. Follow-ups are approved together with email 1 and stop automatically on any reply except out-of-office.
+## Deliberate limits
+- **No LinkedIn automation or scraping.** It breaks LinkedIn's terms and gets accounts restricted (see PLAYBOOK §3). The tool writes the texts and links; you send about 10/day by hand.
+- **No guessed emails.** Only addresses published by the company (website, OSM listing, its own post) with a working mail domain.
+- **Nothing is sent without your approval.** Follow-ups are approved together with email 1 and stop on any reply except out-of-office.

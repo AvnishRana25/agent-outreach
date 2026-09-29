@@ -6,7 +6,6 @@ email, first_name, last_name, name, title, company, website, country, city, link
 from __future__ import annotations
 
 import csv
-import sqlite3
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -36,13 +35,19 @@ def _pick(row: dict, field: str) -> str:
     return ""
 
 
+FREE_MAIL = {"gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com", "live.com",
+             "icloud.com", "proton.me", "protonmail.com", "aol.com", "zoho.com", "zohomail.in",
+             "yahoo.co.in", "rediffmail.com"}
+
+
 def domain_of(website: str, email: str = "") -> str:
+    """Company domain used for de-duplication; empty for personal mailbox providers."""
     if website:
         url = website if "://" in website else "https://" + website
-        host = urlparse(url).netloc.lower()
-        return host.removeprefix("www.")
+        return urlparse(url).netloc.lower().removeprefix("www.").split(":")[0]
     if "@" in email:
-        return email.split("@")[1].lower()
+        dom = email.split("@")[1].lower()
+        return "" if dom in FREE_MAIL else dom
     return ""
 
 
@@ -68,24 +73,12 @@ def import_csv(path: Path, default_segment: str | None, source: str) -> tuple[in
                 skipped += 1
                 continue
             dom = domain_of(website, email)
-            # One lead per company domain keeps us from emailing 3 people at a 5-person firm.
-            if dom and conn.execute("SELECT 1 FROM leads WHERE domain = ?", (dom,)).fetchone():
-                skipped += 1
-                continue
-            try:
-                conn.execute(
-                    """INSERT INTO leads (email, first_name, last_name, title, company, website,
-                       domain, country, city, linkedin, segment, source, notes, created_at, updated_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        email or None, first.title(), last.title(), _pick(row, "title"),
-                        _pick(row, "company"), website, dom,
-                        _pick(row, "country") or config.segment(seg).get("country", ""),
-                        _pick(row, "city"), _pick(row, "linkedin"), seg, source,
-                        _pick(row, "notes"), db.now(), db.now(),
-                    ),
-                )
-                added += 1
-            except sqlite3.IntegrityError:  # duplicate email
-                skipped += 1
+            ok = db.add_lead(
+                conn, first_name=first.title(), last_name=last.title(), title=_pick(row, "title"),
+                company=_pick(row, "company"), website=website, domain=dom, email=email or None,
+                email_source="csv" if email else "",
+                country=_pick(row, "country") or config.segment(seg).get("country", ""),
+                city=_pick(row, "city"), linkedin=_pick(row, "linkedin"), segment=seg,
+                source=source, notes=_pick(row, "notes"))
+            added, skipped = (added + 1, skipped) if ok else (added, skipped + 1)
     return added, skipped

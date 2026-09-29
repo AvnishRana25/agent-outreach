@@ -63,7 +63,3 @@ def inbox(email: str) -> dict:
 
 def db_path() -> Path:
     return Path(os.getenv("OUTREACH_DB", DATA_DIR / "outreach.db"))
-
-
-def model() -> str:
-    return os.getenv("OUTREACH_MODEL", "claude-opus-5-5")

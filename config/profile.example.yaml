@@ -1,28 +1,30 @@
 # Copy to config/profile.yaml (git-ignored) and check every line is true and shareable.
-# The model is told to use ONLY these facts, so this file is your positioning.
+# Gemini is told to use ONLY these facts, so this file is your positioning.
 
 name: Avnish Rana
 calendar_link: https://cal.com/YOUR-HANDLE/20min
-rates: "USD 10-12/hr internationally, INR 800-1,000/hr in India; prefers fixed-price milestones with 50% upfront"
+rates: "USD 10-12/hr (or AED/GBP equivalent), usually as fixed-price milestones; small first milestone to start"
 
 identity:
-  - "AI automation engineer: builds WhatsApp, CRM and LLM automations that stop businesses losing leads and staff hours"
-  - "Currently an AI Researcher at Caudal AI. Work there is under NDA: never describe it beyond the title"
-  - "Built and runs the production CRM + WhatsApp automation for a Delhi-NCR real-estate brokerage, used daily by its sales team"
-  - "Earlier product/data/engineering roles at Klimashift (climate-tech energy analytics), Go4Database (developer tools), Draftss (design/dev agency) and Manacle Technologies (iOS)"
-  - "Stack: TypeScript/Node, React/Next.js, Python, PostgreSQL, WhatsApp Cloud API, Meta Graph and Ads APIs, Google Calendar/Tasks APIs, n8n/Zapier, Claude/OpenAI/Gemini APIs, Grafana"
-  - "Works remotely from New Delhi with clients in India and abroad; writes a scoped plan within 24 hours and ships a working demo in the first week"
+  - "AI automation engineer who builds lead-handling systems: WhatsApp and email automation, CRM pipelines, ad attribution and LLM features"
+  - "Currently an AI Researcher at Caudal AI. The work is under NDA: never describe it beyond the title"
+  - "Built and runs the production CRM, WhatsApp bot and ad-attribution system for a real-estate brokerage in the Delhi region; its sales team uses it every day"
+  - "Earlier product, data and engineering roles at Klimashift (climate-tech energy analytics), Go4Database (developer tools), Draftss (design/dev agency) and Manacle Technologies (iOS)"
+  - "Stack: TypeScript/Node, React/Next.js, Python, PostgreSQL, WhatsApp Cloud API, Meta Graph and Ads APIs, Google Calendar/Tasks APIs, n8n/Zapier, LLM APIs (Gemini, OpenAI, Claude), Grafana"
+  - "Based in New Delhi (IST, UTC+5:30); works remotely with clients abroad; overlaps Gulf business hours fully, UK mornings and US mornings"
+
+delivery_promise: "Written scope and fixed quote within 24 hours; a working demo within the first week; a short daily update; the delivery date is agreed in writing up front."
 
 # id: short handle; text: one sentence. Numbers must be exact and shareable.
 proof_points:
   - id: re_pipeline
-    text: "For a Delhi-NCR real-estate brokerage, every lead from 99acres, MagicBricks, Facebook/Instagram, the website and WhatsApp now auto-creates a deal, is assigned to an agent, and puts a 'call within 30 minutes' reminder with a one-tap link on that agent's Google Calendar."
+    text: "For a real-estate brokerage, every lead from property portals, Facebook/Instagram ads, the website and WhatsApp now auto-creates a deal, is assigned to an agent, and puts a 'call within 30 minutes' reminder with a one-tap link on that agent's Google Calendar."
   - id: re_llm_backfill
-    text: "Used an LLM classifier to recover the property requirements (type, BHK) of 722 of 746 portal leads (97%) that had landed in the brokerage's CRM blank, so they could be matched to inventory again."
+    text: "Used an LLM classifier to recover the property requirements of 722 of 746 portal leads (97%) that had landed in the brokerage's CRM blank, so they could be matched to listings again."
   - id: re_ads_tracking
     text: "Found why the brokerage's Meta ad conversion tracking had silently failed for 2.5 months, fixed it, and wired click-to-WhatsApp ad leads into the CRM with campaign-level attribution."
   - id: re_whatsapp_bot
-    text: "Built a WhatsApp/Facebook/Instagram bot that replies to comments and DMs, sends property photos and details to buyers, and turns every 'call me back' into a CRM task with a 15/30-minute SLA and escalation to the owner."
+    text: "Built a WhatsApp, Facebook and Instagram bot that answers comments and DMs, sends property photos and details to buyers, and turns every 'call me back' into a CRM task with a 15/30-minute SLA and escalation to the owner."
   - id: re_reliability
     text: "Cut the brokerage system's production errors from about 818 a day to near zero by tracing them to a single template-naming bug."
   - id: energy_roi
@@ -40,14 +42,22 @@ proof_points:
   - id: hackathon
     text: "Top 10 of 300+ teams at HackCBS 2025."
 
+# The opt-out line keeps you compliant (UK PECR, US CAN-SPAM) and costs nothing.
+# CAN-SPAM also requires a valid postal address in commercial email to US recipients.
 signatures:
   freelance: |-
     Avnish Rana
-    AI automation engineer | WhatsApp, CRM & AI workflows
-    YOUR-DOMAIN.com | +91 79822 52971
+    AI automation engineer | lead handling, WhatsApp, CRM & AI
+    github.com/YOUR-GITHUB | +91 79822 52971
+    If this isn't relevant, reply "no" and I won't email again.
+  freelance_us: |-
+    Avnish Rana
+    AI automation engineer | lead handling, CRM & AI
+    github.com/YOUR-GITHUB | YOUR POSTAL ADDRESS, New Delhi, India
+    If this isn't relevant, reply "no" and I won't email again.
   internship: |-
     Avnish Rana
     AI Researcher, Caudal AI | B.Sc. (Hons) Computer Science, University of Delhi
-    github.com/YOUR-GITHUB | linkedin.com/in/YOUR-LINKEDIN | +91 79822 52971
+    github.com/YOUR-GITHUB | linkedin.com/in/YOUR-LINKEDIN
   short: |-
     Avnish
