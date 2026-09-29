@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from . import (community, config, db, enrich, importer, personalize, prospect, replies, report, research,
-               review, sender, sources, transport, verify)
+from . import (community, config, dashboard_sync, db, enrich, importer, personalize, prospect, replies, report,
+               research, review, sender, sources, transport, verify)
 
 
 def main() -> None:
@@ -74,6 +74,11 @@ def main() -> None:
     p = sub.add_parser("suppress", help="never email this address, or a whole @domain")
     p.add_argument("email")
 
+    sub.add_parser("dashboard-sync", help="apply dashboard actions, then push a fresh snapshot (cron, every 10 min)")
+
+    p = sub.add_parser("dashboard", help="run the dashboard locally on http://127.0.0.1:8787")
+    p.add_argument("--port", type=int, default=8787)
+
     sub.add_parser("telegram-setup", help="find your Telegram chat id and send a test message")
 
     p = sub.add_parser("zoho-check", help="test Zoho API access for each zoho_api inbox")
@@ -136,6 +141,11 @@ def main() -> None:
         with db.connect() as conn:
             db.suppress(conn, args.email, "manual")
         print(f"suppressed {args.email}")
+    elif args.cmd == "dashboard-sync":
+        dashboard_sync.sync()
+    elif args.cmd == "dashboard":
+        from . import dashboard_local
+        dashboard_local.serve(args.port)
     elif args.cmd == "telegram-setup":
         replies.telegram_setup()
     elif args.cmd == "zoho-check":

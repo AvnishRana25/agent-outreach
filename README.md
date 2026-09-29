@@ -51,6 +51,22 @@ Then install `scripts/crontab.example` on a machine that's on from 09:00 to midn
 - **Zoho free plan**: webmail only, with no SMTP/IMAP. The `zoho_api` transport uses Zoho's REST API with a Self Client refresh token. Whether your plan allows it is only knowable by trying: `zoho-check`. Follow-ups thread through the API's reply action when Zoho returns a message id; otherwise they go as new emails with a "Re:" subject.
 - **Zoho paid plan**: use `transport: smtp` with `smtp.zoho.in:465` / `imap.zoho.in`.
 
+## Dashboard (Vercel)
+A password-protected web page for the daily work: **Review** drafts (edit, approve, regenerate, reject), **Respond** to positive replies (send from the page) and community posts (copy the draft), **Results** per segment and lead source, and **Activity**. It works on a phone.
+
+The engine and every secret stay on your laptop. Every 10 minutes `dashboard-sync` applies what you did on the page, then pushes a fresh snapshot to a small hosted database (Turso) that the Vercel page reads. So a click shows as "applies at the next sync", and the page needs your laptop running to move anything forward. Only the snapshot leaves the laptop (drafts, replies, lead names and emails), never keys.
+
+Setup, about 10 minutes:
+1. **Turso** (free): sign up at turso.tech, create a database, and copy its URL (`libsql://...`). Create a token for that database. Put both in `.env` as `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`, then run `python -m outreach dashboard-sync` once. It creates the tables and pushes the first snapshot.
+2. **Vercel** (free): Add New -> Project -> import this GitHub repo.
+   - **Root Directory:** `dashboard`. **Framework preset:** Other.
+   - **Environment variables:** `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `DASHBOARD_PASSWORD` (long; anyone with it can send replies from your inbox) and `SESSION_SECRET` (generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"`).
+   - Deploy.
+   - Vercel publishes the repo's default branch as production. If this code is still on another branch, merge it or set Settings -> Git -> Production Branch.
+3. Add the `dashboard-sync` line from `scripts/crontab.example`.
+
+To use it without Vercel: `python -m outreach dashboard` serves the same page at http://127.0.0.1:8787 (it needs the four variables above in `.env`).
+
 ## Firecrawl
 Set `FIRECRAWL_API_KEY` (or `FIRECRAWL_API_URL` for a self-hosted copy). It is used only when the free path fails:
 - **scrape:** a website that downloads empty or as a JavaScript shell is rendered, so research has real text.
