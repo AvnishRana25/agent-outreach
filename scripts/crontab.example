@@ -1,0 +1,18 @@
+# Install with: crontab -e   (paste, then fix the path)
+# Times are IST. On a UTC server keep the CRON_TZ line (supported by cronie/systemd cron);
+# otherwise convert the hours yourself.
+CRON_TZ=Asia/Kolkata
+APP=/home/YOU/agent-outreach
+
+# 07:30 Mon-Sat: enrich + verify + draft today's 38 sequences (then run `review` yourself)
+30 7 * * 1-6  cd $APP && .venv/bin/python -m outreach prepare >> data/cron.log 2>&1
+
+# Every 10 min, 09:00-22:59: send up to 2 due emails. Each segment's own business-hours
+# window (IST / Dubai / London) is enforced inside the sender, so this can run broadly.
+*/10 9-22 * * *  cd $APP && .venv/bin/python -m outreach send --max 2 >> data/cron.log 2>&1
+
+# Every 15 min, 08:00-23:59: pull replies, stop sequences, draft answers, ping Telegram
+*/15 8-23 * * *  cd $APP && .venv/bin/python -m outreach sync >> data/cron.log 2>&1
+
+# Nightly backup of the database
+55 23 * * *  cp $APP/data/outreach.db $APP/data/outreach.$(date +\%a).db

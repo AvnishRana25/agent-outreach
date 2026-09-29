@@ -1,0 +1,8 @@
+.env
+data/*.db
+data/leads/
+config/settings.yaml
+config/profile.yaml
+__pycache__/
+*.pyc
+.venv/

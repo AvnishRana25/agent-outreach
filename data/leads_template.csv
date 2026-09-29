@@ -1,0 +1,4 @@
+first_name,last_name,title,company,website,email,city,country,segment,notes
+Rohit,Sharma,Founder,Example Realty,example.com,rohit@example.com,Noida,India,realestate_in,"Posts 3 listings/day on 99acres; ad running on FB"
+Sara,Khan,Managing Director,Example Properties LLC,example.org,,Dubai,UAE,realestate_uae,"Agency page on Bayut with 40 listings"
+Priya,Menon,Co-founder & CTO,Example AI,example.net,priya@example.net,Bengaluru,India,startups_intern,"Raised seed in Aug 2026; hiring 'founding engineer' on Wellfound"

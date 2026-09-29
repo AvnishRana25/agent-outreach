@@ -1,0 +1,53 @@
+# Copy to config/profile.yaml (git-ignored) and check every line is true and shareable.
+# The model is told to use ONLY these facts, so this file is your positioning.
+
+name: Avnish Rana
+calendar_link: https://cal.com/YOUR-HANDLE/20min
+rates: "USD 10-12/hr internationally, INR 800-1,000/hr in India; prefers fixed-price milestones with 50% upfront"
+
+identity:
+  - "AI automation engineer: builds WhatsApp, CRM and LLM automations that stop businesses losing leads and staff hours"
+  - "Currently an AI Researcher at Caudal AI. Work there is under NDA: never describe it beyond the title"
+  - "Built and runs the production CRM + WhatsApp automation for a Delhi-NCR real-estate brokerage, used daily by its sales team"
+  - "Earlier product/data/engineering roles at Klimashift (climate-tech energy analytics), Go4Database (developer tools), Draftss (design/dev agency) and Manacle Technologies (iOS)"
+  - "Stack: TypeScript/Node, React/Next.js, Python, PostgreSQL, WhatsApp Cloud API, Meta Graph and Ads APIs, Google Calendar/Tasks APIs, n8n/Zapier, Claude/OpenAI/Gemini APIs, Grafana"
+  - "Works remotely from New Delhi with clients in India and abroad; writes a scoped plan within 24 hours and ships a working demo in the first week"
+
+# id: short handle; text: one sentence. Numbers must be exact and shareable.
+proof_points:
+  - id: re_pipeline
+    text: "For a Delhi-NCR real-estate brokerage, every lead from 99acres, MagicBricks, Facebook/Instagram, the website and WhatsApp now auto-creates a deal, is assigned to an agent, and puts a 'call within 30 minutes' reminder with a one-tap link on that agent's Google Calendar."
+  - id: re_llm_backfill
+    text: "Used an LLM classifier to recover the property requirements (type, BHK) of 722 of 746 portal leads (97%) that had landed in the brokerage's CRM blank, so they could be matched to inventory again."
+  - id: re_ads_tracking
+    text: "Found why the brokerage's Meta ad conversion tracking had silently failed for 2.5 months, fixed it, and wired click-to-WhatsApp ad leads into the CRM with campaign-level attribution."
+  - id: re_whatsapp_bot
+    text: "Built a WhatsApp/Facebook/Instagram bot that replies to comments and DMs, sends property photos and details to buyers, and turns every 'call me back' into a CRM task with a 15/30-minute SLA and escalation to the owner."
+  - id: re_reliability
+    text: "Cut the brokerage system's production errors from about 818 a day to near zero by tracing them to a single template-naming bug."
+  - id: energy_roi
+    text: "At a climate-tech company, built ROI models from 350+ commercial electricity bills that were used in live sales conversations (projected 2.1x ROI, about 6-month payback across 100 assets)."
+  - id: energy_telemetry
+    text: "Engineered 16 explainable fault diagnostics and 63 derived metrics from 1 Hz telemetry (PostgreSQL + VictoriaMetrics) that caught a live food-safety failure billing data had missed."
+  - id: devtools_onboarding
+    text: "Cut setup time for a database tool from 15 minutes to 2 by re-scoping the MVP after interviewing 20+ beta users."
+  - id: ios_login
+    text: "Fixed a 25% login drop-off in a production iOS app, cutting auth latency 30% and redundant API calls 50%."
+  - id: agency_delivery
+    text: "At a design/dev agency, delivered 5+ simultaneous client web products 100% on time, including a WordPress-to-React migration."
+  - id: saas_build
+    text: "Built TaskForgeAI end to end: a freemium SaaS with auth, AI scoring and Stripe checkout."
+  - id: hackathon
+    text: "Top 10 of 300+ teams at HackCBS 2025."
+
+signatures:
+  freelance: |-
+    Avnish Rana
+    AI automation engineer | WhatsApp, CRM & AI workflows
+    YOUR-DOMAIN.com | +91 79822 52971
+  internship: |-
+    Avnish Rana
+    AI Researcher, Caudal AI | B.Sc. (Hons) Computer Science, University of Delhi
+    github.com/YOUR-GITHUB | linkedin.com/in/YOUR-LINKEDIN | +91 79822 52971
+  short: |-
+    Avnish

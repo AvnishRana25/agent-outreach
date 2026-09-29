@@ -1,0 +1,175 @@
+# Copy to config/settings.yaml and fill in your inboxes. (settings.yaml is git-ignored.)
+
+sending:
+  home_timezone: Asia/Kolkata     # which calendar day the daily caps count against
+  min_gap_minutes: 7              # never two sends from one inbox closer than this...
+  gap_jitter_minutes: 6           # ...plus a random 0-6 min, so the rhythm looks human
+  max_bounce_rate: 0.03           # an inbox pauses itself above 3% bounces over 7 days
+  # Max cold sends (first emails + follow-ups) per inbox per day, by week since warmup_start.
+  # Week 0 is warm-up only. Keep the warm-up tool running the whole month.
+  ramp_by_week: [0, 12, 25, 35]
+
+sequence:
+  followup_days: [3, 7, 14]       # days after email 1; all follow-ups thread under it
+
+# One entry per mailbox. Passwords live in .env under the name given in password_env.
+inboxes:
+  - email: avnishrana797@gmail.com          # aged personal Gmail: internship emails only
+    display_name: Avnish Rana
+    password_env: GMAIL_APP_PASSWORD
+    smtp_host: smtp.gmail.com
+    smtp_port: 465
+    imap_host: imap.gmail.com
+    drafts_folder: "[Gmail]/Drafts"
+    max_per_day: 20
+    # no warmup_start: the account is years old
+
+  - email: avnish@DOMAIN-ONE.com            # freelance, domain 1
+    display_name: Avnish Rana
+    password_env: INBOX1_PASSWORD
+    smtp_host: smtp.zoho.in                   # smtp.zoho.com if your Zoho account is not India DC
+    smtp_port: 465
+    imap_host: imap.zoho.in
+    drafts_folder: Drafts
+    max_per_day: 35
+    warmup_start: 2026-10-01
+
+  - email: rana@DOMAIN-ONE.com              # freelance, domain 1
+    display_name: Avnish Rana
+    password_env: INBOX2_PASSWORD
+    smtp_host: smtp.zoho.in
+    smtp_port: 465
+    imap_host: imap.zoho.in
+    drafts_folder: Drafts
+    max_per_day: 35
+    warmup_start: 2026-10-01
+
+  - email: avnish@DOMAIN-TWO.com            # freelance, domain 2
+    display_name: Avnish Rana
+    password_env: INBOX3_PASSWORD
+    smtp_host: smtp.zoho.in
+    smtp_port: 465
+    imap_host: imap.zoho.in
+    drafts_folder: Drafts
+    max_per_day: 35
+    warmup_start: 2026-10-01
+
+  - email: hello@DOMAIN-TWO.com             # internship overflow, domain 2
+    display_name: Avnish Rana
+    password_env: INBOX4_PASSWORD
+    smtp_host: smtp.zoho.in
+    smtp_port: 465
+    imap_host: imap.zoho.in
+    drafts_folder: Drafts
+    max_per_day: 35
+    warmup_start: 2026-10-01
+
+# Segments: who you email, what you offer them, and how many new leads per day.
+# daily_new across all segments = 38. Rebalance at the end of week 2 using `outreach report`.
+segments:
+  realestate_in:
+    daily_new: 12
+    country: India
+    timezone: Asia/Kolkata
+    send_days: [1, 2, 3, 4, 5, 6]            # brokers work Saturdays
+    send_windows: ["10:30-13:00", "15:00-18:30"]
+    inboxes: [avnish@DOMAIN-ONE.com, rana@DOMAIN-ONE.com, avnish@DOMAIN-TWO.com]
+    signature: freelance
+    audience: >
+      Owners/directors of Indian real-estate brokerages, channel partners and small developers
+      (3-40 person sales teams) in NCR, Mumbai, Pune, Bengaluru, Hyderabad who buy leads from
+      99acres/MagicBricks/Housing and Facebook ads and work them on WhatsApp.
+    pain: >
+      Portal and ad leads are answered hours late or never; leads live in Excel and personal
+      WhatsApp; no one knows which ad or portal actually produced a deal; agents leave with the leads.
+    offer: >
+      A 2-week fixed-scope build: every portal/ad/website lead lands in one CRM, gets an instant
+      WhatsApp reply with matching properties, is auto-assigned to an agent with a call-in-30-minutes
+      reminder, and every deal is tied back to its source. Built on their existing tools where possible.
+    cta: "Ask if they'd like a 1-page plan of what this would look like for their team, free, no call needed."
+    tone: "Direct and practical, owner to operator. Use rupees and minutes, not jargon."
+    score_signals: {whatsapp_link: 10, portals: 15, no_crm: 15, no_whatsapp_tool: 10, form_tool: 5, analytics: 5}
+
+  realestate_uae:
+    daily_new: 6
+    country: UAE
+    timezone: Asia/Dubai
+    send_days: [1, 2, 3, 4, 5]
+    send_windows: ["09:30-12:30", "14:00-17:00"]
+    inboxes: [avnish@DOMAIN-ONE.com, rana@DOMAIN-ONE.com, avnish@DOMAIN-TWO.com]
+    signature: freelance
+    audience: >
+      Founders/managing directors of small and mid-size Dubai/Sharjah/Abu Dhabi brokerages
+      (often Indian or Pakistani-run, 5-50 agents) that list on Bayut, Property Finder and Dubizzle.
+    pain: >
+      Portal leads cost a lot per lead and are answered slowly; agents handle WhatsApp on personal
+      phones; no clean lead-to-deal tracking across agents and portals.
+    offer: >
+      Same lead-capture + instant WhatsApp + auto-assignment + source attribution build, fixed price,
+      delivered in 2 weeks, remote, with async daily updates across IST/GST.
+    cta: "Ask if they'd like a short written plan for their brokerage."
+    tone: "Professional, concise, international English."
+    score_signals: {whatsapp_link: 10, portals: 15, no_crm: 15, no_whatsapp_tool: 10, form_tool: 5}
+
+  agencies_in:
+    daily_new: 4
+    country: India
+    timezone: Asia/Kolkata
+    send_days: [1, 2, 3, 4, 5]
+    send_windows: ["10:00-13:00", "15:00-18:00"]
+    inboxes: [avnish@DOMAIN-ONE.com, rana@DOMAIN-ONE.com, avnish@DOMAIN-TWO.com]
+    signature: freelance
+    audience: >
+      Founders of Indian digital marketing, web-dev and performance agencies (5-50 people) that
+      sell to SMBs: real estate, clinics, coaching, D2C.
+    pain: >
+      Clients ask for WhatsApp bots, CRM integrations, lead automation and "AI"; the agency either
+      says no, or its web devs take 3x longer than planned and margins disappear.
+    offer: >
+      White-label automation developer on call: WhatsApp Cloud API bots, CRM/lead routing, n8n/Zapier,
+      Meta ads lead sync, LLM features. Fixed-price per project or hourly, under the agency's brand.
+    cta: "Ask if they currently turn down or struggle with any automation/WhatsApp/AI requests from clients."
+    tone: "Partner to partner. Emphasise reliability, margins and delivering under their name."
+    score_signals: {no_whatsapp_tool: 5, cms_wordpress: 5, careers: 10, analytics: 5}
+
+  agencies_uk:
+    daily_new: 4
+    country: United Kingdom
+    timezone: Europe/London
+    send_days: [2, 3, 4]                     # Tue-Thu only for UK
+    send_windows: ["09:00-11:30", "13:30-16:00"]
+    inboxes: [avnish@DOMAIN-ONE.com, rana@DOMAIN-ONE.com, avnish@DOMAIN-TWO.com]
+    signature: freelance
+    audience: >
+      Owners of small UK/Ireland marketing, web and HubSpot/automation agencies (2-30 people) that
+      already outsource or would benefit from an offshore automation developer.
+    pain: >
+      Automation and AI projects are in demand but local developers cost £50-90/hr, which kills
+      margin on small SMB projects.
+    offer: >
+      White-label automation and AI integration developer at $10-12/hr (or fixed price), UK hours
+      overlap, written specs and daily async updates, first small task at a fixed price to de-risk.
+    cta: "Ask if they have one small automation task in the backlog they'd trust to a fixed-price trial."
+    tone: "Understated, British-friendly, no hype."
+    score_signals: {careers: 10, no_whatsapp_tool: 0, analytics: 5, framework_next: 5}
+
+  startups_intern:
+    daily_new: 12
+    country: India
+    timezone: Asia/Kolkata
+    send_days: [1, 2, 3, 4, 5]
+    send_windows: ["09:30-12:00", "14:00-17:30", "21:00-22:30"]   # founders read email late at night
+    inboxes: [avnishrana797@gmail.com, hello@DOMAIN-TWO.com]
+    signature: internship
+    audience: >
+      Founders / CTOs / heads of product at seed-to-Series-A AI and SaaS startups in India
+      (Bengaluru, Gurgaon, Delhi, Mumbai, remote), especially recently funded or visibly hiring.
+    pain: >
+      They need someone who can ship end-to-end (spec -> code -> production -> metrics) without
+      hand-holding, and most internship applicants can't.
+    offer: >
+      A product-engineering / AI-engineering internship (remote or on-site), where Avnish
+      contributes from week one, with a concrete idea for their product in the email.
+    cta: "Ask if they'd be open to a 15-minute chat, or if there is a better person on the team to talk to."
+    tone: "Confident, specific, respectful of their time. Show you studied their product."
+    score_signals: {careers: 20, ai_mention: 10, framework_next: 5}
