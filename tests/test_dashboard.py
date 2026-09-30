@@ -204,3 +204,10 @@ def test_undo_cancels_pending(env):
 def test_page_served(env):
     status, page, _ = call(env, "GET", "/")
     assert status == 200 and "<title>Outreach Desk</title>" in page
+
+
+def test_port_in_use_gives_advice(env):
+    from outreach import dashboard_local
+    with pytest.raises(SystemExit) as e:
+        dashboard_local.serve(env)            # the fixture's server already holds this port
+    assert "already in use" in str(e.value) and f"--port {env + 1}" in str(e.value)
