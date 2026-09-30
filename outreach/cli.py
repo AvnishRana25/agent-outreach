@@ -81,6 +81,9 @@ def main() -> None:
 
     sub.add_parser("telegram-setup", help="find your Telegram chat id and send a test message")
 
+    p = sub.add_parser("zoho-token", help="exchange a Zoho Self Client code for the refresh token .env needs")
+    p.add_argument("code", help="the code from api-console.zoho.in -> Self Client -> Generate Code")
+
     p = sub.add_parser("zoho-check", help="test Zoho API access for each zoho_api inbox")
     p.add_argument("--send-test", metavar="EMAIL", help="also send a test email to this address")
 
@@ -148,8 +151,32 @@ def main() -> None:
         dashboard_local.serve(args.port)
     elif args.cmd == "telegram-setup":
         replies.telegram_setup()
+    elif args.cmd == "zoho-token":
+        zoho_token(args.code)
     elif args.cmd == "zoho-check":
         zoho_check(args.send_test)
+
+
+def zoho_token(code: str) -> None:
+    boxes = [b for b in config.inboxes(include_disabled=True) if b.get("transport") == "zoho_api"]
+    if not boxes:
+        raise SystemExit("no inbox in settings.yaml uses transport: zoho_api")
+    z = transport.zoho(boxes[0])
+    if not (z.client_id and z.client_secret):
+        raise SystemExit("Set ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET in .env first (from the Self Client's Client Secret tab).")
+    data = z.exchange_code(code)
+    if "refresh_token" not in data:
+        err = data.get("error", data)
+        tips = {"invalid_code": "The code expired or was already used. Generate a new one (choose 10 minutes) "
+                                "and run this straight away.",
+                "invalid_client": transport.ZOHO_HINTS["invalid_client"].strip()}
+        raise SystemExit(f"Zoho refused the code: {err}\n{tips.get(err, '')}".rstrip())
+    if "ZohoMail.messages" not in data.get("scope", "ZohoMail.messages"):
+        print(f"Warning: this token's scopes are {data.get('scope')}; sending needs "
+              "ZohoMail.accounts.READ,ZohoMail.messages.ALL,ZohoMail.folders.READ")
+    print("Put this line in .env (replace the old ZOHO_REFRESH_TOKEN):\n")
+    print(f"ZOHO_REFRESH_TOKEN={data['refresh_token']}\n")
+    print(f"Then run: python -m outreach zoho-check --send-test YOUR_GMAIL@gmail.com")
 
 
 def zoho_check(send_to: str | None) -> None:

@@ -137,3 +137,26 @@ def test_full_flow_with_zoho_transport(monkeypatch):
     with db.connect() as conn:
         assert db.suppressed(conn, "omar@palmrealty.ae")
         assert conn.execute("SELECT COUNT(*) FROM messages WHERE status='approved'").fetchone()[0] == 0
+
+
+def test_zoho_token_exchange_and_hints(monkeypatch, capsys):
+    from outreach import cli, transport
+    monkeypatch.setenv("ZOHO_CLIENT_ID", "1000.ID")
+    monkeypatch.setenv("ZOHO_CLIENT_SECRET", "sec")
+    calls = []
+
+    class R:
+        def __init__(self, data): self.data = data
+        def json(self): return self.data
+    def post(url, params, timeout):
+        calls.append((url, params))
+        if params["grant_type"] == "authorization_code":
+            return R({"refresh_token": "1000.refresh", "scope": "ZohoMail.messages.ALL ZohoMail.accounts.READ"})
+        return R({"error": "invalid_code"})
+    monkeypatch.setattr(transport.requests, "post", post)
+    cli.zoho_token(" 1000.grant ")
+    assert "ZOHO_REFRESH_TOKEN=1000.refresh" in capsys.readouterr().out
+    assert calls[0][0] == "https://accounts.zoho.in/oauth/v2/token" and calls[0][1]["code"] == "1000.grant"
+    box = {"email": "workwithavnish@zohomail.in", "zoho_dc": "in"}
+    with pytest.raises(transport.ZohoError, match="zoho-token"):
+        transport.zoho(box).token()

@@ -5,6 +5,7 @@ so it needs TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, DASHBOARD_PASSWORD and SESSION
 """
 from __future__ import annotations
 
+import errno
 import importlib.util
 from http.server import ThreadingHTTPServer
 
@@ -41,7 +42,16 @@ def server(port: int = 8787, host: str = "127.0.0.1") -> ThreadingHTTPServer:
 
 
 def serve(port: int = 8787) -> None:
-    srv = server(port)
+    try:
+        srv = server(port)
+    except OSError as e:
+        if e.errno not in (errno.EADDRINUSE, 10048):  # 10048 = Windows "address in use"
+            raise
+        raise SystemExit(
+            f"Port {port} is already in use - probably a dashboard you started earlier.\n"
+            f"  Already running? Open http://127.0.0.1:{port}\n"
+            f"  Stop the old one: lsof -ti :{port} | xargs kill   (then run this again)\n"
+            f"  Or use another port: python -m outreach dashboard --port {port + 1}") from None
     print(f"Dashboard on http://127.0.0.1:{port}  (Ctrl+C to stop)")
     try:
         srv.serve_forever()
