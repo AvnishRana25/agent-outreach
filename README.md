@@ -25,23 +25,38 @@ Strategy, market research and the 30-day plan are in **[PLAYBOOK.md](PLAYBOOK.md
 
 ## Setup
 
+Run each block in a terminal. The commands carry no inline `# notes`, because the Mac's default
+shell (zsh) passes pasted notes to the command as extra arguments.
+
 ```bash
 git clone <this repo> && cd agent-outreach
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-
-cp .env.example .env                                  # Gemini key, Gmail app password, Zoho API creds
-cp config/settings.example.yaml config/settings.yaml  # inboxes, segments, quotas, sources, cities
-cp config/profile.example.yaml  config/profile.yaml   # your facts, proof points, signatures
-
+cp .env.example .env
+cp config/settings.example.yaml config/settings.yaml
+cp config/profile.example.yaml config/profile.yaml
 python -m outreach init
-python -m outreach zoho-check --send-test you@gmail.com   # the Zoho inbox must pass this before sending
-python -m outreach telegram-setup                     # after messaging your bot once: prints TELEGRAM_CHAT_ID
-python -m outreach prepare --mock                     # pipeline check without Gemini calls
-python -m outreach prepare                            # real: prospect -> research -> drafts
+python -m pytest -q tests
+```
+
+Fill in `.env` (keys), `config/profile.yaml` (your facts and signatures) and `config/settings.yaml`
+(inbox, `warmup_start`). Then check the connections. Replace `YOUR_GMAIL@gmail.com` with an address you
+can read; `zoho-check` must pass before any real sending. Send your Telegram bot one message before
+`telegram-setup`, then copy the `TELEGRAM_CHAT_ID` line it prints into `.env`.
+
+```bash
+python -m outreach zoho-check --send-test YOUR_GMAIL@gmail.com
+python -m outreach telegram-setup
+```
+
+First run: `prepare --mock` checks the pipeline without Gemini, `prepare` does the real prospect ->
+research -> draft run, `review` is where you approve, and `send --dry-run` previews without sending.
+
+```bash
+python -m outreach prepare --mock
+python -m outreach prepare
 python -m outreach review
 python -m outreach send --dry-run
-python -m pytest -q tests                             # offline tests
 ```
 
 Then install `scripts/crontab.example` on a machine that's on from 09:00 to midnight IST (the US morning is your evening).
