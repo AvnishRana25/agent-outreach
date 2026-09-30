@@ -122,6 +122,16 @@ class ZohoError(RuntimeError):
     pass
 
 
+ZOHO_HINTS = {
+    "invalid_code": ("\n  ZOHO_REFRESH_TOKEN is not a valid refresh token. Usually the one-time code from "
+                     "'Generate Code' was pasted instead. Generate a new code and run: "
+                     "python -m outreach zoho-token <code>"),
+    "invalid_client": ("\n  Client ID/secret not recognised here. Check ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET, and "
+                       "that the Self Client was made at api-console.zoho.in (zoho_dc: in) - a .com client "
+                       "won't work for a zohomail.in account."),
+}
+
+
 class Zoho:
     """Minimal Zoho Mail API client using a Self Client refresh token."""
 
@@ -143,9 +153,17 @@ class Zoho:
             "client_secret": self.client_secret, "grant_type": "refresh_token"}, timeout=30)
         data = r.json()
         if "access_token" not in data:
-            raise ZohoError(f"token refresh failed: {data}")
+            hint = ZOHO_HINTS.get(data.get("error", ""), "")
+            raise ZohoError(f"token refresh failed: {data}{hint}")
         self._token, self._expires = data["access_token"], time.time() + int(data.get("expires_in", 3600))
         return self._token
+
+    def exchange_code(self, code: str) -> dict:
+        """Turn a Self Client grant code (valid a few minutes, usable once) into a refresh token."""
+        r = requests.post(self.accounts_url, params={
+            "code": code.strip(), "client_id": self.client_id, "client_secret": self.client_secret,
+            "grant_type": "authorization_code"}, timeout=30)
+        return r.json()
 
     def call(self, method: str, path: str, **kw) -> dict:
         r = requests.request(method, f"{self.api}{path}", timeout=45,
