@@ -155,7 +155,7 @@ Your facts live in `config/profile.yaml`, and the prompt forbids using anything 
 |---|---|
 | **Days 1-2** (Oct 1-2) | Gmail app password; run the Zoho API test; Gemini key; GitHub Pages portfolio + case study; Cal.com; message your client (permission, testimonial, referral). Fill `profile.yaml` and `settings.yaml`. |
 | **Days 3-4** | `pip install`, `init`, `prepare --mock`, then `prepare` for real. Read 10 drafts critically and tighten `prompts/draft_system.md` and your segment text until you'd happily send every one. Record the Loom. |
-| **Days 5-7** (Mon Oct 5 →) | Sending starts at the week-0 ramp (10/day per inbox). Install the crontab. Daily routine: review at 08:00, LinkedIn 10 touches, replies at lunch and in the evening (US replies arrive in your evening). |
+| **Days 5-7** (Mon Oct 5 →) | Sending starts at the week-0 ramp (10/day per inbox). Run `python -m outreach install` once. Daily routine (all in the dashboard): review at 08:00, LinkedIn 10 touches, replies at lunch and in the evening (US replies arrive in your evening). |
 | **Week 2** (Oct 8-14) | Ramp to 20/day per inbox. Every positive reply gets a plan within 24 hours. **Day 14 checkpoint:** `report`. For any segment under 3% reply rate, rewrite its pain/offer/CTA or cut its quota; move quota to the best segment (keeping India ≤25%). |
 | **Week 3** (Oct 15-21) | Ramp to 30/day. Follow-ups now make up about half the sends. Hand-send a 1-page teardown to the top 5 startups. Aim for 3+ calls this week. |
 | **Week 4** (Oct 22-30) | Close: turn calls into paid pilots, ask every client and every "not now" for one referral, and keep the machine running. Sequences started in late October keep producing replies into November. |

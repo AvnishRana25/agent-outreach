@@ -102,6 +102,9 @@ def test_full_flow_with_zoho_transport(monkeypatch):
                     first_name="Omar", segment="gulf_realestate", status="verified", email_status="valid")
     research.run(10, use_mock=True)
     assert personalize.run(10, use_mock=True) == 1
+    with db.connect() as conn:  # stand-in for a real Gemini draft: mock text is never sent
+        conn.execute("UPDATE messages SET body='Hi Omar, a real draft.', review_note=''")
+        conn.execute("UPDATE leads SET research='{}'")
     assert review.bulk_approve(0) == 1
 
     sent = []
@@ -160,3 +163,39 @@ def test_zoho_token_exchange_and_hints(monkeypatch, capsys):
     box = {"email": "workwithavnish@zohomail.in", "zoho_dc": "in"}
     with pytest.raises(transport.ZohoError, match="zoho-token"):
         transport.zoho(box).token()
+
+
+def test_mock_output_is_purged_and_never_sent(monkeypatch):
+    from outreach import db, personalize, research, review, sender, transport
+    with db.connect() as conn:
+        db.add_lead(conn, email="omar@palmrealty.ae", domain="palmrealty.ae", company="Palm Realty",
+                    first_name="Omar", segment="gulf_realestate", status="verified", email_status="valid")
+    research.run(10, use_mock=True)
+    personalize.run(10, use_mock=True)
+    review.bulk_approve(0)                        # someone approves a placeholder by mistake
+    sent = []
+    monkeypatch.setattr(transport, "send", lambda *a: sent.append(a) or ("<m>", "z"))
+    monkeypatch.setattr(sender.config, "inboxes", lambda: [{"email": "me@zoho.in", "transport": "zoho_api",
+                                                              "max_per_day": 35, "password": ""}])
+    sender.tick(5)
+    assert sent == []
+    with db.connect() as conn:
+        lead = conn.execute("SELECT status, research, email_status FROM leads").fetchone()
+        assert tuple(lead) == ("enriched", "", "unchecked")    # back in line for real research
+        assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
+
+
+def test_email_cleaning_and_junk():
+    from outreach import verify
+    assert verify.clean("u003esupport@propsell.co") == "support@propsell.co"
+    assert verify.clean("%20hello@eternalmedia.co.uk") == "hello@eternalmedia.co.uk"
+    assert verify.check("info@example.com") == "invalid"
+    assert verify.check("accounts@localfame.com") == "invalid"
+    assert verify.check("noreply+x@acme.com") == "invalid"
+
+
+def test_pause_switch(monkeypatch):
+    from outreach import db, sender
+    with db.connect() as conn:
+        db.set_state(conn, "sending_paused", "1")
+    assert sender.tick(5) == 0

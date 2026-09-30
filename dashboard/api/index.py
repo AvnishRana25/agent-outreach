@@ -25,7 +25,8 @@ from urllib.parse import parse_qs, urlparse
 
 SESSION_SECONDS = 14 * 24 * 3600
 FAMILIES = {"review": {"approve", "reject", "regenerate"}, "reply": {"reply_send", "reply_done"},
-            "post": {"post_done"}}
+            "post": {"post_done"}, "run": {"run_prepare"}, "community": {"run_community"},
+            "sending": {"pause_sending", "resume_sending"}, "lead": {"add_lead"}}
 KIND_FAMILY = {k: fam for fam, kinds in FAMILIES.items() for k in kinds}
 MAX_BODY = 100_000
 
@@ -111,6 +112,13 @@ def clean_action(body: dict) -> tuple[str, int, dict]:
         if not text:
             raise ValueError("empty reply")
         payload = {"body": text[:20_000]}
+    elif kind == "add_lead":
+        fields = {"company": 120, "website": 300, "email": 200, "segment": 60, "country": 60, "notes": 1000}
+        payload = {k: str(payload.get(k, "")).strip()[:n] for k, n in fields.items()}
+        if not payload["company"] or not (payload["website"] or payload["email"]):
+            raise ValueError("company plus a website or email are required")
+        if not payload["segment"].replace("_", "").isalnum():
+            raise ValueError("bad segment")
     elif kind == "cancel":
         fam = payload.get("family")
         if fam not in FAMILIES:

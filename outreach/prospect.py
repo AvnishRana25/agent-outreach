@@ -138,6 +138,9 @@ def parse_hn_post(text: str) -> dict:
     company = parts[0] if parts else ""
     if company.upper().startswith(("SEEKING FREELANCER", "SEEKING WORK")):
         company = parts[1] if len(parts) > 1 else ""
+    if len(company) > 40 or company.lower().startswith(("hiring", "we're hiring", "we are hiring")):
+        at = re.search(r"\bat ([A-Z][\w.&'-]*(?: [A-Z][\w.&'-]*){0,3})", company)
+        company = at.group(1) if at else company.split(",")[0][:40]
     return {"company": company[:80], "email": emails[0] if emails else "", "website": site,
             "text": clean, "remote": bool(re.search(r"\bremote\b", clean, re.I))}
 
