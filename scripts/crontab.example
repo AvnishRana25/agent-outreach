@@ -1,31 +1,7 @@
-# Install with: crontab -e   (paste, then fix APP). Times are IST.
-# On a UTC machine keep CRON_TZ (cronie/systemd cron) or convert the hours yourself.
-# Every segment enforces its own business hours (Dubai / London / New York / IST) inside
-# the sender, so a laptop that is on 09:00-midnight IST covers every market: the US morning
-# is your evening.
-CRON_TZ=Asia/Kolkata
-APP=/home/YOU/agent-outreach
-
-# 07:30 Mon-Sat: prospect + enrich + verify + research + draft (then run `review` yourself)
-30 7 * * 1-6  cd $APP && .venv/bin/python -m outreach prepare >> data/cron.log 2>&1
-
-# Every 10 min, 09:00-23:59: send up to 2 due emails
-*/10 9-23 * * *  cd $APP && .venv/bin/python -m outreach send --max 2 >> data/cron.log 2>&1
-
-# Every 20 min, 09:00-23:59: pull replies, stop sequences, draft answers, Telegram ping
-*/20 9-23 * * *  cd $APP && .venv/bin/python -m outreach sync >> data/cron.log 2>&1
-
-# 10:00: list today's hand-sent LinkedIn touches in data/linkedin_today.md
-0 10 * * 1-5  cd $APP && .venv/bin/python -m outreach linkedin >> data/cron.log 2>&1
-
-# Every 30 min, 08:00-01:00: new [Hiring] posts (n8n forum, Reddit) -> drafted reply + Telegram ping
-*/30 8-23,0 * * *  cd $APP && .venv/bin/python -m outreach community >> data/cron.log 2>&1
-
-# 09:45 Mon-Fri: today's Meta Ad Library searches in data/adlibrary_today.md (15 min by hand)
-45 9 * * 1-5  cd $APP && .venv/bin/python -m outreach adlib >> data/cron.log 2>&1
-
-# Every 10 min, 08:00-01:00: apply what you did in the dashboard, then push a fresh snapshot
-*/10 8-23,0 * * *  cd $APP && .venv/bin/python -m outreach dashboard-sync >> data/cron.log 2>&1
+# Not needed on a Mac: `python -m outreach install` sets up the background engine with launchd.
+# Linux: one line runs everything (sending, replies, community, the daily prepare, dashboard sync).
+# Install with `crontab -e` and fix the path.
+*/5 * * * * cd /home/YOU/agent-outreach && .venv/bin/python -m outreach tick >> data/engine.log 2>&1
 
 # Nightly backup of the database
-55 23 * * *  cp $APP/data/outreach.db $APP/data/outreach.$(date +\%a).db
+55 23 * * * cp /home/YOU/agent-outreach/data/outreach.db /home/YOU/agent-outreach/data/outreach.$(date +\%a).db

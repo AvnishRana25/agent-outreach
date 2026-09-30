@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from . import (community, config, dashboard_sync, db, enrich, importer, personalize, prospect, replies, report,
-               research, review, sender, sources, transport, verify)
+from . import (community, config, dashboard_sync, db, engine, enrich, importer, personalize, prospect, replies,
+               report, research, review, sender, sources, transport, verify)
 
 
 def main() -> None:
@@ -74,6 +74,11 @@ def main() -> None:
     p = sub.add_parser("suppress", help="never email this address, or a whole @domain")
     p.add_argument("email")
 
+    sub.add_parser("tick", help="the background engine's 5-minute step (installed by `install`)")
+    p = sub.add_parser("install", help="run the engine (and dashboard) in the background, no terminal needed")
+    p.add_argument("--force", action="store_true", help="install even inside Desktop/Documents/Downloads")
+    sub.add_parser("uninstall", help="remove the background engine")
+
     sub.add_parser("dashboard-sync", help="apply dashboard actions, then push a fresh snapshot (cron, every 10 min)")
 
     p = sub.add_parser("dashboard", help="run the dashboard locally on http://127.0.0.1:8787")
@@ -88,7 +93,23 @@ def main() -> None:
     p.add_argument("--send-test", metavar="EMAIL", help="also send a test email to this address")
 
     args = ap.parse_args()
+    if getattr(args, "mock", False):
+        # --mock never touches real data: it runs on a throwaway copy of the database.
+        import os
+        import shutil
+        real, mock_db = config.db_path(), config.DATA_DIR / "mock.db"
+        mock_db.parent.mkdir(parents=True, exist_ok=True)
+        if real.exists():
+            shutil.copyfile(real, mock_db)
+        elif mock_db.exists():
+            mock_db.unlink()
+        os.environ["OUTREACH_DB"] = str(mock_db)
+        print(f"mock run on {mock_db} (a copy); your real database is untouched")
     db.init()
+    if not getattr(args, "mock", False):
+        with db.connect() as conn:
+            if n := db.purge_mock(conn):
+                print(f"removed placeholder drafts from an earlier --mock run on {n} leads; they will be re-drafted for real")
 
     if args.cmd == "init":
         print("database ready")
@@ -106,19 +127,29 @@ def main() -> None:
     elif args.cmd == "draft":
         print(f"drafted {personalize.run(args.limit, args.mock)} sequences")
     elif args.cmd == "prepare":
-        if not args.skip_prospect:
-            prospect.run()
-        enrich.run(args.limit * 4)
-        print(verify.run())
-        # Research more than we draft: the fit filter drops some.
-        print(research.run(int(args.limit * 1.3), args.mock))
-        print(f"drafted {personalize.run(args.limit, args.mock)} sequences. Next: python -m outreach review")
+        def prepare():
+            found = prospect.run() if not args.skip_prospect else {}
+            enrich.run(args.limit * 4)
+            checked = verify.run()
+            print(checked)
+            # Research more than we draft: the fit filter drops some.
+            researched = research.run(int(args.limit * 1.3), args.mock)
+            print(researched)
+            drafted = personalize.run(args.limit, args.mock)
+            print(f"drafted {drafted} sequences. Next: review them in the dashboard (or python -m outreach review)")
+            new = sum(v for v in found.values() if isinstance(v, int))
+            return f"{new} new companies, {researched.get('researched', 0)} researched, {drafted} drafted"
+        prepare() if args.mock else engine.run_job("prepare", prepare)
     elif args.cmd == "review":
         review.interactive()
     elif args.cmd == "approve":
         print(f"approved {review.bulk_approve(args.min_confidence)} sequences")
     elif args.cmd == "community":
-        print(f"{community.run(args.mock)} new relevant posts -> data/opportunities_today.md")
+        def check_posts():
+            n = community.run(args.mock)
+            print(f"{n} new relevant posts -> data/opportunities_today.md")
+            return f"{n} new relevant posts"
+        check_posts() if args.mock else engine.run_job("community", check_posts)
     elif args.cmd == "post-done":
         with db.connect() as conn:
             conn.execute("UPDATE posts SET status='done' WHERE id=?", (args.post_id,))
@@ -144,6 +175,12 @@ def main() -> None:
         with db.connect() as conn:
             db.suppress(conn, args.email, "manual")
         print(f"suppressed {args.email}")
+    elif args.cmd == "tick":
+        engine.tick()
+    elif args.cmd == "install":
+        engine.install(args.force)
+    elif args.cmd == "uninstall":
+        engine.uninstall()
     elif args.cmd == "dashboard-sync":
         dashboard_sync.sync()
     elif args.cmd == "dashboard":

@@ -12,3 +12,5 @@ data/adlibrary_today.md
 data/adlibrary.csv
 data/dld_offices.csv
 data/cron.log
+data/*.log
+data/*.lock

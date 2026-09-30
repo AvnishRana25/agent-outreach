@@ -144,6 +144,33 @@ def add_lead(conn, **fields) -> bool:
     return True
 
 
+MOCK_MARK = "[MOCK"
+
+
+def is_mock_brief(raw: str) -> bool:
+    try:
+        b = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return False
+    return b.get("fit_reason") == "mock" and str(b.get("company_summary", "")).endswith("(mock)")
+
+
+def purge_mock(conn) -> int:
+    """Undo `--mock` output that reached this database: placeholder drafts are deleted and their leads go
+    back to 'enriched', so real verification, research and drafting run on them. Sent mail is never touched."""
+    ids = {r[0] for r in conn.execute(
+        "SELECT DISTINCT lead_id FROM messages WHERE status IN ('draft','approved','cancelled') "
+        "AND (review_note='mock draft' OR body LIKE '%[MOCK%')")}
+    ids |= {r["id"] for r in conn.execute("SELECT id, research FROM leads WHERE research LIKE '%mock%'")
+            if is_mock_brief(r["research"])}
+    for lead_id in ids:
+        conn.execute("DELETE FROM messages WHERE lead_id=? AND status IN ('draft','approved','cancelled')", (lead_id,))
+        conn.execute("UPDATE leads SET status='enriched', research='', fit=NULL, email_status='unchecked', "
+                     "linkedin_note='', linkedin_dm='', updated_at=? WHERE id=? AND status IN "
+                     "('researched','drafted','approved','unfit','verified')", (now(), lead_id))
+    return len(ids)
+
+
 def get_state(conn, key: str, default: str = "") -> str:
     row = conn.execute("SELECT value FROM prospect_state WHERE key=?", (key,)).fetchone()
     return row[0] if row else default

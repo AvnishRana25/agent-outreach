@@ -59,7 +59,26 @@ python -m outreach review
 python -m outreach send --dry-run
 ```
 
-Then install `scripts/crontab.example` on a machine that's on from 09:00 to midnight IST (the US morning is your evening).
+## Hands-free: run it in the background and use only the dashboard
+
+```bash
+python -m outreach install
+```
+
+This is the last terminal command you need. On a Mac it registers a background job with launchd that runs `python -m outreach tick` every 5 minutes while the Mac is awake and you're logged in. When the dashboard variables are set in `.env`, it also keeps the dashboard running at http://127.0.0.1:8787. On Linux it prints the one crontab line to add instead.
+
+Each tick:
+- applies what you did in the dashboard;
+- sends due emails inside each market's hours;
+- reads replies every 20 minutes and checks community boards every 30;
+- runs `prepare` (find, research, draft) every morning at 07:30, Mon-Sat;
+- pushes a fresh snapshot to the dashboard.
+
+In the dashboard's **Engine** tab you can pause or resume sending, run "find & draft" or the community check now, see each job's last result and output, open today's Ad Library searches and add advertisers, and copy today's LinkedIn texts.
+
+macOS blocks background jobs from reading `~/Desktop`, `~/Documents` and `~/Downloads`, so `install` refuses to run from there and prints the commands to move the project to `~/agent-outreach`. To stop it: `python -m outreach uninstall`.
+
+`--mock` runs (`prepare --mock` etc.) work on a throwaway copy, `data/mock.db`, and never change real data. Placeholder text is also blocked from ever being sent.
 
 ## Sending: Gmail vs Zoho
 - **Gmail** (`transport: smtp`): free, and works with an app password. Replies are read over IMAP and drafted answers land in Gmail Drafts.
@@ -78,7 +97,7 @@ Setup, about 10 minutes:
    - **Environment variables:** `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `DASHBOARD_PASSWORD` (long; anyone with it can send replies from your inbox) and `SESSION_SECRET` (generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"`).
    - Deploy.
    - Vercel publishes the repo's default branch as production. If this code is still on another branch, merge it or set Settings -> Git -> Production Branch.
-3. Add the `dashboard-sync` line from `scripts/crontab.example`.
+3. Run `python -m outreach install`. The engine's tick syncs the dashboard every 5 minutes.
 
 To use it without Vercel: `python -m outreach dashboard` serves the same page at http://127.0.0.1:8787 (it needs the four variables above in `.env`).
 

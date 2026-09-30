@@ -103,7 +103,10 @@ def seed():
                     segment="uk_agencies", status="replied", email_status="valid")
     research.run(10, use_mock=True)
     assert personalize.run(10, use_mock=True) == 1
-    with db.connect() as conn:
+    with db.connect() as conn:  # stand-in for real Gemini output: mock text is purged by design
+        conn.execute("UPDATE messages SET body='Hi Omar, a real draft about your WhatsApp leads.', review_note=''")
+        conn.execute("UPDATE leads SET research=? WHERE research != ''",
+                     ('{"company_summary": "Dubai brokerage", "best_hook": "WhatsApp ads", "fit_reason": "clear gap"}',))
         sam = conn.execute("SELECT id FROM leads WHERE email='sam@acme.io'").fetchone()[0]
         conn.execute("INSERT INTO replies (lead_id, inbox, imap_uid, message_id, from_addr, subject, body, received_at,"
                      " category, summary, suggested_reply) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -211,3 +214,34 @@ def test_port_in_use_gives_advice(env):
     with pytest.raises(SystemExit) as e:
         dashboard_local.serve(env)            # the fixture's server already holds this port
     assert "already in use" in str(e.value) and f"--port {env + 1}" in str(e.value)
+
+
+def test_engine_controls_round_trip(env, monkeypatch):
+    port = env
+    from outreach import dashboard_sync, db, engine
+    seed()
+    spawned = []
+    monkeypatch.setattr(engine, "spawn", lambda job: spawned.append(job) or "started")
+    dashboard_sync.sync()
+    cookie = call(port, "POST", "/api/login", {"password": "correct horse battery"})[2].split(";")[0]
+    data = call(port, "GET", "/api/data", cookie=cookie)[1]
+    assert data["engine"]["sending_paused"] is False and len(data["engine"]["adlib"]) >= 1
+    assert "gulf_realestate" in data["engine"]["segments"]
+
+    assert call(port, "POST", "/api/action", {"kind": "add_lead", "target": 77, "payload": {"company": "X"}},
+                cookie=cookie)[0] == 400                       # needs a website or email
+    for body in ({"kind": "run_prepare", "target": 1}, {"kind": "pause_sending", "target": 1},
+                 {"kind": "add_lead", "target": 77, "payload": {"company": "Palm Homes", "website": "palmhomes.ae",
+                                                                 "segment": "gulf_realestate", "notes": "WhatsApp ad for 1BR"}},
+                 {"kind": "add_lead", "target": 78, "payload": {"company": "Bad", "website": "bad.ae", "segment": "nope"}}):
+        assert call(port, "POST", "/api/action", body, cookie=cookie)[0] == 200
+    dashboard_sync.sync()
+    assert spawned == ["prepare"]
+    with db.connect() as conn:
+        assert db.get_state(conn, "sending_paused") == "1"
+        lead = conn.execute("SELECT * FROM leads WHERE domain='palmhomes.ae'").fetchone()
+        assert lead["source"] == "adlibrary" and lead["website"] == "https://palmhomes.ae"
+        assert "WhatsApp ad for 1BR" in lead["source_text"]
+    acts = {a["kind"] + str(a["target"]): a for a in call(port, "GET", "/api/data", cookie=cookie)[1]["actions"]}
+    assert acts["add_lead78"]["status"] == "error" and "unknown segment" in acts["add_lead78"]["result"]
+    assert call(port, "GET", "/api/data", cookie=cookie)[1]["engine"]["sending_paused"] is True

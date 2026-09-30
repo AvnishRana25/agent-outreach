@@ -494,6 +494,15 @@ ADLIB_URL = ("https://www.facebook.com/ads/library/?active_status=active&ad_type
              "&q={q}&search_type=keyword_unordered&media_type=all")
 
 
+def adlibrary_searches() -> list[dict]:
+    from urllib.parse import quote
+    cfg = config.settings().get("adlibrary", {})
+    searches = [(c, k) for c in cfg.get("countries", ["AE", "IN"]) for k in cfg.get("keywords", ["real estate"])]
+    day = datetime.now().timetuple().tm_yday
+    todays = [searches[(day * 3 + i) % len(searches)] for i in range(min(3, len(searches)))]
+    return [{"country": c, "keyword": k, "url": ADLIB_URL.format(country=c, q=quote(k))} for c, k in todays]
+
+
 def adlibrary_tasks(path: Path) -> int:
     """Write today's Ad Library searches. Automated collection isn't allowed there, so you browse,
     and paste advertisers into data/adlibrary.csv for `import --source adlibrary`."""

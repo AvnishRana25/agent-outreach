@@ -13,7 +13,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from . import community, config, db, firecrawl, personalize, replies, report, review, sender, turso
+from . import community, config, db, engine, firecrawl, importer, personalize, replies, report, review, sender, sources, turso
 
 REMOTE_SCHEMA = [
     """CREATE TABLE IF NOT EXISTS dash_items (
@@ -95,8 +95,53 @@ def _post_done(target: int, payload: dict) -> str:
     return "done"
 
 
+def _run(job: str):
+    return lambda target, payload: engine.spawn(job)
+
+
+def _pause(target: int, payload: dict) -> str:
+    with db.connect() as conn:
+        db.set_state(conn, "sending_paused", "1")
+    return "sending paused"
+
+
+def _resume(target: int, payload: dict) -> str:
+    with db.connect() as conn:
+        db.set_state(conn, "sending_paused", "0")
+    return "sending resumed"
+
+
+def _add_lead(target: int, payload: dict) -> str:
+    """A company added from the dashboard (usually an Ad Library advertiser)."""
+    company = str(payload.get("company", "")).strip()[:120]
+    website = str(payload.get("website", "")).strip()[:300]
+    email = str(payload.get("email", "")).strip().lower()[:200]
+    segment = str(payload.get("segment", "")).strip()
+    notes = str(payload.get("notes", "")).strip()[:1000]
+    if segment not in config.settings()["segments"]:
+        return f"error: unknown segment {segment!r}"
+    if not company or not (website or email):
+        return "error: company plus a website or email are required"
+    if website and "://" not in website:
+        website = "https://" + website
+    with db.connect() as conn:
+        ok = db.add_lead(conn, company=company, website=website, domain=importer.domain_of(website, email),
+                         email=email or None, email_source="dashboard" if email else "", segment=segment,
+                         country=str(payload.get("country", "")).strip()[:60] or config.segment(segment).get("country", ""),
+                         source="adlibrary", notes=notes,
+                         source_text=f"Seen in Meta Ad Library running active ads: {notes}" if notes else "")
+    return "added; it's researched and drafted on the next run" if ok else "skipped: already known or suppressed"
+
+
 APPLY = {"approve": _approve, "reject": _reject, "regenerate": _regenerate,
-         "reply_send": _reply_send, "reply_done": _reply_done, "post_done": _post_done}
+         "reply_send": _reply_send, "reply_done": _reply_done, "post_done": _post_done,
+         "run_prepare": _run("prepare"), "run_community": _run("community"),
+         "pause_sending": _pause, "resume_sending": _resume, "add_lead": _add_lead}
+
+
+def pull_safe() -> int:
+    init_remote()
+    return pull()
 
 
 def pull() -> int:
@@ -182,11 +227,38 @@ def _health(conn) -> dict:
             "today": today.isoformat()}
 
 
+def _tail(name: str, lines: int = 25) -> str:
+    path = config.DATA_DIR / name
+    if not path.exists():
+        return ""
+    with path.open("rb") as f:
+        f.seek(0, 2)
+        f.seek(max(0, f.tell() - 12_000))
+        return "\n".join(f.read().decode(errors="replace").splitlines()[-lines:])
+
+
+def _engine(conn) -> dict:
+    return {"heartbeat": db.get_state(conn, "engine:heartbeat") or None,
+            "sending_paused": db.get_state(conn, "sending_paused") == "1",
+            "jobs": {j: {**engine.job_state(conn, j), "running": engine.is_running(j), "log": _tail(f"{j}.log")}
+                     for j in engine.JOBS},
+            "segments": {k: v.get("audience", "").strip()[:140] for k, v in config.settings()["segments"].items()}}
+
+
+def _linkedin_items(conn) -> list[dict]:
+    rows = conn.execute("SELECT id, company, first_name, last_name, linkedin_note, linkedin_dm FROM leads WHERE "
+                        "linkedin_note != '' AND status IN ('approved','active') AND date(updated_at) >= "
+                        "date('now','-2 day') ORDER BY fit DESC LIMIT 15").fetchall()
+    return [dict(r) for r in rows]
+
+
 def snapshot() -> dict:
     with db.connect() as conn:
+        db.purge_mock(conn)
         return {"review": _review_items(conn), "reply": _reply_items(conn), "post": _post_items(conn),
                 "stats": {"segments": report.funnel(conn, "segment"), "sources": report.funnel(conn, "source")},
-                "health": _health(conn)}
+                "health": _health(conn),
+                "engine": {**_engine(conn), "adlib": sources.adlibrary_searches(), "linkedin": _linkedin_items(conn)}}
 
 
 def push(snap: dict | None = None) -> dict:
@@ -197,7 +269,7 @@ def push(snap: dict | None = None) -> dict:
             sort = str(item.get("received_at") or item.get("posted_at") or item.get("confidence") or "")
             stmts.append(("INSERT INTO dash_items (kind, id, sort, data) VALUES (?,?,?,?)",
                           (kind, str(item["id"]), sort, json.dumps(item, default=str))))
-    for key in ("stats", "health"):
+    for key in ("stats", "health", "engine"):
         stmts.append(("INSERT OR REPLACE INTO dash_meta (key, value) VALUES (?,?)", (key, json.dumps(snap[key]))))
     stmts.append(("INSERT OR REPLACE INTO dash_meta (key, value) VALUES (?,?)",
                   ("synced_at", json.dumps(datetime.now(timezone.utc).isoformat(timespec="seconds")))))

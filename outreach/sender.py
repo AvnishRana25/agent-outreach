@@ -78,6 +78,10 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
     boxes = {b["email"]: b for b in config.inboxes() if b.get("enabled", True)}
     sent = 0
     with db.connect() as conn:
+        db.purge_mock(conn)
+        if db.get_state(conn, "sending_paused") == "1":
+            print("  sending is paused from the dashboard")
+            return 0
         paused = set()
         for email in boxes:
             bounced, total = _bounce_rate(conn, email)
@@ -88,6 +92,9 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
         for msg in _candidates(conn, now.isoformat()):
             if sent >= max_sends:
                 break
+            if db.MOCK_MARK in (msg["body"] or "") or (msg["subject"] or "").startswith("[mock"):
+                conn.execute("UPDATE messages SET status='cancelled' WHERE id=?", (msg["id"],))
+                continue
             seg = config.segment(msg["segment"])
             if not in_window(seg, now):
                 continue

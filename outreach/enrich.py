@@ -103,8 +103,12 @@ def analyse(website: str) -> tuple[dict, str]:
     soup = BeautifulSoup(home, "html.parser")
     meta = soup.find("meta", attrs={"name": "description"})
     found = {k: bool(re.search(p, raw, re.I)) for k, p in DETECTORS.items()}
-    emails = sorted({e.lower() for e in EMAIL_RE.findall(raw + " " + " ".join(t for _, t in pages.values()))
-                     if not e.lower().endswith((".png", ".jpg", ".webp", ".svg", ".gif"))})
+    from .verify import JUNK_LOCAL, PLACEHOLDER_DOMAINS, clean
+    found_raw = EMAIL_RE.findall(raw.replace("\\u003e", " ").replace("\\u003c", " ").replace("%20", " ")
+                                 + " " + " ".join(t for _, t in pages.values()))
+    emails = sorted({c for c in map(clean, found_raw)
+                     if c and not c.endswith((".png", ".jpg", ".webp", ".svg", ".gif"))
+                     and c.split("@")[1] not in PLACEHOLDER_DOMAINS and c.split("@")[0] not in JUNK_LOCAL})
     sig = {
         "reachable": True,
         "title": (soup.title.string or "").strip()[:150] if soup.title and soup.title.string else "",
