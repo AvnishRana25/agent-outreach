@@ -24,3 +24,28 @@ def _no_web_search(monkeypatch):
     monkeypatch.setattr(processor, "search_github_domain_emails", lambda domain, limit=5: {})
     if hasattr(processor, "search_github_user_email"):
         monkeypatch.setattr(processor, "search_github_user_email", lambda name, domain: (None, None))
+
+
+@pytest.fixture(autouse=True)
+def isolate_test_config(monkeypatch):
+    """Ensure local user settings.yaml does not leak into unit tests expecting default example settings."""
+    from outreach import config
+    orig_load = config._load_yaml
+
+    def _test_load_yaml(name: str) -> dict:
+        if name == "settings.yaml" and config.CONFIG_DIR == config.ROOT / "config":
+            return orig_load("settings.example.yaml")
+        return orig_load(name)
+
+    monkeypatch.setattr(config, "_load_yaml", _test_load_yaml)
+    if hasattr(config.settings, "cache_clear"):
+        config.settings.cache_clear()
+    if hasattr(config.profile, "cache_clear"):
+        config.profile.cache_clear()
+    yield
+    if hasattr(config.settings, "cache_clear"):
+        config.settings.cache_clear()
+    if hasattr(config.profile, "cache_clear"):
+        config.profile.cache_clear()
+
+

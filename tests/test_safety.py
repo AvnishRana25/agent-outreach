@@ -170,7 +170,9 @@ def test_uncertain_send_is_not_retried_and_dry_run_is_read_only(monkeypatch):
 
 
 def test_disallowed_market_stays_queued(monkeypatch):
-    from outreach import db, sender, transport
+    from outreach import config, db, sender, transport
+    settings = config.settings()
+    monkeypatch.setattr(config, "settings", lambda: {**settings, "sending": {**settings["sending"], "allowed_segments": ["uk_agencies"]}})
     with db.connect() as conn:
         lid = _lead(conn, status="approved", fit=7, email_source="website")
         conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence) "
