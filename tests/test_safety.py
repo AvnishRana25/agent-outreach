@@ -10,6 +10,7 @@ import pytest
 def tmp_db(tmp_path, monkeypatch):
     monkeypatch.setenv("OUTREACH_DB", str(tmp_path / "t.db"))
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     from outreach import db
     db.init()
 
@@ -131,3 +132,67 @@ def test_internship_emails_may_say_internship():
     freelance = personalize.system_prompt("gulf_realestate")
     assert '"intern"' not in intern and "internship or contract role" in intern
     assert '"intern"' in freelance and '"student"' in freelance and '"student"' in intern
+
+
+def test_drafting_falls_back_to_lite_models_when_the_big_ones_are_out(monkeypatch):
+    from outreach import llm
+    monkeypatch.setattr(llm, "_skip", set())
+    monkeypatch.setattr(llm, "BUSY_WAIT", 0)
+    monkeypatch.setattr(llm, "_state", lambda update=None: {"calls": {}, "limits": {}, "out": {"gemini-3.5-flash": "quota"}})
+    big = {"gemini-3.8-flash", "gemini-flash-latest", "gemini-3.7-flash", "gemini-3.6-flash"}
+    monkeypatch.setattr(llm, "_try", lambda m, *a: ("busy",) if m in big else ("ok", m))
+    assert llm.generate("s", "p", object, kind="draft") == "gemini-3.1-flash-lite"
+
+
+class _Resp:
+    def __init__(self, status, payload=None, text="", headers=None):
+        self.status_code, self._payload, self.headers = status, payload, headers or {}
+        self.text = text or (__import__("json").dumps(payload) if payload is not None else "")
+        self.ok = status < 400
+
+    def json(self):
+        return self._payload
+
+
+def test_groq_takes_over_when_gemini_cannot_answer(monkeypatch):
+    import json
+    from outreach import groq, llm, research
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    monkeypatch.setenv("GROQ_RPM", "100000")
+    monkeypatch.setattr(llm, "_skip", set())
+    monkeypatch.setattr(llm, "BUSY_WAIT", 0)
+    state = {"calls": {}, "limits": {}, "out": {}}
+
+    def fake_state(update=None):
+        if update:
+            update(state)
+        return state
+    monkeypatch.setattr(llm, "_state", fake_state)
+    monkeypatch.setattr(llm, "_try", lambda m, *a: ("quota",))         # every Gemini model is out
+    brief = {"company_summary": "s", "facts": [], "pains": [], "best_hook": "h", "proof_id": "re_pipeline",
+             "angle": "a", "contact_first_name": "", "contact_role": "Founder", "fit_score": 8, "fit_reason": "r"}
+    sent = []
+
+    def post(url, json, timeout, headers):
+        sent.append(json)
+        if json["model"] == groq.MODELS[0]:                              # first Groq model: out for the day
+            return _Resp(429, text="Rate limit reached for model on requests per day (RPD)")
+        return _Resp(200, {"choices": [{"message": {"content": __import__("json").dumps(brief)}}]})
+    monkeypatch.setattr(groq.requests, "post", post)
+    out = llm.generate("system", "prompt", research.Brief, kind="research")
+    assert out.fit_score == 8
+    assert sent[0]["response_format"] == {"type": "json_object"} and "fit_score" in sent[0]["messages"][0]["content"]
+    assert state["out"]["groq/" + groq.MODELS[0]] == "quota" and state["calls"]["groq/" + groq.MODELS[1]] == 1
+    assert llm.status()["backup"][0] == "groq/" + groq.MODELS[0]
+    json.dumps(llm.status())
+
+
+def test_without_a_groq_key_gemini_limits_still_stop_the_job(monkeypatch):
+    from outreach import llm
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setattr(llm, "_skip", set())
+    monkeypatch.setattr(llm, "_state", lambda update=None: {"calls": {}, "limits": {}, "out": {}})
+    monkeypatch.setattr(llm, "_try", lambda m, *a: ("quota",))
+    with pytest.raises(llm.QuotaExhausted):
+        llm.generate("s", "p", object, kind="draft")
+    assert llm.status()["backup"] == []
