@@ -84,6 +84,7 @@ def run() -> dict:
     with db.connect() as conn:
         rows = conn.execute("SELECT * FROM leads WHERE status = 'enriched'").fetchall()
         for row in rows:
+            conn.commit()  # each lead is its own transaction: the DNS checks below must not hold the database
             email = clean(row["email"] or "") or None
             if email != row["email"]:
                 if email and conn.execute("SELECT 1 FROM leads WHERE email=? AND id!=?", (email, row["id"])).fetchone():

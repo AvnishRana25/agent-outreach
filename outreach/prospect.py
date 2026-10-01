@@ -86,6 +86,7 @@ def run_yc(job: dict) -> int:
             dom = domain_of(c["website"])
             if not dom or conn.execute("SELECT 1 FROM leads WHERE domain=?", (dom,)).fetchone():
                 continue
+            conn.commit()  # never hold the database while waiting on the network
             founders = _yc_founders(c.get("slug", "")) if job.get("fetch_founders", True) else []
             first, last = (founders[0].split(" ", 1) + [""])[:2] if founders else ("", "")
             text = (f"YC {c.get('batch')} | team {c.get('team_size')} | {', '.join(c.get('regions') or [])}\n"
@@ -244,6 +245,7 @@ def run_osm(job: dict) -> int:
             bbox = (config.settings().get("cities") or {}).get(city)
             if not bbox:
                 continue
+            conn.commit()  # never hold the database while waiting on the network
             elements = fetch_overpass(overpass_query(bbox, job["tags"]))
             for biz in parse_osm(elements):
                 if added >= job.get("max_new", 30):
@@ -256,6 +258,7 @@ def run_osm(job: dict) -> int:
                                city=city, country=job.get("country", ""), segment=job["segment"],
                                source="osm", source_text=f"OpenStreetMap listing in {city}: {biz['desc']}"):
                     added += 1
+            conn.commit()
             time.sleep(2)  # Overpass fair-use
     return added
 

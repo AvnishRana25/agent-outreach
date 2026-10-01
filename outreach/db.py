@@ -128,13 +128,25 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+_wal_set: dict[str, bool] = {}
+
+
 @contextmanager
 def connect():
     path = config.db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    # Several processes share this file (engine run, inbox/assist/prepare jobs, dashboard). WAL lets reads
+    # carry on while one process writes, and a writer waits up to 30 s for its turn instead of failing.
+    conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
+    if not _wal_set.get(str(path)):
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")   # persistent; once per file per process is enough
+            _wal_set[str(path)] = True
+        except sqlite3.OperationalError:
+            pass
     try:
         yield conn
         conn.commit()
