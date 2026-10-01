@@ -200,6 +200,11 @@ def report_config_error(err: str) -> None:
                                                                                   "text": err})))]))
 
 
+def _provider_balances():
+    from .prospecting.providers import budget
+    return budget.sync_balances()
+
+
 def _tick(dashboard_sync, growth, review, sender, sources) -> None:
     err = config.check()
     if err:
@@ -238,6 +243,7 @@ def _tick(dashboard_sync, growth, review, sender, sources) -> None:
     if need_daily:
         _step("ad library", lambda: sources.adlibrary_tasks(config.DATA_DIR / "adlibrary_today.md"))
         _step("linkedin", lambda: review.linkedin_tasks(config.DATA_DIR / "linkedin_today.md"))
+        _step("provider balances", _provider_balances)
     if dashboard_on:
         _step("dashboard push", lambda: dashboard_sync.push())
     with db.connect() as conn:

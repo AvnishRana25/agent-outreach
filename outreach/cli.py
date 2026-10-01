@@ -88,6 +88,7 @@ def main() -> None:
     sub.add_parser("doctor", help="check why the engine isn't running")
     sub.add_parser("groq-check", help="test the Groq backup key with one tiny request per model")
     sub.add_parser("sources-check", help="fetch every lead source once and show what's fresh (adds nothing)")
+    sub.add_parser("providers-check", help="Prospeo/Hunter/Skrapp: real balances (free calls) and this month's budget")
     p = sub.add_parser("install", help="run the engine (and dashboard) in the background, no terminal needed")
     p.add_argument("--force", action="store_true", help="install even inside Desktop/Documents/Downloads")
     p.add_argument("--port", type=int, default=None, help="dashboard port (default: DASHBOARD_PORT from .env, else 7347)")
@@ -257,6 +258,12 @@ def main() -> None:
         groq_check()
     elif args.cmd == "sources-check":
         sources_check()
+    elif args.cmd == "providers-check":
+        from .prospecting.providers import budget
+        print("Real balances (account endpoints, no credits used):", budget.sync_balances() or "no keys set")
+        for name, st in budget.summary().items():
+            print(f"  {name:<8} this month {st['used_month']}/{st['usable_monthly']} (plan {st['plan_monthly']}), "
+                  f"today {st['used_today']}/{st['daily_cap']}" + (f", PAUSED: {st['paused']}" if st['paused'] else ""))
     elif args.cmd == "install":
         engine.install(args.force, args.port)
     elif args.cmd == "uninstall":

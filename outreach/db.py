@@ -157,6 +157,7 @@ def init() -> None:
             "messages": ["provider_id TEXT", "approved_by TEXT DEFAULT ''", "hold TEXT DEFAULT ''",
                          "override INTEGER DEFAULT 0", "attempts INTEGER DEFAULT 0"],
             "replies": ["plan TEXT DEFAULT ''"],
+            "provider_credits": ["lookup_key TEXT DEFAULT ''"],
         }.items():
             have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
             for col in cols:

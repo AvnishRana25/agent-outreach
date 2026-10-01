@@ -2,12 +2,9 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
 from abc import ABC, abstractmethod
 
 from ..models import ProviderResult
-from ..config import provider_monthly_limit
-from ... import db
 
 
 class BaseProvider(ABC):
@@ -25,37 +22,14 @@ class BaseProvider(ABC):
         return os.getenv(self.api_key_env, "").strip()
 
     def credits_used_this_month(self) -> int:
-        """Query database for credits consumed by this provider in the current calendar month."""
-        start_of_month = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-        try:
-            with db.connect() as conn:
-                row = conn.execute(
-                    "SELECT COALESCE(SUM(credits_used), 0) FROM provider_credits "
-                    "WHERE provider=? AND request_timestamp >= ?",
-                    (self.name, start_of_month)
-                ).fetchone()
-                return int(row[0]) if row else 0
-        except Exception:
-            return 0
+        from . import budget
+        return budget.status(self.name)["used_month"]
 
     def has_credits_remaining(self) -> bool:
-        """Check if usage is below configured monthly limit."""
-        limit = provider_monthly_limit(self.name)
-        used = self.credits_used_this_month()
-        return used < limit
-
-    def record_usage(self, credits_used: int = 1, result: str = "", prospect_id: int | None = None) -> None:
-        """Persist credit consumption event in database."""
-        now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        try:
-            with db.connect() as conn:
-                conn.execute(
-                    "INSERT INTO provider_credits (provider, credits_used, request_timestamp, result, prospect_id) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (self.name, credits_used, now_iso, result, prospect_id)
-                )
-        except Exception:
-            pass
+        """True while this month's and today's budgets have room (see budget.py)."""
+        from . import budget
+        st = budget.status(self.name)
+        return not st["paused"] and st["left_month"] > 0 and st["used_today"] < st["daily_cap"]
 
     @abstractmethod
     def find_email(

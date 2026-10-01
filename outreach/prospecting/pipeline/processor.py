@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from ..models import (
     ProspectInput,
@@ -11,7 +11,8 @@ from ..models import (
     Evidence
 )
 from ..config import (
-    CONFIDENCE_TO_SKIP_PROVIDERS
+    CONFIDENCE_TO_SKIP_PROVIDERS,
+    THRESHOLD_HIGH,
 )
 from ..domain import resolve_domain
 from ..discovery import (
@@ -35,6 +36,28 @@ from ..validation import (
 )
 from ..providers import query_fallback_providers
 from ... import db
+
+
+EXACT_SEARCHES = 3   # web searches for guessed addresses, per person
+CACHE_DAYS = 90      # a company's learned address pattern is re-checked after this
+
+
+def provider_skip_reason(allowed: bool, res: ProspectResult, first: str, last: str, catch_all: bool) -> str:
+    """Why the paid-tier providers are NOT asked about this person ('' = ask). Credits are scarce, so they
+    are only used when they can change the answer."""
+    if not allowed:
+        return "providers turned off for this run"
+    if res.confidence_score >= CONFIDENCE_TO_SKIP_PROVIDERS:
+        return f"already {res.confidence_score}% confident without them"
+    if any(ev.type == "exact_public_match" for ev in res.evidence):
+        return "the address is published publicly"
+    if not (first and last):
+        return "first and last name are both needed for a reliable lookup"
+    if catch_all:
+        return "the domain accepts every address, so providers can't verify it either"
+    if res.role_email:
+        return "generic role address"
+    return ""
 
 
 class ProspectProcessor:
@@ -104,7 +127,8 @@ class ProspectProcessor:
             try:
                 with db.connect() as conn:
                     c_row = db.get_prospect_domain_cache(conn, domain)
-                    if c_row:
+                    fresh = (c_row or {}).get("updated_at", "") >= (datetime.now(timezone.utc) - timedelta(days=CACHE_DAYS)).isoformat()
+                    if c_row and fresh:
                         cached_pattern = c_row.get("detected_pattern")
                         cached_conf = float(c_row.get("pattern_confidence") or 0.0)
                         try:
@@ -153,7 +177,7 @@ class ProspectProcessor:
                         pattern_confidence=pattern_confidence,
                         known_emails=json.dumps(known_emails),
                         mx_valid=1 if has_mx else 0,
-                        catch_all=1 if is_catch_all else 0
+                        is_catch_all=1 if is_catch_all else 0
                     )
             except Exception:
                 pass
@@ -179,6 +203,10 @@ class ProspectProcessor:
         scored_candidates: list[CandidateEmail] = []
         conflicting_patterns = (len(pattern_data.get("counts", {})) > 1 and pattern_confidence < 0.70)
 
+        # Web-searching each guessed address is slow (one search each): only the top few, and none when the
+        # company's pattern is already well established.
+        strong_pattern = bool(dominant_pattern and pattern_confidence >= 0.8 and (match_count >= 2 or cached_pattern))
+        searchable = set() if strong_pattern else {c.email for c in candidates[:EXACT_SEARCHES]}
         for cand in candidates:
             exact_public = False
             public_url = None
@@ -193,8 +221,7 @@ class ProspectProcessor:
             elif github_user_email and cand.email == github_user_email:
                 exact_public = True
                 public_url = github_user_url
-            else:
-                # Targeted check for top candidate
+            elif cand.email in searchable:
                 has_exact, exact_url = search_exact_candidate_email(cand.email)
                 if has_exact:
                     exact_public = True
@@ -237,22 +264,37 @@ class ProspectProcessor:
         if any(ev.type == "exact_public_match" for ev in res.evidence):
             res.source = "public_match"
 
-        # Step 9: Use external free-tier APIs only when confidence is insufficient
-        if self.allow_providers and res.confidence_score < CONFIDENCE_TO_SKIP_PROVIDERS:
+        # A pattern a provider verified at this company (see _learn_pattern) is strong evidence on its own.
+        if (cached_pattern and cached_conf >= 0.9 and top.pattern == cached_pattern and not is_catch_all
+                and res.confidence_score < 80):
+            res.evidence.append(Evidence(type="verified_company_pattern", weight=80 - res.confidence_score,
+                                         detail=f"Matches the '{cached_pattern}' pattern a provider verified at {domain}"))
+            res.confidence_score = 80
+
+        # Step 9: paid-tier providers (free plans, tightly budgeted), only when they can change the answer
+        skip = provider_skip_reason(self.allow_providers, res, first, last, is_catch_all)
+        if skip:
+            res.evidence.append(Evidence(type="providers_not_used", detail=skip, weight=0))
+        else:
             provider_res = query_fallback_providers(first, last, company, domain)
             if provider_res and provider_res.email:
-                # If provider returned email with higher confidence, upgrade result
-                if provider_res.confidence > res.confidence_score:
+                if provider_res.email == res.final_email:      # it confirms our own best guess
+                    new_score = max(res.confidence_score, provider_res.confidence, THRESHOLD_HIGH)
+                    detail = f"{provider_res.provider} confirmed this address (score {provider_res.confidence})"
+                elif provider_res.status in ("verified", "remembered") or provider_res.confidence > res.confidence_score:
+                    new_score = provider_res.confidence
+                    detail = f"Found by {provider_res.provider} (score {provider_res.confidence})"
                     res.final_email = provider_res.email
-                    res.confidence_score = provider_res.confidence
+                    res.source = f"provider_{provider_res.provider}"
+                else:
+                    new_score, detail = None, ""
+                if new_score is not None:
+                    res.evidence.append(Evidence(type="fallback_provider", detail=detail,
+                                                 weight=new_score - res.confidence_score))
+                    res.confidence_score = new_score
                     res.verification_provider = provider_res.provider
                     res.verification_result = provider_res.status
-                    res.source = f"provider_{provider_res.provider}"
-                    res.evidence.append(Evidence(
-                        type="fallback_provider",
-                        detail=f"Resolved via {provider_res.provider} fallback with score {provider_res.confidence}",
-                        weight=provider_res.confidence - top.score
-                    ))
+                    self._learn_pattern(first, last, domain, provider_res.email, known_emails, has_mx, is_catch_all)
 
         # Step 10: Classify final status and save results
         conf_level, status = classify_confidence(res.confidence_score)
@@ -260,6 +302,19 @@ class ProspectProcessor:
         res.email_status = status
 
         return self._save_and_return(res)
+
+    def _learn_pattern(self, first, last, domain, email, known_emails, has_mx, is_catch_all) -> None:
+        """One provider hit teaches the company's address pattern, so the next person there costs nothing."""
+        match = next((c for c in generate_candidates(first, last, domain) if c.email == email), None)
+        if not match or not self.use_cache:
+            return
+        try:
+            with db.connect() as conn:
+                db.set_prospect_domain_cache(conn, domain=domain, detected_pattern=match.pattern, pattern_confidence=0.9,
+                                             known_emails=json.dumps(sorted(set(known_emails) | {email})),
+                                             mx_valid=1 if has_mx else 0, is_catch_all=1 if is_catch_all else 0)
+        except Exception:
+            pass
 
     def _save_and_return(self, res: ProspectResult) -> ProspectResult:
         """Persist result to database and attach inserted ID."""
@@ -304,8 +359,8 @@ class ProspectProcessor:
                 else:
                     new_id = db.add_prospect(conn, **fields)
                     res.id = new_id
-        except Exception:
-            pass
+        except Exception as e:  # keep the result for the caller, but say why it wasn't stored
+            print(f"  ! could not save prospect {res.full_name} @ {res.domain}: {type(e).__name__}: {e}")
         return res
 
 
