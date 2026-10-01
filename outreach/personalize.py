@@ -6,11 +6,14 @@ sequence. The system prompt lives in prompts/draft_system.md; edit it there.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
 from . import config, db, llm
+from .sources import rejects_ai_application
 
 
 class FollowUp(BaseModel):
@@ -104,9 +107,75 @@ def mock(row) -> Sequence:
         linkedin_note="[mock note]", linkedin_dm="[mock dm]", confidence=0.0, review_note="mock draft")
 
 
-def pick_leads(conn, limit: int) -> list:
+def _auto_sequence(row) -> Sequence | None:
+    """Fixed copy for recent leads with independently checked company identity."""
+    sending = config.settings()["sending"]
+    segment = row["segment"]
+    if (int(sending.get("auto_approve_daily_cap", 0)) <= 0
+            or segment not in sending.get("auto_approve_segments", [])
+            or segment not in sending.get("allowed_segments", [])
+            or row["email_status"] != "valid" or row["email_source"] not in ("website", "post")
+            or row["fit"] is None or row["fit"] < 6
+            or not all(row[k] for k in ("email", "company", "website", "source_text", "site_text", "created_at"))
+            or len(row["company"]) > 60 or re.search(r"[\r\n]", row["company"])
+            or any(rejects_ai_application(row[k] or "") for k in ("source_text", "site_text", "notes", "research"))):
+        return None
+    try:
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(row["created_at"])
+        host = (urlparse(row["website"]).hostname or "").removeprefix("www.").lower()
+    except (TypeError, ValueError):
+        return None
+    if not timedelta(0) <= age <= timedelta(days=30) or row["email"].split("@")[-1].lower() != host:
+        return None
+
+    if segment == "uk_agencies":
+        number = re.search(r"company no\.\s*([A-Z0-9]+)", row["source_text"], re.I)
+        if (row["source"] != "companies_house" or not number
+                or number.group(1).lower() not in row["site_text"].lower()
+                or "agency" not in row["site_text"].lower()):
+            return None
+        subject = f"A small integration for {row['company']}"
+        body = (f"Hi {row['company']} team,\n\nI build CRM integrations and WhatsApp follow-up workflows for small agencies. "
+                "For a real-estate brokerage, I built a production lead-handling system that assigns enquiries and sets callback reminders.\n\n"
+                "I could take one scoped client integration as a GBP 200 fixed-price trial, with a written scope before work. "
+                "Would a one-page outline be useful?")
+    elif segment == "india_startups_intern":
+        source = row["source_text"]
+        posted = re.search(r"\b20\d{2}-\d{2}-\d{2}\b", source)
+        try:
+            if posted:
+                post_date = datetime.fromisoformat(posted.group())
+            else:
+                month = re.search(r"\b[A-Z][a-z]+ 20\d{2}\b", source)
+                post_date = datetime.strptime(month.group(), "%B %Y")
+            post_age = datetime.now(timezone.utc) - post_date.replace(tzinfo=timezone.utc)
+        except (AttributeError, ValueError):
+            return None
+        source_type = row["source"] or ""
+        if (not (source_type.startswith("jobs_") or source_type == "hn_hiring")
+                or not timedelta(0) <= post_age <= timedelta(days=30)
+                or not re.search(r"\b(python|automation|ai|llm|backend|full.stack|software|engineering|engineer)\b", source, re.I)):
+            return None
+        subject = f"Paid trial for {row['company']}"
+        body = (f"Hi {row['company']} team,\n\nI saw your recent engineering hiring post. "
+                "I build production WhatsApp and CRM workflows and have also worked on data and product engineering.\n\n"
+                "I could take one small paid, one-week task related to your opening, share a working demo, "
+                "and discuss an internship or contract role if the work is useful. Would a short scope and work sample help?")
+    else:
+        return None
+    followups = [
+        FollowUp(body=f"Hi {row['company']} team,\n\nI can send a concise scope for one trial task and show the relevant work I have already built. Would that be useful?"),
+        FollowUp(body=f"Hi {row['company']} team,\n\nIf there is no suitable task right now, I will close this thread. Should I send the short scope?")
+    ]
+    return Sequence(subject=subject, body=body, followups=followups,
+                    linkedin_note="", linkedin_dm="", confidence=0.9, review_note="Fixed template from verified public source")
+
+
+def pick_leads(conn, limit: int, segment: str | None = None) -> list:
     """Fill each segment's daily quota; top up from other segments; cap India's share."""
     segs = config.settings()["segments"]
+    if segment:
+        segs = {k: v for k, v in segs.items() if k == segment}
     india_max = config.settings().get("targeting", {}).get("india_share_max", 0.25)
     total_quota = sum(s.get("daily_new", 0) for s in segs.values()) or 1
 
@@ -128,17 +197,17 @@ def pick_leads(conn, limit: int) -> list:
     india_cap = int(limit * india_max)
     out, india = [], 0
     for r in chosen:
-        if segs[r["segment"]].get("market") == "india":
-            if india >= india_cap:
+        if segs.get(r["segment"], {}).get("market") == "india":
+            if not segment and india >= india_cap:
                 continue
             india += 1
         out.append(r)
     return out[:limit]
 
 
-def run(limit: int, use_mock: bool = False) -> int:
+def run(limit: int, use_mock: bool = False, segment: str | None = None) -> int:
     with db.connect() as conn:
-        rows = pick_leads(conn, limit)
+        rows = pick_leads(conn, limit, segment=segment)
     made = 0
     for row in rows:
         with db.connect() as conn:
@@ -146,20 +215,21 @@ def run(limit: int, use_mock: bool = False) -> int:
             if angle:
                 db.set_lead(conn, row["id"], angle=angle["id"])
         try:
-            seq = mock(row) if use_mock else generate(row, angle)
+            auto_seq = None if use_mock else _auto_sequence(row)
+            seq = mock(row) if use_mock else auto_seq or generate(row, angle)
         except llm.QuotaExhausted as e:
             print(f"  stopped drafting: {e}")
             break
         if seq is None:
             print(f"  ! {row['company']}: no usable draft; will retry next run")
             continue
-        save(row["id"], seq)
+        save(row["id"], seq, auto_approve=auto_seq is not None)
         made += 1
         print(f"  drafted {row['company'][:30]:<30} {row['email'] or '':<34} conf={seq.confidence:.2f} '{seq.subject}'")
     return made
 
 
-def save(lead_id: int, seq: Sequence) -> None:
+def save(lead_id: int, seq: Sequence, auto_approve: bool = False) -> None:
     days = _followup_days()
     with db.connect() as conn:
         conn.execute("DELETE FROM messages WHERE lead_id=? AND status IN ('draft','approved')", (lead_id,))
@@ -170,6 +240,24 @@ def save(lead_id: int, seq: Sequence) -> None:
             conn.execute("INSERT INTO messages (lead_id, step, subject, body, confidence, due_at) VALUES (?,?,?,?,?,?)",
                          (lead_id, i, "Re: " + seq.subject, fu.body, seq.confidence, str(days[i - 1])))
         db.set_lead(conn, lead_id, status="drafted", linkedin_note=seq.linkedin_note, linkedin_dm=seq.linkedin_dm)
+        if auto_approve:
+            lead = conn.execute("SELECT email, company, email_status, email_source, fit FROM leads WHERE id=?", (lead_id,)).fetchone()
+            day = datetime.now(timezone.utc).date().isoformat()
+            key = f"auto_approved:{day}"
+            used = int(db.get_state(conn, key, "0"))
+            duplicate = conn.execute("SELECT 1 FROM leads WHERE id!=? AND lower(company)=lower(?) "
+                                     "AND status IN ('approved','active')", (lead_id, lead["company"])).fetchone()
+            if (used < int(config.settings()["sending"]["auto_approve_daily_cap"])
+                    and lead["email_status"] == "valid" and lead["email_source"] in ("website", "post")
+                    and lead["fit"] is not None and lead["fit"] >= 6
+                    and not db.suppressed(conn, lead["email"]) and not duplicate
+                    and not config.placeholders()
+                    and seq.confidence >= 0.85
+                    and all((text or "").strip() and not config.PLACEHOLDER.search(text)
+                            for text in [seq.subject, seq.body, *(f.body for f in seq.followups[:len(days)])])):
+                from .review import approve_lead
+                approve_lead(conn, lead_id)
+                db.set_state(conn, key, used + 1)
 
 
 def schedule_followups(conn, lead_id: int, sent_at: datetime) -> None:

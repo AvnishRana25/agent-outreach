@@ -30,6 +30,18 @@ from .importer import domain_of
 from .prospect import EMAIL_RE, UA, _clean, deobfuscate
 
 BROWSER_UA = website.UA
+NO_AI_APPLICATION = re.compile(
+    r"\b(?:no|without|don't use|do not use)[\s-]+(?:any\s+)?(?:ai|llm|chatgpt|gpt)[ -]?(?:generated|written|assisted)?[\s-]*"
+    r"(?:applications?|emails?|cover letters?|responses?|proposals?)\b|"
+    r"\b(?:ai|llm|chatgpt|gpt)[ -]?(?:generated|written|assisted)\s+"
+    r"(?:applications?|emails?|cover letters?|responses?|proposals?)\s+"
+    r"(?:will\s+not\s+be\s+reviewed|(?:will be|are)\s+(?:ignored|rejected|disqualified|not reviewed))\b",
+    re.I,
+)
+
+
+def rejects_ai_application(text: str) -> bool:
+    return bool(NO_AI_APPLICATION.search(text or ""))
 
 
 def _get(url: str, **kw) -> requests.Response:
@@ -164,6 +176,8 @@ def board_jobs(name: str) -> tuple:
 def job_matches(job: dict, rule: dict) -> bool:
     title = job["title"].lower()
     blob = f"{job['title']} {job['tags']} {job['job_type']} {job['text']}".lower()
+    if rejects_ai_application(blob):
+        return False
     if rule.get("title_regex") and not re.search(rule["title_regex"], job["title"], re.I):
         return False
     if rule.get("include_regex") and not re.search(rule["include_regex"], blob, re.I):
@@ -195,16 +209,18 @@ def run_jobs(job: dict) -> int:
                 return added
             if not job_matches(post, job):
                 continue
+            key = f"jobs:{board}:{post['id']}"
             with db.connect() as conn:
-                key = f"jobs:{board}:{post['id']}"
-                if db.get_state(conn, key):
+                state = db.get_state(conn, key)
+                if state and (not state.startswith("retry:") or state[6:] > datetime.now(timezone.utc).date().isoformat()):
                     continue
-                db.set_state(conn, key, 1)
             checked += 1
             email = _email_in(post["text"])
             site = website.find(post["company"], post["text"] + " " + post["apply"],
                                 job.get("tlds", ["com", "io", "ai", "co", "dev", "app"]), hint="company")
             if not site and not email:
+                with db.connect() as conn:
+                    db.set_state(conn, key, "retry:" + (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat())
                 continue
             posted = post["posted"].date().isoformat() if post["posted"] else "recently"
             text = (f"Remote job post on {post['board']} ({posted}): {post['title']} at {post['company']}"
@@ -216,6 +232,7 @@ def run_jobs(job: dict) -> int:
                                segment=job["segment"], source=f"jobs_{board}", source_text=text,
                                notes=f"Hiring: {post['title']}"[:200]):
                     added += 1
+                db.set_state(conn, key, 1)
     return added
 
 
@@ -246,7 +263,7 @@ def run_launch_hn(job: dict) -> int:
             if added >= job.get("max_new", 10):
                 break
             post = parse_launch(hit)
-            if not post or not (post["website"] or post["email"]):
+            if not post or not (post["website"] or post["email"]) or rejects_ai_application(post["text"]):
                 continue
             if include and not include.search(f"{post['pitch']} {post['text']}"):
                 continue
@@ -275,13 +292,14 @@ def _ch(path: str, **params) -> dict:
     for attempt in range(3):
         r = requests.get(CH_API + path, params=params, auth=(key, ""), timeout=30)
         if r.status_code == 429:  # 600 requests / 5 min
-            time.sleep(60 * (attempt + 1))
+            if attempt < 2:
+                time.sleep(60 * (attempt + 1))
             continue
         if r.status_code == 404:
             return {}
         r.raise_for_status()
         return r.json()
-    return {}
+    raise requests.HTTPError("Companies House rate limit persisted after three retries")
 
 
 def officer_name(raw: str) -> tuple[str, str]:

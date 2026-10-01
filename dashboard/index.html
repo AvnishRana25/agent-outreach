@@ -472,10 +472,14 @@ function bindReview(card) {
 /* ------------------------------------------------------------------ respond */
 function renderRespond(panel, pend) {
   const reply = state.data.reply || [], post = state.data.post || [], deals = state.data.pipeline || [];
+  const today = (state.data.health || {}).today || new Date().toISOString().slice(0, 10);
+  const overdueCount = deals.filter((d) => d.deal_next_due && d.deal_next_due < today && !["won", "lost"].includes(d.deal_stage)).length;
   panel.innerHTML = `
-    <h2 class="section" style="margin-top:4px">Deals <span class="count num">${deals.filter((d) => !["won", "lost"].includes(d.deal_stage)).length}</span></h2>
-    ${deals.length ? `<div class="table-wrap"><table class="deals"><thead><tr><th>Company</th><th>Latest reply</th><th>Stage</th><th>Value</th><th>Note</th><th></th></tr></thead><tbody>
-      ${deals.map((d) => dealRow(d, pend["deal:" + d.id])).join("")}</tbody></table></div>`
+    <h2 class="section" style="margin-top:4px">Deals <span class="count num">${deals.filter((d) => !["won", "lost"].includes(d.deal_stage)).length}</span>
+      ${overdueCount ? `<span class="chip warn" style="margin-left:8px">${overdueCount} overdue</span>` : ""}
+    </h2>
+  ${deals.length ? `<div class="table-wrap"><table class="deals"><thead><tr><th>Company</th><th>Type</th><th>Latest reply</th><th>Stage</th><th>Value</th><th>Note</th><th>Next action</th><th>Due</th><th></th></tr></thead><tbody>
+      ${deals.map((d) => dealRow(d, pend["deal:" + d.id], today)).join("")}</tbody></table></div>`
       : `<div class="empty"><strong>No conversations yet</strong>Leads appear here when they reply positively. Track each one through call, proposal and won.</div>`}
     <h2 class="section">Email replies <span class="count num">${reply.length}</span></h2>
     ${reply.length ? reply.map((r) => replyCard(r, pend["reply:" + r.id], pend["plan:" + r.id])).join("")
@@ -487,8 +491,11 @@ function renderRespond(panel, pend) {
   panel.querySelectorAll("[data-deal]").forEach((row) => {
     const id = Number(row.dataset.deal);
     const save = row.querySelector("[data-save]");
-    if (save) save.onclick = () => act("set_stage", id, { stage: row.querySelector("select").value,
-      value: row.querySelector("[name=value]").value, note: row.querySelector("[name=note]").value }, "Saved. It updates within a minute.");
+    if (save) save.onclick = () => act("set_stage", id, { stage: row.querySelector("[name=stage]").value,
+      opportunity_type: row.querySelector("[name=opportunity_type]").value,
+      value: row.querySelector("[name=value]").value, currency: row.querySelector("[name=currency]").value,
+      note: row.querySelector("[name=note]").value, next_action: row.querySelector("[name=next_action]").value,
+      next_due: row.querySelector("[name=next_due]").value }, "Saved. It updates within a minute.");
     const undo = row.querySelector("[data-undo]");
     if (undo) undo.onclick = () => act("cancel", id, { family: "deal" }, "Undone.");
   });
@@ -538,15 +545,29 @@ function replyCard(r, pending, planPending) {
   </article>`;
 }
 
-function dealRow(d, pending) {
+function dealRow(d, pending, today) {
   const who = [d.first_name, d.last_name].filter(Boolean).join(" ");
-  const stage = pending ? (JSON.parse(pending.payload || "{}").stage ?? d.deal_stage) : d.deal_stage;
-  return `<tr data-deal="${d.id}">
-    <td><strong>${esc(d.company)}</strong><div class="small muted">${esc(who || d.email || "")} · ${esc(segName(d.segment))}</div></td>
+  const pendingPayload = pending ? JSON.parse(pending.payload || "{}") : {};
+  const stage = pending ? (pendingPayload.stage ?? d.deal_stage) : d.deal_stage;
+  const oppType = pending ? (pendingPayload.opportunity_type ?? d.opportunity_type) : (d.opportunity_type || "contract");
+  const currency = d.deal_value == null && !d.deal_stage
+    ? ({ uk_agencies: "GBP", india_realestate: "INR", india_startups_intern: "INR" }[d.segment] || "USD")
+    : (d.deal_currency || "USD");
+  const isOverdue = d.deal_next_due && d.deal_next_due < (today || "") && !["won", "lost"].includes(stage);
+  return `<tr data-deal="${d.id}" class="${isOverdue ? "deal-overdue" : ""}">
+    <td><strong>${esc(d.company)}</strong><div class="small muted">${esc(d.source ? d.source + " · " : "")}${esc(who || d.email || "")} · ${esc(segName(d.segment))}</div></td>
+    <td><select name="opportunity_type" aria-label="Opportunity type" ${pending ? "disabled" : ""}>
+      <option value="contract" ${oppType === "contract" ? "selected" : ""}>Contract</option>
+      <option value="internship" ${oppType === "internship" ? "selected" : ""}>Internship</option>
+    </select></td>
     <td style="white-space:normal;min-width:180px;text-align:left" class="small">${esc(d.last_reply || "—")}<div class="muted">${esc(d.replied_at ? ago(d.replied_at) : "")}</div></td>
-    <td><select aria-label="Stage" ${pending ? "disabled" : ""}>${Object.entries(STAGE_LABEL).map(([k, v]) => `<option value="${k}" ${k === (stage || "") ? "selected" : ""}>${v}</option>`).join("")}</select></td>
-    <td><input name="value" type="number" min="0" step="1" placeholder="USD" value="${d.deal_value ?? ""}" style="width:90px" aria-label="Deal value" ${pending ? "disabled" : ""}></td>
-    <td><input name="note" type="text" placeholder="Next step…" value="${esc(d.deal_note || "")}" aria-label="Note" ${pending ? "disabled" : ""}></td>
+    <td><select name="stage" aria-label="Stage" ${pending ? "disabled" : ""}>${Object.entries(STAGE_LABEL).map(([k, v]) => `<option value="${k}" ${k === (stage || "") ? "selected" : ""}>${v}</option>`).join("")}</select></td>
+    <td><input name="value" type="number" min="0" step="1" placeholder="Amount" value="${d.deal_value ?? ""}" style="width:85px" aria-label="Deal value" ${pending ? "disabled" : ""}>
+      <select name="currency" aria-label="Currency" ${pending ? "disabled" : ""}>${["USD", "GBP", "AED", "INR"].map((c) => `<option ${c === currency ? "selected" : ""}>${c}</option>`).join("")}</select></td>
+    <td><input name="note" type="text" placeholder="Context…" value="${esc(d.deal_note || "")}" aria-label="Note" ${pending ? "disabled" : ""}></td>
+    <td><input name="next_action" type="text" placeholder="Follow up…" value="${esc(d.deal_next_action || "")}" aria-label="Next action" ${pending ? "disabled" : ""}></td>
+    <td><input name="next_due" type="date" value="${esc(d.deal_next_due || "")}" aria-label="Due date" ${pending ? "disabled" : ""} style="${isOverdue ? "border-color:var(--warn, #e57373);" : ""}">
+      ${isOverdue ? `<div class="chip warn small" style="margin-top:2px">Overdue</div>` : ""}</td>
     <td>${pending ? `<button class="btn" data-undo>Undo</button>` : `<button class="btn" data-save>Save</button>`}</td></tr>`;
 }
 
@@ -575,10 +596,13 @@ function renderResults(panel) {
   const h = state.data.health || {};
   const status = h.lead_status || {};
   const order = ["new", "enriched", "verified", "researched", "drafted", "approved", "active", "replied", "finished", "bounced", "unsubscribed", "rejected", "unfit", "invalid"];
+  const contractRows = st.contract && st.contract.length ? st.contract : [];
+  const internRows = st.internship && st.internship.length ? st.internship : [];
   panel.innerHTML = `
     <h2 class="section" style="margin-top:4px">Emails sent per day · last 30 days</h2>
     <div class="chart-card">${sendsChart(h.daily_sends || [])}</div>
-    <h2 class="section">By segment</h2>${funnelTable(st.segments, "Segment", segName)}
+    <h2 class="section">Contract funnel</h2>${funnelTable(contractRows.length ? contractRows : st.segments, "Segment", segName)}
+    ${internRows.length ? `<h2 class="section">Internship funnel</h2>${funnelTable(internRows, "Segment", segName)}` : ""}
     <h2 class="section">A/B test: which angle gets replies</h2>${angleTable(st.angles || [])}
     <h2 class="section">By lead source</h2>${funnelTable(st.sources, "Source", srcName)}
     <h2 class="section">Pipeline</h2>
@@ -599,7 +623,7 @@ function funnelTable(rows, label, name) {
     <tbody>${rows.map((r) => `<tr class="${r.name === "ALL" ? "total" : ""}">
       <td>${esc(r.name === "ALL" ? "All" : name(r.name))}</td><td class="num">${r.leads}</td><td class="num">${r.queued}</td>
       <td class="num">${r.sent}</td><td class="num">${r.replied}</td><td class="num">${r.positive}</td><td class="num">${r.calls ?? 0}</td>
-      <td class="num">${r.won ?? 0}${r.won_value ? ` <span class="muted small">(${r.won_value})</span>` : ""}</td><td class="num">${r.bounced}</td>
+      <td class="num">${r.won ?? 0}${Object.keys(r.won_values || {}).length ? ` <span class="muted small">(${Object.entries(r.won_values).map(([c, v]) => `${esc(c)} ${v}`).join(", ")})</span>` : ""}</td><td class="num">${r.bounced}</td>
       <td>${rate(r.reply_rate, r.name !== "ALL")}</td><td>${rate(r.positive_rate, false)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
@@ -767,6 +791,7 @@ function renderEngine(panel, pend) {
     <h2 class="section">Meta Ad Library · 15 minutes a day</h2>
     <article class="card">
       <div class="small">Open each search and look for small brokerages whose ads have a <strong>Send WhatsApp message</strong> button. Those have the exact problem your Realty Pandit work solves. Add about 10 a day below; the engine researches and drafts them.</div>
+      <p class="small muted">A typed email alone is held from sending. The address must also be published on the company's site or another recorded business source and pass verification.</p>
       <ul style="margin:10px 0 0;padding-left:18px">${(e.adlib || []).map((a) => `<li><a href="${esc(safeUrl(a.url))}" target="_blank" rel="noopener noreferrer">${esc(a.country)} · "${esc(a.keyword)}" ↗</a></li>`).join("")}</ul>
       <form id="addlead" class="addform">
         <input type="text" name="company" placeholder="Company name" required aria-label="Company name">

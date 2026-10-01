@@ -90,13 +90,19 @@ def mock_brief(row) -> Brief:
                  fit_score=7, fit_reason="mock")
 
 
-def run(limit: int, use_mock: bool = False) -> dict:
+def run(limit: int, use_mock: bool = False, segment: str | None = None) -> dict:
     threshold = config.settings().get("targeting", {}).get("min_fit", 6)
     counts = {"researched": 0, "unfit": 0, "failed": 0}
+    order = "CASE WHEN email_status='valid' THEN 0 ELSE 1 END, score DESC, id"
     with db.connect() as conn:
-        rows = conn.execute("SELECT * FROM leads WHERE status='verified' AND email_status IN ('valid','risky') "
-                            "ORDER BY score DESC, id LIMIT ?",
-                            (limit,)).fetchall()
+        if segment:
+            rows = conn.execute(f"SELECT * FROM leads WHERE status='verified' AND email_status IN ('valid','risky') "
+                                f"AND segment=? ORDER BY {order} LIMIT ?",
+                                (segment, limit)).fetchall()
+        else:
+            rows = conn.execute(f"SELECT * FROM leads WHERE status='verified' AND email_status IN ('valid','risky') "
+                                f"ORDER BY {order} LIMIT ?",
+                                (limit,)).fetchall()
     for row in rows:
         try:
             brief = mock_brief(row) if use_mock else llm.generate(

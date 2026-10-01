@@ -6,6 +6,9 @@ targeting:
 
 sending:
   home_timezone: Asia/Kolkata
+  allowed_segments: [uk_agencies, india_startups_intern]
+  auto_approve_segments: [uk_agencies, india_startups_intern]
+  auto_approve_daily_cap: 0 # opt in only after reviewing template copy and delivery
   min_gap_minutes: 8          # never two sends from one inbox closer than this...
   gap_jitter_minutes: 7       # ...plus a random 0-7 min
   max_bounce_rate: 0.03       # an inbox pauses itself above 3% bounces over 7 days

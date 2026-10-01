@@ -191,6 +191,27 @@ def test_bad_edit_is_reported_not_applied(env):
         assert conn.execute("SELECT status FROM leads WHERE id=?", (lead["id"],)).fetchone()[0] == "drafted"
 
 
+def test_empty_edit_and_no_ai_instruction_cannot_be_approved(env):
+    port = env
+    from outreach import dashboard_sync, db
+    seed()
+    dashboard_sync.sync()
+    cookie = call(port, "POST", "/api/login", {"password": "correct horse battery"})[2].split(";")[0]
+    lead = call(port, "GET", "/api/data", cookie=cookie)[1]["review"][0]
+    mid = lead["messages"][0]["id"]
+    assert call(port, "POST", "/api/action", {"kind": "approve", "target": lead["id"],
+        "payload": {"edits": [{"id": mid, "body": "  "}]}}, cookie=cookie)[0] == 400
+    with db.connect() as conn:
+        conn.execute("UPDATE leads SET site_text=? WHERE id=?",
+                     ("AI-generated applications will not be reviewed.", lead["id"]))
+    assert call(port, "POST", "/api/action", {"kind": "approve", "target": lead["id"]}, cookie=cookie)[0] == 200
+    dashboard_sync.sync()
+    with db.connect() as conn:
+        assert conn.execute("SELECT status FROM leads WHERE id=?", (lead["id"],)).fetchone()[0] == "drafted"
+    action = call(port, "GET", "/api/data", cookie=cookie)[1]["actions"][0]
+    assert action["status"] == "error" and "AI-generated" in action["result"]
+
+
 def test_undo_cancels_pending(env):
     port = env
     from outreach import dashboard_sync
@@ -260,13 +281,15 @@ def test_deal_stage_and_plan_from_dashboard(env, monkeypatch):
     assert call(port, "POST", "/api/action", {"kind": "set_stage", "target": deal["id"],
                                               "payload": {"stage": "nope"}}, cookie=cookie)[0] == 400
     for body in ({"kind": "set_stage", "target": deal["id"], "payload": {"stage": "proposal_sent", "value": "350",
-                                                                           "note": "sent Tue"}},
+                                                                           "currency": "GBP", "note": "sent Tue",
+                                                                           "next_action": "Call founder", "next_due": "2026-10-09"}},
                  {"kind": "make_plan", "target": reply["id"]}):
         assert call(port, "POST", "/api/action", body, cookie=cookie)[0] == 200
     dashboard_sync.sync()
     with db.connect() as conn:
-        row = conn.execute("SELECT deal_stage, deal_value, deal_note FROM leads WHERE id=?", (deal["id"],)).fetchone()
-    assert tuple(row) == ("proposal_sent", 350.0, "sent Tue")
+        row = conn.execute("SELECT deal_stage, deal_value, deal_note, deal_currency, deal_next_action, deal_next_due "
+                           "FROM leads WHERE id=?", (deal["id"],)).fetchone()
+    assert tuple(row) == ("proposal_sent", 350.0, "sent Tue", "GBP", "Call founder", "2026-10-09")
     acts = call(port, "GET", "/api/data", cookie=cookie)[1]["actions"]
     assert {a["kind"]: a["result"] for a in acts}["make_plan"] == "plan ready"
 

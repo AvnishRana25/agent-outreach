@@ -80,8 +80,8 @@ def page_matches(html: str, name: str, must_contain: str = "") -> bool:
     if not html:
         return False
     low = html.lower()
-    if must_contain and must_contain.lower() in low:
-        return True
+    if must_contain:
+        return must_contain.lower() in low
     toks = name_tokens(name)
     if not toks:
         return False
@@ -112,7 +112,7 @@ def search_site(name: str, hint: str = "", must_contain: str = "") -> str:
                                                                   "companieshouse", "find-and-update")):
             continue
         url = f"https://{host}"
-        if page_matches(_fetch(url) or f"{hit['title']} {hit['description']}", name, must_contain):
+        if page_matches(_fetch(url), name, must_contain):
             return url
     return ""
 

@@ -99,13 +99,16 @@ def test_india_share_cap():
 
 def test_full_flow_with_zoho_transport(monkeypatch):
     from outreach import db, personalize, research, review, sender, transport, replies
+    settings = sender.config.settings()
+    monkeypatch.setattr(sender.config, "settings", lambda: {**settings, "sending": {**settings["sending"], "allowed_segments": ["gulf_realestate"]}})
     with db.connect() as conn:
         db.add_lead(conn, email="omar@palmrealty.ae", domain="palmrealty.ae", company="Palm Realty",
-                    first_name="Omar", segment="gulf_realestate", status="verified", email_status="valid")
+                    first_name="Omar", segment="gulf_realestate", status="verified", email_status="valid",
+                    email_source="website")
     research.run(10, use_mock=True)
     assert personalize.run(10, use_mock=True) == 1
     with db.connect() as conn:  # stand-in for a real Gemini draft: mock text is never sent
-        conn.execute("UPDATE messages SET body='Hi Omar, a real draft.', review_note=''")
+        conn.execute("UPDATE messages SET body='Hi Omar, a real draft.', review_note='', confidence=0.9")
         conn.execute("UPDATE leads SET research='{}'")
     assert review.bulk_approve(0) == 1
 
@@ -126,8 +129,12 @@ def test_full_flow_with_zoho_transport(monkeypatch):
                 return datetime(*a, tzinfo=timezone.utc)
         return F
     with mock.patch.object(sender, "datetime", at(2026, 10, 14, 6, 0)):   # Wed 10:00 Dubai
+        with db.connect() as conn:
+            db.set_state(conn, "last_inbound_sync:me@zoho.in", "2026-10-14T06:00:00+00:00")
         assert sender.tick(5) == 1
     with mock.patch.object(sender, "datetime", at(2026, 10, 19, 6, 0)):   # Mon, day 5
+        with db.connect() as conn:
+            db.set_state(conn, "last_inbound_sync:me@zoho.in", "2026-10-19T06:00:00+00:00")
         assert sender.tick(5) == 1
     assert sent[1][3]["provider_id"] == "z1"  # follow-up replies in the same thread
     assert sent[1][2].startswith("Re: ")
@@ -146,6 +153,32 @@ def test_full_flow_with_zoho_transport(monkeypatch):
         assert conn.execute("SELECT COUNT(*) FROM messages WHERE status='approved'").fetchone()[0] == 0
 
 
+def test_new_lead_template_autoapproval_is_opt_in_capped_and_respects_no_ai(monkeypatch):
+    from outreach import config, db, personalize
+    settings = config.settings()
+    assert settings["sending"]["auto_approve_daily_cap"] == 0
+    monkeypatch.setattr(config, "settings", lambda: {**settings, "sending": {
+        **settings["sending"], "auto_approve_daily_cap": 1,
+        "auto_approve_segments": ["uk_agencies"], "allowed_segments": ["uk_agencies"]}})
+    for i in range(3):
+        number = f"12345{i}"
+        site = f"Small agency {number} builds client websites."
+        if i == 2:
+            site += " No AI-generated applications will be reviewed."
+        with db.connect() as conn:
+            db.add_lead(conn, email=f"hello@agency{i}.co.uk", company=f"Agency {i}",
+                        website=f"https://agency{i}.co.uk", segment="uk_agencies",
+                        source="companies_house", source_text=f"UK Companies House: Agency {i} (company no. {number})",
+                        site_text=site, status="researched", email_status="valid",
+                        email_source="website", fit=8)
+    monkeypatch.setattr(personalize, "generate", lambda row, angle=None: personalize.mock(row))
+    assert personalize.run(3) == 3
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM leads WHERE status='approved'").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM messages WHERE step=0 AND status='draft'").fetchone()[0] == 2
+        assert db.get_state(conn, f"auto_approved:{db.now()[:10]}") == "1"
+
+
 def test_zoho_token_exchange_and_hints(monkeypatch, capsys):
     from outreach import cli, transport
     monkeypatch.setenv("ZOHO_CLIENT_ID", "1000.ID")
@@ -155,9 +188,9 @@ def test_zoho_token_exchange_and_hints(monkeypatch, capsys):
     class R:
         def __init__(self, data): self.data = data
         def json(self): return self.data
-    def post(url, params, timeout):
-        calls.append((url, params))
-        if params["grant_type"] == "authorization_code":
+    def post(url, data, timeout):
+        calls.append((url, data))
+        if data["grant_type"] == "authorization_code":
             return R({"refresh_token": "1000.refresh", "scope": "ZohoMail.messages.ALL ZohoMail.accounts.READ"})
         return R({"error": "invalid_code"})
     monkeypatch.setattr(transport.requests, "post", post)

@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS leads (
     company TEXT, website TEXT, domain TEXT,
     country TEXT, city TEXT, linkedin TEXT,
     segment TEXT NOT NULL,
+    opportunity_type TEXT DEFAULT 'contract', -- contract | internship
     source TEXT, notes TEXT,
     source_text TEXT DEFAULT '',             -- the directory entry / job post the lead came from
     email_source TEXT DEFAULT '',            -- csv | website | osm | post | registry | maps | guess
@@ -37,7 +38,7 @@ CREATE TABLE IF NOT EXISTS messages (
     lead_id INTEGER NOT NULL REFERENCES leads(id),
     step INTEGER NOT NULL,                   -- 0 = first email, 1..3 = follow-ups
     subject TEXT, body TEXT,
-    status TEXT DEFAULT 'draft',             -- draft | approved | sent | cancelled | failed
+    status TEXT DEFAULT 'draft',             -- draft | approved | sending | needs_reconciliation | sent | cancelled | failed
     confidence REAL, review_note TEXT,
     due_at TEXT, sent_at TEXT,
     message_id TEXT, provider_id TEXT, inbox TEXT, error TEXT,
@@ -99,7 +100,9 @@ def init() -> None:
                       "research TEXT DEFAULT ''", "fit INTEGER",
                       "linkedin_note TEXT DEFAULT ''", "linkedin_dm TEXT DEFAULT ''",
                       "angle TEXT DEFAULT ''", "deal_stage TEXT DEFAULT ''", "deal_value REAL",
-                      "deal_note TEXT DEFAULT ''", "deal_updated TEXT"],
+                      "deal_note TEXT DEFAULT ''", "deal_updated TEXT",
+                      "deal_currency TEXT DEFAULT 'USD'", "deal_next_action TEXT DEFAULT ''",
+                      "deal_next_due TEXT DEFAULT ''", "opportunity_type TEXT DEFAULT 'contract'"],
             "messages": ["provider_id TEXT"],
             "replies": ["plan TEXT DEFAULT ''"],
         }.items():
@@ -140,6 +143,9 @@ def add_lead(conn, **fields) -> bool:
         return False
     if email and conn.execute("SELECT 1 FROM leads WHERE email = ?", (email,)).fetchone():
         return False
+    if "opportunity_type" not in fields:
+        seg = fields.get("segment", "")
+        fields["opportunity_type"] = "internship" if "intern" in seg else "contract"
     fields.update(email=email, created_at=now(), updated_at=now())
     cols = ", ".join(fields)
     conn.execute(f"INSERT INTO leads ({cols}) VALUES ({', '.join('?' * len(fields))})",

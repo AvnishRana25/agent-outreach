@@ -230,7 +230,13 @@ def _tick(dashboard_sync, growth, review, sender, sources) -> None:
         _step("linkedin posts", lambda: spawn("content"))
     if need_digest:
         _step("weekly digest", growth.weekly_digest)
-    _step("send", lambda: sender.tick(2))
+    from . import replies
+    try:
+        replies.sync(4, require_all=True, triage=False)
+    except Exception as e:
+        print(f"  send held: inbound sync failed ({e.__class__.__name__})")
+    else:
+        _step("send", lambda: sender.tick(2))
     if need_sync:
         _step("replies", lambda: spawn("inbox"))
     if need_daily:

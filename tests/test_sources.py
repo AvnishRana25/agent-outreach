@@ -34,6 +34,15 @@ def test_website_finder(monkeypatch):
     assert website.guess("Bright Pixel Media Ltd", ["com", "co.uk"], must_contain="12345678") == \
         "https://brightpixelmedia.co.uk"
     assert website.guess("Nobody Here Ltd", ["com"]) == ""
+    assert not website.page_matches("<title>Bright Pixel Media</title>", "Bright Pixel Media Ltd", "12345678")
+
+
+def test_search_site_checks_live_page_not_search_snippet(monkeypatch):
+    from outreach import firecrawl, website
+    monkeypatch.setattr(firecrawl, "search", lambda *a, **kw: [{"url": "https://brightpixel.co.uk",
+                    "title": "Bright Pixel Media Ltd 12345678", "description": "Company website"}])
+    monkeypatch.setattr(website, "_fetch", lambda url: "<title>Unrelated company</title>")
+    assert website.search_site("Bright Pixel Media Ltd", must_contain="12345678") == ""
 
 
 # --------------------------------------------------------------------------- job boards
@@ -84,6 +93,43 @@ def test_run_jobs_adds_once(monkeypatch):
     [lead] = _leads()
     assert lead["email"] == "jobs@acme.io" and lead["domain"] == "acme.io"
     assert "Remote job post on Remotive" in lead["source_text"]
+
+
+def test_job_failure_does_not_mark_post_processed(monkeypatch):
+    from outreach import db, sources
+    monkeypatch.setattr(sources, "board_jobs", lambda name: (_job(),))
+    def broken(*a, **kw):
+        raise RuntimeError("site lookup failed")
+    monkeypatch.setattr(sources.website, "find", broken)
+    job = {**FREELANCE_RULE, "segment": "intl_freelance_posts", "boards": ["remotive"]}
+    with pytest.raises(RuntimeError):
+        sources.run_jobs(job)
+    with db.connect() as conn:
+        assert not db.get_state(conn, "jobs:remotive:1")
+
+
+def test_job_without_contact_is_retried_later(monkeypatch):
+    from outreach import db, sources
+    monkeypatch.setattr(sources, "board_jobs", lambda name: (_job(text="No contact address"),))
+    monkeypatch.setattr(sources.website, "find", lambda *a, **kw: "")
+    job = {**FREELANCE_RULE, "segment": "intl_freelance_posts", "boards": ["remotive"]}
+    assert sources.run_jobs(job) == 0
+    with db.connect() as conn:
+        state = db.get_state(conn, "jobs:remotive:1")
+        assert state.startswith("retry:")
+        db.set_state(conn, "jobs:remotive:1", "retry:2000-01-01")
+    assert sources.run_jobs(job) == 0
+    with db.connect() as conn:
+        assert db.get_state(conn, "jobs:remotive:1").startswith("retry:")
+
+
+def test_no_ai_application_instruction_excludes_post():
+    from outreach import sources
+    assert sources.rejects_ai_application("No AI-generated applications, please.")
+    assert sources.rejects_ai_application("AI-generated applications will not be reviewed.")
+    assert sources.rejects_ai_application("strict no-AI-generated-applications filter")
+    assert not sources.rejects_ai_application("We build AI tools for recruiting.")
+    assert not sources.job_matches(_job(text="No AI-generated applications, please."), FREELANCE_RULE)
 
 
 # --------------------------------------------------------------------------- Launch HN

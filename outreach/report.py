@@ -10,13 +10,25 @@ POSITIVE_SQL = "('interested','meeting_request','question','referral')"
 NEEDS_YOU_SQL = "('interested','meeting_request','question','referral','other','unclassified')"
 
 
-def funnel(conn, by: str = "segment") -> list[dict]:
+def funnel(conn, by: str = "segment", opportunity_type: str | None = None) -> list[dict]:
     """One row per segment (or per lead source) plus an ALL row: the numbers the day-14 decision needs."""
     col = "l.segment" if by == "segment" else "l.source"
-    groups = [r[0] for r in conn.execute(f"SELECT DISTINCT {col} FROM leads l ORDER BY 1") if r[0]]
+    opp_filter = "AND l.opportunity_type = ?" if opportunity_type else ""
+    opp_args = (opportunity_type,) if opportunity_type else ()
+    groups = [r[0] for r in conn.execute(
+        f"SELECT DISTINCT {col} FROM leads l WHERE 1=1 {opp_filter} ORDER BY 1", opp_args) if r[0]]
     rows = []
-    for g in groups + ["ALL"]:
-        where, args = ("", ()) if g == "ALL" else (f"WHERE {col}=?", (g,))
+    for g in groups + (["ALL"] if groups else []):
+        conditions = []
+        args_list = []
+        if g != "ALL":
+            conditions.append(f"{col}=?")
+            args_list.append(g)
+        if opportunity_type:
+            conditions.append("l.opportunity_type=?")
+            args_list.append(opportunity_type)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        args = tuple(args_list)
         q = lambda extra: conn.execute(  # noqa: E731
             f"SELECT COUNT(DISTINCT l.id) FROM leads l "
             f"LEFT JOIN messages m ON m.lead_id=l.id LEFT JOIN replies r ON r.lead_id=l.id "
@@ -24,14 +36,16 @@ def funnel(conn, by: str = "segment") -> list[dict]:
         sent = q("m.step=0 AND m.status='sent'")
         replied = q("r.category NOT IN ('bounce','out_of_office')")
         positive = q(f"r.category IN {POSITIVE_SQL}")
-        won_value = conn.execute(
-            f"SELECT COALESCE(SUM(deal_value), 0) FROM leads l {where} {'AND' if where else 'WHERE'} "
-            "l.deal_stage='won'", args).fetchone()[0]
-        rows.append({"name": g, "leads": q("1=1"), "queued": q("l.status IN ('drafted','approved')"),
+        won_values = {r[0]: round(r[1], 2) for r in conn.execute(
+            f"SELECT COALESCE(deal_currency, 'USD'), SUM(deal_value) FROM leads l "
+            f"{where} {'AND' if where else 'WHERE'} l.deal_stage='won' GROUP BY 1", args) if r[1]}
+        rows.append({"name": g, "opportunity_type": opportunity_type, "leads": q("1=1"),
+                     "queued": q("l.status IN ('drafted','approved')"),
                      "sent": sent, "replied": replied, "positive": positive, "bounced": q("r.category='bounce'"),
                      "calls": q("l.deal_stage IN ('call_booked','proposal_sent','won')"),
                      "proposals": q("l.deal_stage IN ('proposal_sent','won')"), "won": q("l.deal_stage='won'"),
-                     "won_value": round(won_value or 0, 2),
+                     "won_value": next(iter(won_values.values()), 0) if len(won_values) <= 1 else None,
+                     "won_values": won_values,
                      "reply_rate": round(100 * replied / sent, 1) if sent else None,
                      "positive_rate": round(100 * positive / sent, 1) if sent else None})
     return rows

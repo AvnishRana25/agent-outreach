@@ -14,3 +14,5 @@ data/dld_offices.csv
 data/cron.log
 data/*.log
 data/*.lock
+.DS_Store
+.serena/

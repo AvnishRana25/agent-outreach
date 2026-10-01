@@ -36,19 +36,32 @@ def init_remote() -> None:
 # --------------------------------------------------------------------------- pull + apply
 def _approve(target: int, payload: dict) -> str:
     with db.connect() as conn:
-        lead = conn.execute("SELECT status FROM leads WHERE id=?", (target,)).fetchone()
+        lead = conn.execute("SELECT status, source_text, site_text, notes, research FROM leads WHERE id=?",
+                            (target,)).fetchone()
         if not lead or lead["status"] != "drafted":
             return f"skipped: lead is {lead['status'] if lead else 'missing'}"
+        if any(sources.rejects_ai_application(lead[field])
+               for field in ("source_text", "site_text", "notes", "research")):
+            return "error: source forbids AI-generated applications; respond manually"
         own = {r["id"]: r for r in conn.execute("SELECT id, step FROM messages WHERE lead_id=?", (target,))}
-        for e in payload.get("edits", []):
+        edits = payload.get("edits", [])
+        for e in edits:
             mid = int(e.get("id", 0))
             if mid not in own:
                 return f"error: message {mid} is not part of lead {target}"
-            conn.execute("UPDATE messages SET body=? WHERE id=?", (str(e.get("body", ""))[:MAX_TEXT].strip(), mid))
+            if not str(e.get("body", ""))[:MAX_TEXT].strip():
+                return "error: email body cannot be empty"
+        for e in edits:
+            mid = int(e["id"])
+            body = str(e["body"])[:MAX_TEXT].strip()
+            conn.execute("UPDATE messages SET body=? WHERE id=?", (body, mid))
             if own[mid]["step"] == 0 and e.get("subject"):
                 conn.execute("UPDATE messages SET subject=? WHERE id=?", (str(e["subject"])[:300].strip(), mid))
         conn.execute("UPDATE messages SET subject='Re: ' || (SELECT subject FROM messages WHERE lead_id=? AND "
                      "step=0) WHERE lead_id=? AND step>0", (target, target))
+        if conn.execute("SELECT 1 FROM messages WHERE lead_id=? AND TRIM(COALESCE(body,''))='' LIMIT 1",
+                        (target,)).fetchone():
+            raise ValueError("email body cannot be empty")
         review.approve_lead(conn, target)
     return "approved"
 
@@ -126,12 +139,17 @@ def _add_lead(target: int, payload: dict) -> str:
         return "error: company plus a website or email are required"
     if website and "://" not in website:
         website = "https://" + website
+    source = str(payload.get("source", "")).strip()[:60] or "adlibrary"
+    opp_type = str(payload.get("opportunity_type", "")).strip().lower()
     with db.connect() as conn:
-        ok = db.add_lead(conn, company=company, website=website, domain=importer.domain_of(website, email),
-                         email=email or None, email_source="dashboard" if email else "", segment=segment,
-                         country=str(payload.get("country", "")).strip()[:60] or config.segment(segment).get("country", ""),
-                         source="adlibrary", notes=notes,
-                         source_text=f"Seen in Meta Ad Library running active ads: {notes}" if notes else "")
+        fields = dict(company=company, website=website, domain=importer.domain_of(website, email),
+                      email=email or None, email_source="dashboard" if email else "", segment=segment,
+                      country=str(payload.get("country", "")).strip()[:60] or config.segment(segment).get("country", ""),
+                      source=source, notes=notes,
+                      source_text=f"Added from dashboard ({source}): {notes}" if notes else "")
+        if opp_type in ("contract", "internship"):
+            fields["opportunity_type"] = opp_type
+        ok = db.add_lead(conn, **fields)
     return "added; it's researched and drafted on the next run" if ok else "skipped: already known or suppressed"
 
 
@@ -140,7 +158,10 @@ APPLY = {"approve": _approve, "reject": _reject, "regenerate": _regenerate,
          "run_prepare": _run("prepare"), "run_community": _run("community"),
          "pause_sending": _pause, "resume_sending": _resume, "add_lead": _add_lead,
          "run_content": _run("content"),
-         "set_stage": lambda t, p: growth.set_stage(t, str(p.get("stage", "")), _num(p.get("value")), str(p.get("note", ""))),
+         "set_stage": lambda t, p: growth.set_stage(t, str(p.get("stage", "")), _num(p.get("value")),
+                                                    str(p.get("note", "")), str(p.get("currency", "USD")),
+                                                    str(p.get("next_action", "")), str(p.get("next_due", "")),
+                                                    str(p.get("opportunity_type", ""))),
          "make_plan": lambda t, p: growth.make_plan(t), "sync": lambda t, p: "synced"}
 # These wait on Gemini (up to minutes when it's busy), so the engine run hands them to the background
 # "assist" job instead of doing them itself.
@@ -288,7 +309,9 @@ def snapshot() -> dict:
         db.purge_mock(conn)
         return {"review": _review_items(conn), "reply": _reply_items(conn), "post": _post_items(conn),
                 "stats": {"segments": report.funnel(conn, "segment"), "sources": report.funnel(conn, "source"),
-                          "angles": report.angles(conn)},
+                          "angles": report.angles(conn),
+                          "contract": report.funnel(conn, "segment", opportunity_type="contract"),
+                          "internship": report.funnel(conn, "segment", opportunity_type="internship")},
                 "pipeline": growth.pipeline_items(conn),
                 "health": _health(conn),
                 "engine": {**_engine(conn), "adlib": sources.adlibrary_searches(), "linkedin": _linkedin_items(conn)}}

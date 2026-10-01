@@ -53,14 +53,19 @@ ul.points li { margin: 8px 0; }
 .card h3 { margin-top: 0; }
 .offers { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .price { font-weight: 700; color: var(--good); }
-figure { margin: 16px 0; }
-figure img { width: 100%; border-radius: 10px; border: 1px solid var(--border); display: block; }
-figcaption { font-size: 14px; color: var(--muted); margin-top: 6px; }
-.video { position: relative; padding-top: 56.25%; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
-.video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .steps { counter-reset: s; list-style: none; padding: 0; }
 .steps li { counter-increment: s; position: relative; padding-left: 40px; margin: 12px 0; }
 .steps li::before { content: counter(s); position: absolute; left: 0; top: 1px; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-wash); color: var(--accent-ink); font-weight: 700; font-size: 14px; display: grid; place-items: center; }
+.demo-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 18px 0; }
+.demo-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.demo-btn { padding: 8px 14px; font-size: 14px; font-weight: 600; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--ink); cursor: pointer; }
+.demo-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.demo-flow { display: grid; gap: 10px; margin-top: 10px; }
+.demo-step { background: var(--page); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-size: 14px; display: flex; gap: 12px; align-items: flex-start; }
+.demo-step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--accent-wash); color: var(--accent-ink); font-weight: 700; font-size: 12px; display: grid; place-items: center; flex-shrink: 0; }
+.demo-step-content b { display: block; margin-bottom: 2px; color: var(--ink); }
+.demo-step-content span { color: var(--ink-2); }
+.demo-log { background: #18181b; color: #a1a1aa; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; border-radius: 8px; padding: 12px 14px; margin-top: 14px; overflow-x: auto; line-height: 1.5; border: 1px solid rgba(255,255,255,0.08); white-space: pre-wrap; }
 footer { padding: 32px 0 56px; border-top: 1px solid var(--border); color: var(--muted); font-size: 15px; }
 @media (max-width: 560px) { body { font-size: 16px; } header { padding-top: 36px; } .lede { font-size: 17px; } }
 </style>
@@ -79,7 +84,7 @@ footer { padding: 32px 0 56px; border-top: 1px solid var(--border); color: var(-
 
   <section id="case-study">
     <h2>Case study: a real-estate brokerage in Delhi NCR</h2>
-    <p class="sub">I built and run their production CRM, WhatsApp bot and ad attribution. Their sales team uses it every day. Client name shared on request.</p>
+    <p class="sub">I built and run their production CRM, WhatsApp bot and ad attribution. Their sales team uses it every day.</p>
 
     <div class="stats">
       <div class="stat"><b>30 min</b><span>call reminder on the assigned agent's calendar for every new lead</span></div>
@@ -101,12 +106,19 @@ footer { padding: 32px 0 56px; border-top: 1px solid var(--border); color: var(-
       <li>Delivered in phases, each one deployed and verified before the next.</li>
     </ul>
 
-    <!-- Screenshots: put blurred PNGs in site/img/ with these names; a figure hides itself until its file exists. -->
-    <figure><img src="img/pipeline.png" alt="Deal pipeline with leads auto-assigned to agents (client data blurred)" loading="lazy" onerror="this.closest('figure').remove()"><figcaption>Deal pipeline: every lead becomes a deal with an owner (client data blurred).</figcaption></figure>
-    <figure><img src="img/whatsapp.png" alt="WhatsApp bot replying to a buyer with property details (client data blurred)" loading="lazy" onerror="this.closest('figure').remove()"><figcaption>The WhatsApp bot answering a buyer within seconds (client data blurred).</figcaption></figure>
-    <!-- Loom walkthrough: replace YOUR-LOOM-ID and remove the comment markers.
-    <div class="video"><iframe src="https://www.loom.com/embed/YOUR-LOOM-ID" allowfullscreen title="2-minute walkthrough"></iframe></div>
-    -->
+    <h3>Interactive demo (simulated with dummy data)</h3>
+    <p class="sub">Select an incoming channel to see how the pipeline routes, enriches and schedules the lead in real time:</p>
+    <div class="demo-box" id="pipeline-demo">
+      <div class="demo-bar">
+        <button class="demo-btn active" onclick="setDemo('portal', this)">1. Property portal lead</button>
+        <button class="demo-btn" onclick="setDemo('ad', this)">2. Meta WhatsApp ad lead</button>
+        <button class="demo-btn" onclick="setDemo('form', this)">3. Website inquiry</button>
+      </div>
+      <div class="demo-flow" id="demo-steps"></div>
+      <div class="demo-log" id="demo-log"></div>
+    </div>
+    <p class="sub" style="margin-top:14px"><em>Case study data based on production real-estate deployments in Delhi NCR. Client reference and private live walkthrough available on request.</em></p>
+
   </section>
 
   <section>
@@ -115,7 +127,7 @@ footer { padding: 32px 0 56px; border-top: 1px solid var(--border); color: var(-
     <div class="offers">
       <div class="card"><h3>WhatsApp Lead Engine pilot</h3>
         <p>For brokerages and sales teams that live on WhatsApp. Instant reply to every portal, website and ad lead; agent assignment with a 30-minute call reminder; every lead tagged with its source.</p>
-        <p class="price">USD 350 (about AED 1,300) · India Rs 25,000 · live in 7 working days</p></div>
+        <p class="price">USD 350 · India Rs 25,000 · live in 7 working days</p></div>
       <div class="card"><h3>White-label automation partner</h3>
         <p>For agencies. Your client's CRM integration, WhatsApp/SMS follow-up flow, lead routing or AI feature, built under your brand with a written spec and daily updates.</p>
         <p class="price">First task fixed from USD 250 / GBP 200 · about a week</p></div>
@@ -143,5 +155,63 @@ footer { padding: 32px 0 56px; border-top: 1px solid var(--border); color: var(-
     <p><a href="mailto:workwithavnish@zohomail.in">workwithavnish@zohomail.in</a> · <a href="https://github.com/AvnishRana25">github.com/AvnishRana25</a></p>
   </footer>
 </div>
+<script>
+const SCENARIOS = {
+  portal: {
+    steps: [
+      { title: "Inbound Portal Webhook", desc: "Received raw enquiry from Property Finder / MagicBricks for 3BHK listing (Ref #GCR-842)." },
+      { title: "LLM Requirement Extraction", desc: "Parsed unformatted enquiry note: Budget ₹2.2–2.5 Cr, Possession within 6 months, Preferred sector: Golf Course Ext." },
+      { title: "CRM Deal & Agent Assignment", desc: "Deal #DL-9418 created in CRM with source 'PropertyPortal'. Auto-assigned to Agent Rohit S. based on active rotation." },
+      { title: "Calendar SLA Reminder", desc: "Google Calendar event created: '📞 Call buyer regarding 3BHK (30-min SLA)' with one-tap dial link on agent phone." },
+      { title: "WhatsApp Buyer Auto-Response", desc: "WhatsApp Cloud API sent instant confirmation + brochure PDF link to buyer number within 4 seconds." }
+    ],
+    log: `[09:32:01] INBOUND: Webhook received from portal payload (id: pb_98412)
+[09:32:02] PARSE: Extracted { intent: "buy", units: "3BHK", budget: "INR 2.5Cr", city: "Gurgaon" }
+[09:32:02] CRM: Deal created -> id=DL-9418 owner="Rohit S" stage="new_enquiry"
+[09:32:03] CALENDAR: Event dispatched to agent calendar (SLA deadline: 10:02:00)
+[09:32:04] WHATSAPP: Template "brochure_dispatch" delivered to buyer. Status: 200 OK`
+  },
+  ad: {
+    steps: [
+      { title: "Click-to-WhatsApp Ad Click", desc: "Lead clicked Instagram ad campaign 'Autumn Villas Luxury Q4' (utm_id: adv_meta_4409)." },
+      { title: "Campaign Attribution Tagging", desc: "Extracted ad referral ID and mapped to campaign budget in CRM. Resolves silent tracking loss." },
+      { title: "WhatsApp Bot Engagement", desc: "Bot answered buyer in 3 seconds with floor plans and scheduled a site-visit consultation." },
+      { title: "Deal Escalation to Managing Director", desc: "High-value ticket (>₹4 Cr) triggered instant notification to MD with full campaign ROI attribution." }
+    ],
+    log: `[14:15:10] WHATSAPP: Inbound message from Meta Click-to-WhatsApp ad (ref: Adv_Autumn_Villas)
+[14:15:11] ATTRIBUTION: Linked to Meta Campaign ID 2384910283 (ROAS tracking active)
+[14:15:12] BOT: Interactive prompt sent: "Choose villa layout [Type A: 3200 sqft | Type B: 4500 sqft]"
+[14:15:14] CRM: High-priority deal logged. Attribution: Meta Ads -> WhatsApp -> Agent Desk`
+  },
+  form: {
+    steps: [
+      { title: "Website Form Submission", desc: "Buyer filled website contact form requesting a property callback." },
+      { title: "Spam & Syntax Verification", desc: "Phone validated, disposable email checked, duplicate company lookup passed." },
+      { title: "Instant Notification & Task Dispatch", desc: "Sales agent alerted via WhatsApp and CRM task created with 15-minute response timer." }
+    ],
+    log: `[16:40:00] WEB: Form POST /api/inquiry (name: "Aarav M.", phone: "+91 98XXX XXXXX")
+[16:40:01] VERIFY: Syntax OK, carrier lookup valid, duplicate check clear.
+[16:40:02] DISPATCH: CRM task logged with priority High. Instant SMS/WhatsApp dispatched.`
+  }
+};
+
+function setDemo(key, btn) {
+  document.querySelectorAll('.demo-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const sc = SCENARIOS[key];
+  const stepsEl = document.getElementById('demo-steps');
+  const logEl = document.getElementById('demo-log');
+  if (stepsEl && logEl && sc) {
+    stepsEl.innerHTML = sc.steps.map((s, i) => `
+      <div class="demo-step">
+        <div class="demo-step-num">${i + 1}</div>
+        <div class="demo-step-content"><b>${s.title}</b><span>${s.desc}</span></div>
+      </div>
+    `).join('');
+    logEl.innerText = sc.log;
+  }
+}
+setDemo('portal');
+</script>
 </body>
 </html>

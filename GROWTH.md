@@ -7,8 +7,7 @@ The engine sends the emails. This file covers what turns replies into contracts 
 ### 1. Publish the case-study page (20 min)
 `site/index.html` is a one-page site built only from facts in your profile.
 - **Vercel (free):** Add New → Project → import this repo → set **Root Directory** to `site` → Deploy. You get `something.vercel.app`; rename it under Settings → Domains, e.g. `avnishrana.vercel.app`.
-- **Screenshots:** blur client names, phone numbers and prices, then save PNGs as `site/img/pipeline.png` and `site/img/whatsapp.png`. A screenshot slot stays hidden until its file exists.
-- **Loom:** once recorded (step 2), paste its ID into the commented block in `site/index.html`.
+- **Interactive demo:** `site/index.html` includes an interactive pipeline walkthrough with dummy data so visitors can simulate portal, Meta ad, and website lead routing directly in their browser without exposing client data.
 - **Spread the link:** put the page URL in `config/profile.yaml` under each signature, and in your LinkedIn "Featured" section.
 
 ### 2. Record a 2-minute Loom (30 min)
@@ -64,7 +63,7 @@ The engine drafts three posts every Monday from your proof points (Engine tab �
 It arrives on Telegram at 09:00 with last week's numbers and specific changes, for example "angle X beats Y in Gulf real estate". Apply the change in `config/settings.yaml` (edit `angles`, `offer` or `daily_new`). The engine uses it from the next run.
 
 ### Deals
-Keep the **Deals** table in the Respond tab current: call booked → proposal sent → won, with the value, or lost. The weekly summary flags proposals waiting 5+ days and shows what each segment has earned.
+Keep the **Deals** table in the Respond tab current: set the opportunity type (`contract` vs `internship`), track stage from call booked → proposal sent → won, with value and currency (USD, GBP, AED, INR), or lost. Record the next action and its due date on every conversation. The dashboard automatically flags overdue actions, and the Results tab displays separate contract and internship funnels alongside email segments.
 
 ## Turning a reply into a contract
 1. **Reply within the hour.** Telegram pings you, and the drafted answer is in the Respond tab.
@@ -77,6 +76,8 @@ Cold email to foreign startups rarely leads to an internship, because hiring som
 - **Wellfound and Instahyre:** set your profile to "AI / product engineering intern or contract". Apply to 5 roles a day at seed–Series A startups, with a two-line note that links the case study.
 - **Referrals:** message 10 people you've worked with (Klimashift, Go4Database, Draftss, HackCBS teammates) asking for one introduction each to a founder or engineering lead who's hiring.
 - **Caudal AI:** a recommendation from your current lead carries weight. Mention only your title, never the work under the NDA.
+
+Track applications, platform proposals, and referrals directly in the dashboard alongside email leads: use "Add company" in the Engine tab with source (e.g. `referral`, `upwork`, `wellfound`) and opportunity type (`contract` or `internship`). Keep next-action dates current so overdue follow-ups stay highlighted.
 
 ## Your config after this update
 New keys (`angles`, `price`, and the new sections) reach your existing `config/settings.yaml` automatically. Your own values always win, so **the new fixed-price offers only apply if you replace your `segments:` block** with the one in `config/settings.example.yaml`. Keep your own `inboxes`. Check the prices first: they're defaults set here, not quotes you've already agreed to.

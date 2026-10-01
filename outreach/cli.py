@@ -30,10 +30,12 @@ def main() -> None:
     p = sub.add_parser("research", help="Gemini company research + fit score")
     p.add_argument("--limit", type=int, default=45)
     p.add_argument("--mock", action="store_true")
+    p.add_argument("--segment", help="run research only on leads from this segment")
 
     p = sub.add_parser("draft", help="write sequences for today's best researched leads")
     p.add_argument("--limit", type=int, default=38)
     p.add_argument("--mock", action="store_true", help="placeholder drafts, no API calls")
+    p.add_argument("--segment", help="draft sequences only for leads from this segment")
 
     p = sub.add_parser("prepare", help="daily job: prospect + enrich + verify + research + draft")
     p.add_argument("--limit", type=int, default=38)
@@ -74,6 +76,9 @@ def main() -> None:
     p = sub.add_parser("suppress", help="never email this address, or a whole @domain")
     p.add_argument("email")
 
+    sub.add_parser("pause", help="pause automatic sending")
+    sub.add_parser("resume", help="resume automatic sending")
+
     sub.add_parser("content", help="draft this week's three LinkedIn posts from your proof points")
     sub.add_parser("digest", help="send the weekly summary to Telegram now")
 
@@ -99,6 +104,7 @@ def main() -> None:
 
     p = sub.add_parser("zoho-check", help="test Zoho API access for each zoho_api inbox")
     p.add_argument("--send-test", metavar="EMAIL", help="also send a test email to this address")
+    p.add_argument("--probe", action="store_true", help="self-addressed send, threaded follow-up, and reply check")
 
     args = ap.parse_args()
     if getattr(args, "mock", False):
@@ -131,9 +137,9 @@ def main() -> None:
     elif args.cmd == "verify":
         print(verify.run())
     elif args.cmd == "research":
-        print(research.run(args.limit, args.mock))
+        print(research.run(args.limit, args.mock, getattr(args, "segment", None)))
     elif args.cmd == "draft":
-        print(f"drafted {personalize.run(args.limit, args.mock)} sequences")
+        print(f"drafted {personalize.run(args.limit, args.mock, getattr(args, "segment", None))} sequences")
     elif args.cmd == "prepare":
         def prepare():
             found = prospect.run() if not args.skip_prospect else {}
@@ -199,6 +205,14 @@ def main() -> None:
         with db.connect() as conn:
             db.suppress(conn, args.email, "manual")
         print(f"suppressed {args.email}")
+    elif args.cmd == "pause":
+        with db.connect() as conn:
+            db.set_state(conn, "sending_paused", "1")
+        print("sending paused")
+    elif args.cmd == "resume":
+        with db.connect() as conn:
+            db.set_state(conn, "sending_paused", "0")
+        print("sending resumed")
     elif args.cmd == "content":
         from . import growth
         engine.run_job("content", growth.linkedin_posts)
@@ -231,7 +245,7 @@ def main() -> None:
     elif args.cmd == "zoho-token":
         zoho_token(args.code)
     elif args.cmd == "zoho-check":
-        zoho_check(args.send_test)
+        zoho_check(args.send_test, getattr(args, "probe", False))
 
 
 def zoho_token(code: str) -> None:
@@ -256,7 +270,7 @@ def zoho_token(code: str) -> None:
     print("Then run: python -m outreach zoho-check --send-test YOUR_GMAIL@gmail.com")
 
 
-def zoho_check(send_to: str | None) -> None:
+def zoho_check(send_to: str | None, probe: bool = False) -> None:
     boxes = [b for b in config.inboxes(include_disabled=True) if b.get("transport") == "zoho_api"]
     if not boxes:
         print("no inbox in settings.yaml uses transport: zoho_api")
@@ -272,9 +286,53 @@ def zoho_check(send_to: str | None) -> None:
                 print(f"{box['email']}: test email sent (message id {mid or '?'}, provider id {pid or '?'})")
                 if not pid:
                     print("  note: no message id returned, so follow-ups will go as new emails with 'Re:' subjects")
+            if probe:
+                _run_zoho_probe(box, z)
         except (transport.ZohoError, OSError) as e:
             print(f"{box['email']}: FAILED -> {e}")
             print("  If this says the feature needs a paid plan, send from Gmail over SMTP instead (see README).")
+
+
+def _run_zoho_probe(box: dict, z: transport.Zoho) -> None:
+    import uuid
+    from datetime import datetime, timezone
+    tag = uuid.uuid4().hex[:8]
+    print(f"\n--- Running self-addressed Zoho probe ({tag}) ---")
+    subj = f"probe: agent-outreach check {tag}"
+    mid, pid = z.send(box["email"], subj, f"Self-test step 0 (tag: {tag}).", None)
+    if not mid or not pid:
+        raise transport.ZohoError(f"Self-addressed send failed: mid={mid}, pid={pid}")
+    print(f"  ✓ 1. Self-addressed message sent (mid: {mid}, pid: {pid})")
+
+    fmid, fpid = z.send(box["email"], f"Re: {subj}", f"Self-test follow-up (tag: {tag}).",
+                        {"message_id": mid, "provider_id": pid})
+    if not fmid or not fpid:
+        raise transport.ZohoError(f"Threaded follow-up failed: fmid={fmid}, fpid={fpid}")
+    print(f"  ✓ 2. Threaded follow-up sent (mid: {fmid}, pid: {fpid})")
+
+    test_email = f"probe-{tag}@example.com"
+    with db.connect() as conn:
+        db.add_lead(conn, email=test_email, domain="example.com", company="Probe Corp",
+                    segment="uk_agencies", status="active", fit=8, email_status="valid", email_source="website")
+        lead = conn.execute("SELECT id FROM leads WHERE email=?", (test_email,)).fetchone()[0]
+        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, message_id, provider_id, sent_at) "
+                     "VALUES (?, 0, ?, 'step 0', 'sent', ?, ?, ?)", (lead, subj, mid, pid, db.now()))
+        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence, due_at) "
+                     "VALUES (?, 1, ?, 'step 1', 'approved', 0.9, ?)",
+                     (lead, f"Re: {subj}", (datetime.now(timezone.utc)).isoformat()))
+        incoming = transport.Incoming(f"<reply-{tag}>", test_email, "Probe Contact",
+                                      f"Re: {subj}", "Yes, interested.", db.now(), refs=mid, provider_id=fpid)
+        lead_row = replies._match_lead(conn, incoming, is_bounce=False)
+        if not lead_row or lead_row["id"] != lead:
+            raise RuntimeError("Reply matching failed to link incoming message to active lead thread")
+        replies._apply(conn, lead_row, replies.ReplyClass(category="interested", summary="interested", suggested_reply="Great"))
+        m1 = conn.execute("SELECT status FROM messages WHERE lead_id=? AND step=1", (lead,)).fetchone()
+        if m1[0] != "cancelled":
+            raise RuntimeError(f"Follow-up step 1 was not cancelled after reply (status: {m1[0]})")
+        conn.execute("DELETE FROM messages WHERE lead_id=?", (lead,))
+        conn.execute("DELETE FROM leads WHERE id=?", (lead,))
+        print("  ✓ 3. Reply matched to thread, sequence stopped, follow-up cancelled.")
+    print("✓ All self-addressed Zoho probe checks passed!\n")
 
 
 if __name__ == "__main__":

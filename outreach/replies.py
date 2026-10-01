@@ -7,9 +7,11 @@ Either way you get a Telegram ping, if configured.
 from __future__ import annotations
 
 import os
+import imaplib
 import re
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from typing import Literal
 
 import requests
@@ -48,19 +50,15 @@ def _strip_quoted(text: str) -> str:
 
 
 def _match_lead(conn, msg: transport.Incoming, is_bounce: bool):
-    lead = conn.execute("SELECT * FROM leads WHERE lower(email)=?", (msg.from_addr.lower(),)).fetchone()
-    if lead:
-        return lead
     for mid in re.findall(r"<[^>]+>", msg.refs or ""):
         row = conn.execute("SELECT l.* FROM messages m JOIN leads l ON l.id=m.lead_id WHERE m.message_id=?",
                            (mid,)).fetchone()
         if row:
             return row
-    domain = msg.from_addr.split("@")[-1].lower()
-    lead = conn.execute("SELECT * FROM leads WHERE domain=? AND domain != '' AND status IN ('active','finished')",
-                        (domain,)).fetchone()
+    lead = conn.execute("SELECT * FROM leads WHERE lower(email)=? AND status IN ('active','finished')",
+                        (msg.from_addr.lower(),)).fetchone()
     if lead:
-        return lead  # a colleague replied, or it was forwarded
+        return lead
     if is_bounce:  # bounce notices quote the original recipient
         for addr in EMAIL_RE.findall(msg.body or ""):
             lead = conn.execute("SELECT * FROM leads WHERE lower(email)=? AND status IN ('active','finished')",
@@ -152,9 +150,10 @@ def telegram_setup() -> None:
     print("Copy the TELEGRAM_CHAT_ID line for your account into .env.")
 
 
-def sync(days: int = 4, use_mock: bool = False) -> int:
+def sync(days: int = 4, use_mock: bool = False, require_all: bool = False,
+         triage: bool = True) -> int:
     handled = 0
-    if not use_mock:
+    if not use_mock and triage:
         n = reclassify()
         if n:
             print(f"  read {n} earlier replies that were waiting for Gemini")
@@ -164,8 +163,11 @@ def sync(days: int = 4, use_mock: bool = False) -> int:
                                                 (box["email"],))}
         try:
             incoming = transport.fetch(box, days, known)
-        except (transport.ZohoError, OSError, requests.RequestException) as e:
+        except (transport.ZohoError, transport.InboxUnavailable, imaplib.IMAP4.error,
+                OSError, requests.RequestException) as e:
             print(f"  ! could not read {box['email']}: {e}")
+            if require_all:
+                raise transport.InboxUnavailable(f"{box['email']}: inbound sync failed") from None
             continue
         for msg in incoming:
             if msg.from_addr.lower() == box["email"].lower():
@@ -180,6 +182,8 @@ def sync(days: int = 4, use_mock: bool = False) -> int:
                 body = _strip_quoted(msg.body)
                 if is_bounce:
                     result = ReplyClass(category="bounce", summary="hard bounce", suggested_reply="")
+                elif not triage:
+                    result = unclassified("awaiting classification")
                 elif use_mock:
                     result = ReplyClass(category="other", summary="(mock)", suggested_reply="")
                 else:
@@ -199,14 +203,16 @@ def sync(days: int = 4, use_mock: bool = False) -> int:
                 where = "no reply drafted"
                 if result.suggested_reply:
                     try:
-                        saved = transport.save_draft(box, lead["email"], msg.subject, msg.message_id,
+                        saved = transport.save_draft(box, msg.from_addr, msg.subject, msg.message_id,
                                                      result.suggested_reply + "\n\n" + config.profile()["signatures"]["short"])
-                    except OSError:
+                    except (OSError, imaplib.IMAP4.error):
                         saved = False
                     where = f"Draft saved in {box['email']}." if saved else ""
                 _alert(lead, result, where)
             elif result.category in (UNCLASSIFIED, "other"):
                 _alert(lead, result)
+        with db.connect() as conn:
+            db.set_state(conn, f"last_inbound_sync:{box['email']}", datetime.now(timezone.utc).isoformat())
     return handled
 
 

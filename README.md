@@ -41,17 +41,17 @@ python -m pytest -q tests
 ```
 
 Fill in `.env` (keys), `config/profile.yaml` (your facts and signatures) and `config/settings.yaml`
-(inbox, `warmup_start`). Then check the connections. Replace `YOUR_GMAIL@gmail.com` with an address you
-can read; `zoho-check` must pass before any real sending. Send your Telegram bot one message before
-`telegram-setup`, then copy the `TELEGRAM_CHAT_ID` line it prints into `.env`.
+(inbox, `warmup_start`). Then check the connections. Run `zoho-check --probe` to verify the provider
+and application path (self-addressed send, threaded follow-up, and reply sequence cancellation).
+Send your Telegram bot one message before `telegram-setup`, then copy the `TELEGRAM_CHAT_ID` line it prints into `.env`.
 
 ```bash
-python -m outreach zoho-check --send-test YOUR_GMAIL@gmail.com
+python -m outreach zoho-check --probe
 python -m outreach telegram-setup
 ```
 
 First run: `prepare --mock` checks the pipeline without Gemini, `prepare` does the real prospect ->
-research -> draft run, `review` is where you approve, and `send --dry-run` previews without sending.
+research -> draft run, `review` is where you approve, and `send --dry-run` previews without mutating the database.
 
 ```bash
 python -m outreach prepare --mock
@@ -70,7 +70,10 @@ This is the last terminal command you need. On a Mac it registers a background j
 
 Each tick:
 - applies what you did in the dashboard;
-- sends due emails inside each market's hours;
+- syncs every sending inbox before any outbound send cycle;
+- sends due emails inside each market's hours (held if inbox sync fails, or if sending is paused);
+- records a durable `sending` state before network transport so crashes never cause duplicates;
+- gates sends to `allowed_segments` (UK agencies and India startup internships by default);
 - reads replies every 20 minutes and checks community boards every 30;
 - runs `prepare` (find, research, draft) every morning at 07:30, Mon-Sat;
 - pushes a fresh snapshot to the dashboard.
@@ -93,7 +96,7 @@ macOS blocks background jobs from reading `~/Desktop`, `~/Documents` and `~/Down
 ## Dashboard (Vercel)
 A password-protected web page for the daily work: **Review** drafts (edit, approve, regenerate, reject), **Respond** to positive replies (send from the page) and community posts (copy the draft), **Results** per segment and lead source, and **Activity**. It works on a phone.
 
-The engine and every secret stay on your laptop. Every 10 minutes `dashboard-sync` applies what you did on the page, then pushes a fresh snapshot to a small hosted database (Turso) that the Vercel page reads. So a click shows as "applies at the next sync", and the page needs your laptop running to move anything forward. Only the snapshot leaves the laptop (drafts, replies, lead names and emails), never keys.
+The engine and API keys stay on your laptop. Each five-minute tick applies dashboard actions and pushes a snapshot to Turso. The snapshot includes draft emails, reply bodies, lead contact details, and recent job log lines; review what those logs contain. The page needs your laptop awake to apply actions or send mail.
 
 Setup, about 10 minutes:
 1. **Turso** (free): sign up at turso.tech, create a database, and copy its URL (`libsql://...`). Create a token for that database. Put both in `.env` as `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`, then run `python -m outreach dashboard-sync` once. It creates the tables and pushes the first snapshot.
@@ -108,7 +111,7 @@ To use it without Vercel: `python -m outreach dashboard` serves the same page at
 
 ## Offers, A/B angles, deals and the weekly summary
 - Each segment in `config/settings.example.yaml` has a fixed-price `offer` and `price` (defaults to check, not agreed quotes) and two `angles`. Every lead gets the angle used least so far in its segment, and **Results → A/B test** shows which one gets replies.
-- **Respond → Deals:** move each conversation through call booked → proposal sent → won (with value) or lost. **Make 1-page plan** on a reply writes a priced plan from that lead's research and their reply.
+- **Respond → Deals:** move each conversation through call booked → proposal sent → won (with value and currency) or lost. Record the next action and due date. **Make 1-page plan** on a reply writes a priced draft from that lead's research and their reply; check it before sending.
 - Mondays: three LinkedIn post drafts at 08:00 (Engine tab) and a summary on Telegram at 09:00 with last week's numbers and the changes to make. Run them any time with `python -m outreach content` and `python -m outreach digest`.
 - `site/index.html` is your case-study page; deploy it free (see GROWTH.md).
 

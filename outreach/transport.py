@@ -122,6 +122,10 @@ class ZohoError(RuntimeError):
     pass
 
 
+class InboxUnavailable(RuntimeError):
+    pass
+
+
 ZOHO_HINTS = {
     "invalid_code": ("\n  ZOHO_REFRESH_TOKEN is not a valid refresh token. Usually the one-time code from "
                      "'Generate Code' was pasted instead. Generate a new code and run: "
@@ -148,19 +152,20 @@ class Zoho:
     def token(self) -> str:
         if self._token and time.time() < self._expires - 60:
             return self._token
-        r = requests.post(self.accounts_url, params={
+        r = requests.post(self.accounts_url, data={
             "refresh_token": self.refresh_token, "client_id": self.client_id,
             "client_secret": self.client_secret, "grant_type": "refresh_token"}, timeout=30)
         data = r.json()
         if "access_token" not in data:
-            hint = ZOHO_HINTS.get(data.get("error", ""), "")
-            raise ZohoError(f"token refresh failed: {data}{hint}")
+            error = str(data.get("error", "unknown"))
+            error = error if re.fullmatch(r"[a-z_]{1,50}", error) else "unknown"
+            raise ZohoError(f"token refresh failed: {error}{ZOHO_HINTS.get(error, '')}")
         self._token, self._expires = data["access_token"], time.time() + int(data.get("expires_in", 3600))
         return self._token
 
     def exchange_code(self, code: str) -> dict:
         """Turn a Self Client grant code (valid a few minutes, usable once) into a refresh token."""
-        r = requests.post(self.accounts_url, params={
+        r = requests.post(self.accounts_url, data={
             "code": code.strip(), "client_id": self.client_id, "client_secret": self.client_secret,
             "grant_type": "authorization_code"}, timeout=30)
         return r.json()
@@ -172,10 +177,10 @@ class Zoho:
         try:
             data = r.json()
         except ValueError:
-            raise ZohoError(f"{method} {path}: HTTP {r.status_code} {r.text[:300]}")
+            raise ZohoError(f"{method} {path}: HTTP {r.status_code}")
         status = (data.get("status") or {}).get("code", r.status_code)
         if r.status_code >= 400 or (isinstance(status, int) and status >= 400):
-            raise ZohoError(f"{method} {path}: {data}")
+            raise ZohoError(f"{method} {path}: HTTP {r.status_code}, API status {status if isinstance(status, int) else 'unknown'}")
         return data
 
     def account_id(self) -> str:
@@ -202,26 +207,33 @@ class Zoho:
     def spam_folder(self) -> str:
         """Replies to cold email sometimes land in Spam; read that folder too."""
         if not hasattr(self, "_spam"):
-            self._spam = ""
-            try:
-                for f in self.call("GET", f"/accounts/{self.account_id()}/folders").get("data", []):
-                    if str(f.get("folderType", "")).lower() == "spam" or str(f.get("folderName", "")).lower() == "spam":
-                        self._spam = str(f["folderId"])
-                        break
-            except (ZohoError, KeyError):
-                pass
+            spam = ""
+            for f in self.call("GET", f"/accounts/{self.account_id()}/folders").get("data", []):
+                if str(f.get("folderType", "")).lower() == "spam" or str(f.get("folderName", "")).lower() == "spam":
+                    if not f.get("folderId"):
+                        raise ZohoError("Spam folder has no ID")
+                    spam = str(f["folderId"])
+                    break
+            self._spam = spam
         return self._spam
 
     def fetch(self, days: int, known: set | None = None) -> list[Incoming]:
         acc = self.account_id()
         since_ms = (time.time() - days * 86400) * 1000
-        rows = self.call("GET", f"/accounts/{acc}/messages/view", params={"limit": 200}).get("data", [])
-        if self.spam_folder():
-            try:
-                rows += self.call("GET", f"/accounts/{acc}/messages/view",
-                                  params={"limit": 50, "folderId": self.spam_folder()}).get("data", [])
-            except ZohoError:
-                pass
+        rows = []
+        for folder in (None, self.spam_folder()):
+            if folder == "":
+                continue
+            start = 1
+            while True:
+                params = {"start": start, "limit": 200}
+                if folder:
+                    params["folderId"] = folder
+                page = self.call("GET", f"/accounts/{acc}/messages/view", params=params).get("data", [])
+                rows.extend(page)
+                if len(page) < 200 or float(page[-1].get("receivedTime") or 0) < since_ms:
+                    break
+                start += len(page)
         out = []
         for m in rows:
             if float(m.get("receivedTime") or 0) < since_ms:
@@ -274,7 +286,7 @@ def fetch(box: dict, days: int, known: set | None = None) -> list[Incoming]:
     if box.get("transport") == "zoho_api":
         return zoho(box).fetch(days, known)
     if not box.get("imap_host") or not box.get("password"):
-        return []
+        raise InboxUnavailable(f"{box['email']}: IMAP is not configured")
     return imap_fetch(box, days)
 
 

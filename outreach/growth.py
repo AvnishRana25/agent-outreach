@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from pydantic import BaseModel, Field
 
@@ -17,25 +17,46 @@ from . import config, db, llm, replies, report
 
 STAGES = ("call_booked", "proposal_sent", "won", "lost")
 STAGE_LABEL = {"call_booked": "Call booked", "proposal_sent": "Proposal sent", "won": "Won", "lost": "Lost"}
+CURRENCIES = {"USD", "GBP", "AED", "INR"}
 
 
 # --------------------------------------------------------------------------- deals
-def set_stage(lead_id: int, stage: str, value: float | None = None, note: str = "") -> str:
+OPPORTUNITY_TYPES = {"contract", "internship"}
+
+
+def set_stage(lead_id: int, stage: str, value: float | None = None, note: str = "", currency: str = "USD",
+              next_action: str = "", next_due: str = "", opportunity_type: str = "") -> str:
     if stage not in STAGES and stage != "":
         return f"error: unknown stage {stage!r}"
+    if currency not in CURRENCIES:
+        return f"error: unknown currency {currency!r}"
+    if opportunity_type and opportunity_type not in OPPORTUNITY_TYPES:
+        return f"error: unknown opportunity type {opportunity_type!r}"
+    try:
+        if next_due:
+            date.fromisoformat(next_due)
+    except ValueError:
+        return "error: invalid next due date"
     with db.connect() as conn:
         if not conn.execute("SELECT 1 FROM leads WHERE id=?", (lead_id,)).fetchone():
             return f"error: no lead {lead_id}"
-        db.set_lead(conn, lead_id, deal_stage=stage, deal_value=value, deal_note=note[:500],
-                    deal_updated=db.now())
+        fields = dict(deal_stage=stage, deal_value=value, deal_note=note[:500],
+                      deal_currency=currency, deal_next_action=next_action[:300], deal_next_due=next_due,
+                      deal_updated=db.now())
+        if opportunity_type:
+            fields["opportunity_type"] = opportunity_type
+        db.set_lead(conn, lead_id, **fields)
     return f"stage: {STAGE_LABEL.get(stage, 'cleared')}"
 
 
 def pipeline_items(conn) -> list[dict]:
     """Every lead you're in a conversation with: positive replies plus anything with a deal stage."""
     rows = conn.execute(f"""
-        SELECT l.id, l.company, l.first_name, l.last_name, l.email, l.segment, l.deal_stage, l.deal_value,
-               l.deal_note, l.deal_updated,
+        SELECT l.id, l.company, l.first_name, l.last_name, l.email, l.segment, l.source,
+               COALESCE(NULLIF(l.opportunity_type, ''),
+                        CASE WHEN l.segment LIKE '%intern%' THEN 'internship' ELSE 'contract' END) AS opportunity_type,
+               l.deal_stage, l.deal_value,
+               l.deal_currency, l.deal_note, l.deal_next_action, l.deal_next_due, l.deal_updated,
                (SELECT r.summary FROM replies r WHERE r.lead_id=l.id ORDER BY r.received_at DESC LIMIT 1) AS last_reply,
                (SELECT r.received_at FROM replies r WHERE r.lead_id=l.id ORDER BY r.received_at DESC LIMIT 1) AS replied_at
         FROM leads l
@@ -159,8 +180,11 @@ def suggestions(conn) -> list[str]:
     waiting = conn.execute(f"SELECT COUNT(*) FROM replies WHERE handled=0 AND category IN {report.NEEDS_YOU_SQL}").fetchone()[0]
     if waiting:
         tips.append(f"{waiting} repl{'y is' if waiting == 1 else 'ies are'} still waiting on you. Answer today.")
-    stale = conn.execute("SELECT company FROM leads WHERE deal_stage='proposal_sent' AND deal_updated < ?",
-                         ((datetime.now(timezone.utc) - timedelta(days=5)).isoformat(),)).fetchall()
+    stale = conn.execute("SELECT company FROM leads WHERE deal_stage='proposal_sent' AND "
+                         "((deal_next_due != '' AND deal_next_due < ?) OR "
+                         "(deal_next_due = '' AND deal_updated < ?))",
+                         (date.today().isoformat(),
+                          (datetime.now(timezone.utc) - timedelta(days=5)).isoformat())).fetchall()
     if stale:
         tips.append("Proposals with no answer for 5+ days, follow up: " + ", ".join(r[0] for r in stale[:5]) + ".")
     return tips or ["Nothing to change yet: keep the volume steady until each segment has about 40 sends."]
@@ -178,14 +202,16 @@ def weekly_digest() -> str:
                                 (since.isoformat(),)).fetchone()[0]
         moved = {s: conn.execute("SELECT COUNT(*) FROM leads WHERE deal_stage=? AND deal_updated>=?",
                                  (s, since.isoformat())).fetchone()[0] for s in STAGES}
-        won_value = conn.execute("SELECT COALESCE(SUM(deal_value),0) FROM leads WHERE deal_stage='won'").fetchone()[0]
+        won_values = {r[0]: r[1] for r in conn.execute("SELECT COALESCE(deal_currency, 'USD'), "
+                      "SUM(deal_value) FROM leads WHERE deal_stage='won' GROUP BY 1") if r[1]}
         tips = suggestions(conn)
     text = "\n".join([
         "Outreach: last 7 days",
         f"Sent: {first} first emails, {follow} follow-ups",
         f"Replies: {replied} ({positive} positive)",
         f"Deals: {moved['call_booked']} calls booked, {moved['proposal_sent']} proposals, {moved['won']} won"
-        + (f" (total won so far: {won_value:g})" if won_value else ""),
+        + (" (total won so far: " + ", ".join(f"{c} {v:g}" for c, v in sorted(won_values.items())) + ")"
+           if won_values else ""),
         "", "This week:", *[f"- {t}" for t in tips]])
     with db.connect() as conn:
         db.set_state(conn, "digest:last", json.dumps({"at": db.now(), "text": text}))

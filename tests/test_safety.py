@@ -6,6 +6,12 @@ from unittest import mock
 import pytest
 
 
+def _allow_gulf(monkeypatch):
+    from outreach import config
+    settings = config.settings()
+    monkeypatch.setattr(config, "settings", lambda: {**settings, "sending": {**settings["sending"], "allowed_segments": ["gulf_realestate"]}})
+
+
 @pytest.fixture(autouse=True)
 def tmp_db(tmp_path, monkeypatch):
     monkeypatch.setenv("OUTREACH_DB", str(tmp_path / "t.db"))
@@ -104,11 +110,14 @@ def test_drafting_matches_what_can_be_sent(monkeypatch):
 
 def test_template_text_is_never_sent(monkeypatch):
     from outreach import db, sender, transport
+    _allow_gulf(monkeypatch)
     with db.connect() as conn:
-        lid = _lead(conn, status="approved")
-        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status) VALUES (?,0,'idea','Hi [First Name], x','approved')", (lid,))
-        lid2 = _lead(conn, 2, status="approved")
-        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status) VALUES (?,0,'idea','Hi Omar, x','approved')", (lid2,))
+        db.set_state(conn, "last_inbound_sync:me@zoho.in", datetime.now(timezone.utc).isoformat())
+    with db.connect() as conn:
+        lid = _lead(conn, status="approved", fit=7, email_source="website")
+        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence) VALUES (?,0,'idea','Hi [First Name], x','approved',0.9)", (lid,))
+        lid2 = _lead(conn, 2, status="approved", fit=7, email_source="website")
+        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence) VALUES (?,0,'idea','Hi Omar, x','approved',0.9)", (lid2,))
     monkeypatch.setattr(sender.config, "inboxes", lambda: [{"email": "me@zoho.in", "max_per_day": 35}])
     monkeypatch.setattr(sender, "in_window", lambda seg, now: True)
     monkeypatch.setattr(sender, "_signature", lambda seg: "Avnish\ngithub.com/YOUR-GITHUB")
@@ -119,9 +128,69 @@ def test_template_text_is_never_sent(monkeypatch):
         assert "YOUR-GITHUB" in conn.execute("SELECT error FROM messages WHERE lead_id=?", (lid2,)).fetchone()[0]
 
 
-def test_profile_placeholders_are_listed():
+def test_uncertain_send_is_not_retried_and_dry_run_is_read_only(monkeypatch):
+    from outreach import db, sender, transport
+    _allow_gulf(monkeypatch)
+
+    with db.connect() as conn:
+        lid = _lead(conn, status="approved", fit=7, email_source="website")
+        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence) "
+                     "VALUES (?,0,'Idea','Hi Omar, a specific idea.','approved',0.9)", (lid,))
+        db.set_state(conn, "last_inbound_sync:me@zoho.in", datetime.now(timezone.utc).isoformat())
+
+    monkeypatch.setattr(sender.config, "inboxes", lambda: [{"email": "me@zoho.in", "max_per_day": 35}])
+    monkeypatch.setattr(sender, "in_window", lambda seg, now: True)
+    monkeypatch.setattr(sender, "_signature", lambda seg: "Avnish Rana")
+    with db.connect() as conn:
+        before = "\n".join(conn.iterdump())
+    assert sender.tick(5, dry_run=True) == 1
+    with db.connect() as conn:
+        assert "\n".join(conn.iterdump()) == before
+
+    attempts = []
+    def uncertain(*args):
+        with db.connect() as conn:
+            assert conn.execute("SELECT status FROM messages WHERE lead_id=?", (lid,)).fetchone()[0] == "sending"
+        attempts.append(1)
+        raise transport.ZohoError("request timed out after provider may have accepted it")
+
+    monkeypatch.setattr(transport, "send", uncertain)
+    assert sender.tick(5) == 0
+    assert sender.tick(5) == 0
+    assert attempts == [1]
+    with db.connect() as conn:
+        assert conn.execute("SELECT status FROM messages WHERE lead_id=?", (lid,)).fetchone()[0] == "needs_reconciliation"
+        lid2 = _lead(conn, 2, status="approved", fit=7, email_source="website")
+        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence) "
+                     "VALUES (?,0,'Idea','Hi Omar, another idea.','approved',0.9)", (lid2,))
+    monkeypatch.setattr(transport, "send", mock.Mock(side_effect=ValueError("malformed provider response")))
+    assert sender.tick(5) == 0
+    with db.connect() as conn:
+        assert conn.execute("SELECT status FROM messages WHERE lead_id=?", (lid2,)).fetchone()[0] == "needs_reconciliation"
+
+
+def test_disallowed_market_stays_queued(monkeypatch):
+    from outreach import db, sender, transport
+    with db.connect() as conn:
+        lid = _lead(conn, status="approved", fit=7, email_source="website")
+        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence) "
+                     "VALUES (?,0,'Idea','Hi Omar, an idea.','approved',0.9)", (lid,))
+        db.set_state(conn, "last_inbound_sync:me@zoho.in", datetime.now(timezone.utc).isoformat())
+    monkeypatch.setattr(sender.config, "inboxes", lambda: [{"email": "me@zoho.in", "max_per_day": 35}])
+    monkeypatch.setattr(sender, "in_window", lambda seg, now: True)
+    monkeypatch.setattr(transport, "send", mock.Mock(side_effect=AssertionError("disallowed market sent")))
+    assert sender.tick(5) == 0
+    with db.connect() as conn:
+        assert conn.execute("SELECT status FROM messages WHERE lead_id=?", (lid,)).fetchone()[0] == "approved"
+
+
+def test_profile_placeholders_are_listed(monkeypatch):
     from outreach import config
-    found = config.placeholders()                  # the repo has only the example profile
+    monkeypatch.setattr(config, "_load_yaml", lambda name: {
+        "signatures": {"freelance": "Avnish\ngithub.com/YOUR-GITHUB"},
+        "calendar_link": "YOUR-CALENDAR-LINK",
+    })
+    found = config.placeholders()
     assert any("YOUR-GITHUB" in x for x in found) and any("calendar_link" in x for x in found)
     assert not config.PLACEHOLDER.search("Happy to help your team; see for yourself.")
 

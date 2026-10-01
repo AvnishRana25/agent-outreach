@@ -53,6 +53,23 @@ def test_deal_stages_and_pipeline():
         assert (all_row["won"], all_row["won_value"], all_row["calls"]) == (1, 350.0, 1)
 
 
+def test_deal_currencies_and_next_actions_do_not_mix_totals():
+    from outreach import db, growth, report
+    with db.connect() as conn:
+        uk = _lead(conn, 11, segment="uk_agencies")
+        india = _lead(conn, 12, segment="india_realestate")
+    assert growth.set_stage(uk, "won", 200, currency="GBP", next_action="Ask for referral",
+                            next_due="2026-10-10") == "stage: Won"
+    assert growth.set_stage(india, "won", 25000, currency="INR") == "stage: Won"
+    with db.connect() as conn:
+        items = growth.pipeline_items(conn)
+        assert any(x["deal_next_action"] == "Ask for referral" and x["deal_next_due"] == "2026-10-10"
+                   for x in items)
+        total = next(x for x in report.funnel(conn) if x["name"] == "ALL")
+        assert total["won_value"] is None
+        assert total["won_values"] == {"GBP": 200.0, "INR": 25000.0}
+
+
 def test_make_plan_uses_offer_price(monkeypatch):
     from outreach import db, growth, llm
     with db.connect() as conn:

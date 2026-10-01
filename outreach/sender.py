@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import random
 import smtplib
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 from . import config, db, personalize, transport
+from .sources import rejects_ai_application
 
 
 def daily_cap(box: dict, today: date) -> int:
@@ -98,7 +99,8 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
     boxes = {b["email"]: b for b in config.inboxes() if b.get("enabled", True)}
     sent = 0
     with db.connect() as conn:
-        db.purge_mock(conn)
+        if not dry_run:
+            db.purge_mock(conn)
         if db.get_state(conn, "sending_paused") == "1":
             print("  sending is paused from the dashboard")
             return 0
@@ -113,19 +115,41 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
             if sent >= max_sends:
                 break
             if db.MOCK_MARK in (msg["body"] or "") or (msg["subject"] or "").startswith("[mock"):
-                conn.execute("UPDATE messages SET status='cancelled' WHERE id=?", (msg["id"],))
+                if not dry_run:
+                    conn.execute("UPDATE messages SET status='cancelled' WHERE id=?", (msg["id"],))
+                continue
+            allowed_segments = s.get("allowed_segments")
+            if allowed_segments is not None and msg["segment"] not in allowed_segments:
                 continue
             seg = config.segment(msg["segment"])
             if not in_window(seg, now):
                 continue
             lead = conn.execute("SELECT * FROM leads WHERE id=?", (msg["lead_id"],)).fetchone()
             if db.suppressed(conn, lead["email"]):
-                conn.execute("UPDATE messages SET status='cancelled' WHERE lead_id=? AND status='approved'", (lead["id"],))
-                db.set_lead(conn, lead["id"], status="unsubscribed")
+                if not dry_run:
+                    conn.execute("UPDATE messages SET status='cancelled' WHERE lead_id=? AND status='approved'", (lead["id"],))
+                    db.set_lead(conn, lead["id"], status="unsubscribed")
+                continue
+            if (lead["email_status"] != "valid"
+                    or lead["email_source"] not in ("website", "osm", "post", "registry", "maps")
+                    or any(rejects_ai_application(lead[field] or "")
+                           for field in ("source_text", "site_text", "notes", "research"))
+                    or lead["fit"] is None or lead["fit"] < 6
+                    or msg["confidence"] is None or msg["confidence"] < 0.85
+                    or not (msg["subject"] or "").strip() or not (msg["body"] or "").strip()):
+                print(f"  ! held {lead['email']}: address, fit, confidence, or content needs review")
                 continue
 
             box = _choose_inbox(conn, msg, seg, boxes, paused, today, now, s)
             if not box:
+                continue
+            synced = db.get_state(conn, f"last_inbound_sync:{box['email']}")
+            try:
+                sync_age = now - datetime.fromisoformat(synced)
+            except (ValueError, TypeError):
+                sync_age = timedelta.max
+            if not timedelta(0) <= sync_age <= timedelta(minutes=20):
+                print(f"  ! held {lead['email']}: inbox {box['email']} has no recent successful sync")
                 continue
             thread = None
             if msg["step"] > 0:
@@ -137,12 +161,14 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
             if hole:  # never send template text
                 in_draft = bool(config.PLACEHOLDER.search(f"{msg['subject']}\n{msg['body']}"))
                 if in_draft and msg["step"] == 0:  # Gemini wrote it: back to Review with a note
-                    conn.execute("UPDATE messages SET status='draft', review_note=? WHERE lead_id=? AND status='approved'",
-                                 (f"Contains placeholder text {hole.group(0)!r}: edit it before approving.", lead["id"]))
-                    db.set_lead(conn, lead["id"], status="drafted")
+                    if not dry_run:
+                        conn.execute("UPDATE messages SET status='draft', review_note=? WHERE lead_id=? AND status='approved'",
+                                     (f"Contains placeholder text {hole.group(0)!r}: edit it before approving.", lead["id"]))
+                        db.set_lead(conn, lead["id"], status="drafted")
                 else:  # the signature: the dashboard shows a banner until profile.yaml is fixed
-                    conn.execute("UPDATE messages SET error=? WHERE id=?",
-                                 (f"held: placeholder text {hole.group(0)!r}", msg["id"]))
+                    if not dry_run:
+                        conn.execute("UPDATE messages SET error=? WHERE id=?",
+                                     (f"held: placeholder text {hole.group(0)!r}", msg["id"]))
                 print(f"  ! held {lead['email']}: placeholder text {hole.group(0)!r}")
                 continue
 
@@ -150,14 +176,21 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
                 print(f"  [dry-run] {box['email']} -> {lead['email']} step {msg['step']}: {msg['subject']}")
                 sent += 1
                 continue
+            claimed = conn.execute("UPDATE messages SET status='sending', inbox=?, error=NULL "
+                                   "WHERE id=? AND status='approved'", (box["email"], msg["id"]))
+            if not claimed.rowcount:
+                continue
+            conn.commit()  # Durable before the provider call; uncertain outcomes cannot be retried automatically.
             try:
                 message_id, provider_id = transport.send(box, lead["email"], msg["subject"], body, thread)
-            except transport.SEND_ERRORS as e:
-                conn.execute("UPDATE messages SET error=? WHERE id=?", (str(e)[:300], msg["id"]))
-                print(f"  ! send failed {box['email']} -> {lead['email']}: {e}")
+            except Exception as e:
+                conn.execute("UPDATE messages SET status='needs_reconciliation', error=? WHERE id=?",
+                             (f"{type(e).__name__}: check provider before retry", msg["id"]))
+                print(f"  ! send uncertain {box['email']} -> {lead['email']}: {type(e).__name__}")
                 if isinstance(e, smtplib.SMTPRecipientsRefused):
                     conn.execute("UPDATE messages SET status='failed' WHERE id=?", (msg["id"],))
                     db.set_lead(conn, lead["id"], status="bounced")
+                conn.commit()
                 continue
 
             conn.execute("UPDATE messages SET status='sent', sent_at=?, message_id=?, provider_id=?, inbox=? "
