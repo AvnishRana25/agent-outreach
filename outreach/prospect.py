@@ -110,7 +110,7 @@ def _first_country(regions: list[str]) -> str:
 
 
 # --------------------------------------------------------------------------- Hacker News
-HN_SEARCH = "https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&hitsPerPage=12"
+HN_SEARCH = "https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&hitsPerPage=25"
 HN_ITEM = "https://hn.algolia.com/api/v1/items/{id}"
 THREAD_TITLES = {"hiring": "who is hiring", "freelance": "seeking freelancer"}
 
@@ -189,7 +189,11 @@ def run_hn(job: dict) -> int:
 
 
 # --------------------------------------------------------------------------- OpenStreetMap
-OVERPASS = "https://overpass-api.de/api/interpreter"
+OVERPASS_ENDPOINTS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+]
 
 
 def overpass_query(bbox: list[float], tags: list[str]) -> str:
@@ -198,8 +202,22 @@ def overpass_query(bbox: list[float], tags: list[str]) -> str:
     for tag in tags:
         k, v = tag.split("=", 1)
         for site_key in ("website", "contact:website", "url"):
-            parts.append(f'nwr["{k}"="{v}"]["{site_key}"]({s},{w},{n},{e});')
-    return f"[out:json][timeout:120];({''.join(parts)});out tags center;"
+            parts.append(f'node["{k}"="{v}"]["{site_key}"]({s},{w},{n},{e});')
+            parts.append(f'way["{k}"="{v}"]["{site_key}"]({s},{w},{n},{e});')
+    return f"[out:json][timeout:60];({''.join(parts)});out tags center;"
+
+
+def fetch_overpass(query_str: str) -> list[dict]:
+    """Execute Overpass query with automatic mirror failover and timeout tolerance."""
+    for ep in OVERPASS_ENDPOINTS:
+        try:
+            r = requests.post(ep, data={"data": query_str}, headers=UA, timeout=35)
+            if r.status_code == 200:
+                data = r.json()
+                return data.get("elements", [])
+        except Exception:
+            continue
+    return []
 
 
 def parse_osm(elements: list[dict]) -> list[dict]:
@@ -223,10 +241,11 @@ def run_osm(job: dict) -> int:
         for city in job["cities"]:
             if added >= job.get("max_new", 30):
                 break
-            bbox = config.settings()["cities"][city]
-            r = requests.post(OVERPASS, data={"data": overpass_query(bbox, job["tags"])}, headers=UA, timeout=180)
-            r.raise_for_status()
-            for biz in parse_osm(r.json().get("elements", [])):
+            bbox = (config.settings().get("cities") or {}).get(city)
+            if not bbox:
+                continue
+            elements = fetch_overpass(overpass_query(bbox, job["tags"]))
+            for biz in parse_osm(elements):
                 if added >= job.get("max_new", 30):
                     break
                 dom = domain_of(biz["website"])
@@ -237,7 +256,7 @@ def run_osm(job: dict) -> int:
                                city=city, country=job.get("country", ""), segment=job["segment"],
                                source="osm", source_text=f"OpenStreetMap listing in {city}: {biz['desc']}"):
                     added += 1
-            time.sleep(5)  # Overpass fair-use
+            time.sleep(2)  # Overpass fair-use
     return added
 
 
