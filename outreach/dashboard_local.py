@@ -46,8 +46,35 @@ def make_handler():
     return Local
 
 
+class ReloadingServer(ThreadingHTTPServer):
+    """Picks up a new dashboard/api/index.py after a `git pull` without a restart: the background
+    dashboard runs for days, and stale API code would reject actions the new page sends."""
+
+    def __init__(self, address):
+        self._mtime = self._api_mtime()
+        super().__init__(address, make_handler())
+
+    @staticmethod
+    def _api_mtime() -> float:
+        try:
+            return (DASH_DIR / "api" / "index.py").stat().st_mtime
+        except OSError:
+            return 0.0
+
+    def finish_request(self, request, client_address):
+        mtime = self._api_mtime()
+        if mtime != self._mtime:
+            try:
+                self.RequestHandlerClass = make_handler()
+                self._mtime = mtime
+                print("dashboard API code changed on disk; reloaded")
+            except Exception as e:  # a half-written file mid-pull: keep serving the old code, retry next request
+                print(f"dashboard API reload failed, keeping the previous version: {e}")
+        super().finish_request(request, client_address)
+
+
 def server(port: int | None = None, host: str = "127.0.0.1") -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((host, default_port() if port is None else port), make_handler())
+    return ReloadingServer((host, default_port() if port is None else port))
 
 
 def serve(port: int | None = None) -> None:

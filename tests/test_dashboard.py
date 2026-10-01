@@ -269,3 +269,30 @@ def test_deal_stage_and_plan_from_dashboard(env, monkeypatch):
     assert tuple(row) == ("proposal_sent", 350.0, "sent Tue")
     acts = call(port, "GET", "/api/data", cookie=cookie)[1]["actions"]
     assert {a["kind"]: a["result"] for a in acts}["make_plan"] == "plan ready"
+
+
+def test_dashboard_reloads_api_after_pull(tmp_path, monkeypatch):
+    import os
+    import shutil
+    import time
+    from outreach import config, dashboard_local
+    dash = tmp_path / "dashboard"
+    shutil.copytree(config.ROOT / "dashboard", dash)
+    monkeypatch.setattr(dashboard_local, "DASH_DIR", dash)
+    monkeypatch.setenv("SESSION_SECRET", "s" * 32)
+    srv = dashboard_local.server(port=0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        assert call(srv.server_port, "GET", "/api/version")[0] != 200     # route not there yet
+        api = dash / "api" / "index.py"
+        api.write_text(api.read_text().replace('            if route == "me":',
+                                               '            if route == "version":\n'
+                                               '                return self._send(200, {"v": 2})\n'
+                                               '            if route == "me":'))
+        os.utime(api, (time.time() + 5, time.time() + 5))   # a pull always changes the file time
+        assert call(srv.server_port, "GET", "/api/version")[1] == {"v": 2}
+        api.write_text("this is not python (")                # a half-written file keeps the old code
+        os.utime(api, (time.time() + 10, time.time() + 10))
+        assert call(srv.server_port, "GET", "/api/version")[1] == {"v": 2}
+    finally:
+        srv.shutdown()

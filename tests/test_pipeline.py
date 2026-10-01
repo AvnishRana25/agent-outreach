@@ -241,3 +241,33 @@ def test_llm_falls_back_through_model_chain(monkeypatch):
     with pytest.raises(llm.QuotaExhausted):
         llm.generate("sys", "p", research.Brief, kind="research")
     assert llm.status()["exhausted"]["research"] is True
+
+
+def test_llm_retries_overloaded_models_then_reports_busy(monkeypatch):
+    from google.genai import errors
+    from outreach import llm, research
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    monkeypatch.setenv("GEMINI_RPM", "100000")
+    monkeypatch.setenv("GEMINI_DRAFT_MODELS", "m-a,m-b")
+    monkeypatch.setattr(llm, "_skip", set())
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
+    brief = research.Brief(company_summary="s", facts=[], pains=[], best_hook="h", proof_id="re_pipeline",
+                           angle="a", contact_first_name="", contact_role="Founder", fit_score=8, fit_reason="r")
+    overloaded = errors.ServerError(503, {"error": {"code": 503, "message": "high demand", "status": "UNAVAILABLE"}})
+    calls = []
+
+    def gen(model, contents, config):
+        calls.append(model)
+        if model == "m-b" and calls.count("m-b") > 2:        # recovers on the second round
+            return mock.MagicMock(parsed=brief)
+        raise overloaded
+    fake = mock.MagicMock()
+    fake.models.generate_content.side_effect = gen
+    monkeypatch.setattr(llm, "_client", fake)
+    assert llm.generate("s", "p", research.Brief).fit_score == 8
+
+    fake.models.generate_content.side_effect = lambda **k: (_ for _ in ()).throw(overloaded)
+    with pytest.raises(llm.ModelsBusy, match="m-a: busy, m-b: busy"):
+        llm.generate("s", "p", research.Brief)
+    assert llm.last_stop == "busy"
+    assert llm.status()["out"] == {}                          # overloads never mark a model as used up

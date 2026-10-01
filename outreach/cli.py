@@ -144,12 +144,10 @@ def main() -> None:
             new = sum(v for v in found.values() if isinstance(v, int))
             summary = f"{new} new companies, {researched.get('researched', 0)} researched, {drafted} drafted"
             from . import llm
-            st = llm.status()
-            if st["exhausted"]["research"] or st["exhausted"]["draft"]:
-                from datetime import datetime
-                from zoneinfo import ZoneInfo
-                at = datetime.fromisoformat(st["reset_at"]).astimezone(ZoneInfo("Asia/Kolkata"))
-                summary += f". Gemini's free quota ran out; the rest continues after {at:%H:%M} IST"
+            if llm.last_stop:
+                at = engine.schedule_retry("prepare", llm.last_stop)
+                why = "Gemini was overloaded" if llm.last_stop == "busy" else "Gemini's free quota ran out"
+                summary += f". {why}; it continues by itself at {at:%H:%M} IST"
             return summary
         prepare() if args.mock else engine.run_job("prepare", prepare)
     elif args.cmd == "review":

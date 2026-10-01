@@ -169,8 +169,8 @@ def run(use_mock: bool = False) -> int:
                 continue
             try:
                 result = check(post, use_mock)
-            except llm.QuotaExhausted:
-                print("  Gemini daily quota used up; the rest waits for the next run")
+            except llm.QuotaExhausted as e:
+                print(f"  stopped checking posts: {e}")
                 return found
             with db.connect() as conn:
                 conn.execute(

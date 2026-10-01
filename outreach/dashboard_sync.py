@@ -257,6 +257,7 @@ def _engine(conn) -> dict:
     from . import llm
     return {"heartbeat": db.get_state(conn, "engine:heartbeat") or None, "gemini": llm.status(),
             "digest": state_json("digest:last"), "posts": state_json("content:linkedin_posts"),
+            "retry_prepare": db.get_state(conn, "retry:prepare") or None,
             "sending_paused": db.get_state(conn, "sending_paused") == "1",
             "jobs": {j: {**engine.job_state(conn, j), "running": engine.is_running(j), "log": _tail(f"{j}.log")}
                      for j in engine.JOBS},
