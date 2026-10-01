@@ -46,7 +46,10 @@ def client() -> genai.Client:
 CHAINS = {
     "research": ["gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-3.5-flash-lite",
                  "gemini-3.6-flash", "gemini-3.7-flash"],
-    "draft": ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-flash-latest", "gemini-3.7-flash", "gemini-3.6-flash"],
+    # The larger models write better drafts but their free quota is small and they're often overloaded,
+    # so the lite models (bigger free quota) come last: a lite draft you review beats no draft at all.
+    "draft": ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-flash-latest", "gemini-3.7-flash", "gemini-3.6-flash",
+              "gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-3.5-flash-lite"],
     "reply": ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite"],
 }
 _FIRST = {"research": "GEMINI_RESEARCH_MODEL", "draft": "GEMINI_MODEL", "reply": "GEMINI_REPLY_MODEL"}
@@ -122,9 +125,11 @@ def status() -> dict:
     pt = ZoneInfo("America/Los_Angeles")
     reset = (datetime.now(pt) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     chains = {k: chain(k) for k in CHAINS}
-    return {"day": quota_day(), "calls": st.get("calls", {}), "out": st.get("out", {}),
+    from . import groq
+    backup = groq.models() if groq.enabled() else []
+    return {"backup": backup, "day": quota_day(), "calls": st.get("calls", {}), "out": st.get("out", {}),
             "limits": st.get("limits", {}), "chains": chains, "reset_at": reset.isoformat(),
-            "exhausted": {k: all(m in st.get("out", {}) for m in v) for k, v in chains.items()}}
+            "exhausted": {k: all(m in st.get("out", {}) for m in v + backup) for k, v in chains.items()}}
 
 
 def _pace() -> None:
@@ -213,6 +218,9 @@ def generate(system: str, prompt: str, schema: type[T], kind: str = "draft",
         reasons[model_id] = result[0]
         if result[0] == "busy":
             busy.append(model_id)
+    backup = _groq(system, prompt, schema, temperature, out_today, reasons)
+    if backup[0]:
+        return backup[1]
     if busy:                                               # overloads are usually brief: one more round
         time.sleep(BUSY_WAIT)
         for model_id in busy:
@@ -228,6 +236,29 @@ def generate(system: str, prompt: str, schema: type[T], kind: str = "draft",
         last_stop = "quota"
         raise QuotaExhausted(f"every {kind} model is out of free quota for today ({detail})")
     return None
+
+
+def _groq(system: str, prompt: str, schema, temperature: float, out_today: dict, reasons: dict):
+    """Backup provider when no Gemini model answered. Returns (answered, result)."""
+    from . import groq
+    if not groq.enabled():
+        return (False, None)
+    for model_id in groq.models():
+        if model_id in _skip or model_id in out_today:
+            reasons[model_id] = out_today.get(model_id, "skipped")
+            continue
+        result = groq.try_model(model_id, system, prompt, schema, temperature)
+        if result[0] == "ok":
+            _count(model_id)
+            return (True, result[1])
+        reasons[model_id] = result[0]
+        # Groq's daily limits reset at midnight UTC; we clear marks at Gemini's reset (midnight Pacific),
+        # a few hours later. Good enough for a backup.
+        if result[0] == "quota":
+            _mark(model_id, "quota", result[1])
+        elif result[0] == "unavailable":
+            _mark(model_id, f"unavailable ({result[1]})")
+    return (False, None)
 
 
 def load_prompt(name: str) -> str:

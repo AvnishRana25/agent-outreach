@@ -81,6 +81,7 @@ def main() -> None:
     sub.add_parser("inbox", help="background job: read replies (what the engine runs every 20 minutes)")
     sub.add_parser("assist", help="background job: dashboard actions that need Gemini (regenerate, 1-page plan)")
     sub.add_parser("doctor", help="check why the engine isn't running")
+    sub.add_parser("groq-check", help="test the Groq backup key with one tiny request per model")
     p = sub.add_parser("install", help="run the engine (and dashboard) in the background, no terminal needed")
     p.add_argument("--force", action="store_true", help="install even inside Desktop/Documents/Downloads")
     p.add_argument("--port", type=int, default=None, help="dashboard port (default: DASHBOARD_PORT from .env, else 7347)")
@@ -214,6 +215,8 @@ def main() -> None:
         engine.kick_tick()  # show the results in the dashboard now, not at the next 5-minute run
     elif args.cmd == "doctor":
         engine.doctor()
+    elif args.cmd == "groq-check":
+        groq_check()
     elif args.cmd == "install":
         engine.install(args.force, args.port)
     elif args.cmd == "uninstall":
@@ -276,3 +279,20 @@ def zoho_check(send_to: str | None) -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def groq_check() -> None:
+    from pydantic import BaseModel
+
+    from . import groq
+
+    class Ping(BaseModel):
+        ok: bool
+        word: str
+    if not groq.enabled():
+        raise SystemExit("GROQ_API_KEY is not set in .env (free key: console.groq.com/keys)")
+    for m in groq.models():
+        result = groq.try_model(m, "You answer health checks.", 'Reply with ok=true and word="ready".', Ping, 0)
+        detail = result[1] if result[0] == "ok" else " ".join(map(str, result[1:]))
+        print(f"{m.removeprefix('groq/'):<28} {result[0]:<12} {detail}")
+    print("Models marked ok are used automatically whenever Gemini can't answer.")

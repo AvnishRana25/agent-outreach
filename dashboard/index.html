@@ -717,7 +717,7 @@ function geminiCard(g) {
   const reset = new Date(g.reset_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const kinds = [["research", "Research"], ["draft", "Drafting"], ["reply", "Replies & posts"]];
   const anyOut = kinds.some(([k]) => g.exhausted && g.exhausted[k]);
-  return `<article class="card"><div class="card-head"><div class="meta"><h3>AI quota (Gemini free tier)</h3>
+  return `<article class="card"><div class="card-head"><div class="meta"><h3>AI quota (free tiers)</h3>
     <div class="small muted" style="margin-top:4px">Each model has its own small free daily limit; when one runs out the next takes over. Limits reset at ${esc(reset)} your time.</div>
     <div style="margin-top:8px">${anyOut ? `<span class="status warning"><span class="dot"></span>Some work waits for the reset</span>` : `<span class="status good"><span class="dot"></span>Available</span>`} <span class="small muted">${calls} calls today</span></div></div></div>
     <div class="table-wrap" style="margin-top:12px;box-shadow:none"><table><thead><tr><th>Used for</th><th>Models, in order</th><th>Status</th></tr></thead><tbody>
@@ -725,7 +725,12 @@ function geminiCard(g) {
         const out = (g.out || {})[m]; const lim = (g.limits || {})[m];
         return `<span class="chip" title="${esc(out || "available")}" style="${out ? "text-decoration:line-through;opacity:.6" : ""}">${esc(m.replace("gemini-", ""))} · ${used(m)}${lim ? "/" + lim : ""}</span>`;
       }).join(" ")}</td><td>${g.exhausted[k] ? `<span class="status critical"><span class="dot"></span>Used up</span>` : `<span class="status good"><span class="dot"></span>OK</span>`}</td></tr>`).join("")}
+    ${(g.backup || []).length ? `<tr><td>Backup (Groq)</td><td style="text-align:left;white-space:normal">${g.backup.map((m) => {
+        const out = (g.out || {})[m];
+        return `<span class="chip" title="${esc(out || "available")}" style="${out ? "text-decoration:line-through;opacity:.6" : ""}">${esc(m.replace("groq/", ""))} · ${used(m)}</span>`;
+      }).join(" ")}</td><td class="small muted">Used when Gemini can't answer</td></tr>` : ""}
     </tbody></table></div>
+    ${!(g.backup || []).length ? `<p class="small muted" style="margin:10px 0 0">Tip: add a free Groq key (<code>GROQ_API_KEY</code> in .env) and the engine switches to Groq whenever Gemini is out or overloaded.</p>` : ""}
     ${anyOut ? `<p class="small" style="margin:10px 0 0">To lift the limit, turn on billing for your Gemini API key in Google AI Studio and set a small monthly budget. At this volume that's typically a few dollars a month (check Google's current prices), and drafting no longer waits a day.</p>` : ""}
   </article>`;
 }
