@@ -94,3 +94,24 @@ def test_install_on_linux_prints_cron(monkeypatch, capsys):
     monkeypatch.setattr(engine.sys, "platform", "linux")
     engine.install()
     assert "*/5 * * * *" in capsys.readouterr().out
+
+
+def test_install_writes_dashboard_port(monkeypatch, tmp_path, capsys):
+    import plistlib
+    from outreach import config, engine
+    monkeypatch.setattr(engine.sys, "platform", "darwin")
+    monkeypatch.setattr(engine.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(config, "ROOT", tmp_path / "agent-outreach")
+    monkeypatch.setattr(engine.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 0, "stderr": ""})())
+    for k in ("TURSO_DATABASE_URL", "DASHBOARD_PASSWORD", "SESSION_SECRET"):
+        monkeypatch.setenv(k, "x" * 20)
+    monkeypatch.delenv("DASHBOARD_PORT", raising=False)
+    agent = tmp_path / "Library" / "LaunchAgents" / "com.agent-outreach.dashboard.plist"
+    engine.install()
+    assert plistlib.loads(agent.read_bytes())["ProgramArguments"][-2:] == ["--port", "7347"]
+    assert "http://127.0.0.1:7347" in capsys.readouterr().out
+    monkeypatch.setenv("DASHBOARD_PORT", "9123")
+    engine.install()
+    assert plistlib.loads(agent.read_bytes())["ProgramArguments"][-1] == "9123"
+    engine.install(port=9200)
+    assert plistlib.loads(agent.read_bytes())["ProgramArguments"][-1] == "9200"

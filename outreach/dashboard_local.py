@@ -1,6 +1,6 @@
 """Run the dashboard on your laptop (same page and API code that Vercel runs).
 
-`python -m outreach dashboard` -> http://127.0.0.1:8787. It talks to the same Turso database,
+`python -m outreach dashboard` -> http://127.0.0.1:7347 (or DASHBOARD_PORT from .env). It talks to the same Turso database,
 so it needs TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, DASHBOARD_PASSWORD and SESSION_SECRET in .env.
 """
 from __future__ import annotations
@@ -12,6 +12,15 @@ from http.server import ThreadingHTTPServer
 from . import config
 
 DASH_DIR = config.ROOT / "dashboard"
+DEFAULT_PORT = 7347  # uncommon on purpose: 8787/8080/3000 are often taken by other local tools
+
+
+def default_port() -> int:
+    import os
+    try:
+        return int(os.getenv("DASHBOARD_PORT") or DEFAULT_PORT)
+    except ValueError:
+        return DEFAULT_PORT
 
 
 def api_module():
@@ -37,11 +46,12 @@ def make_handler():
     return Local
 
 
-def server(port: int = 8787, host: str = "127.0.0.1") -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((host, port), make_handler())
+def server(port: int | None = None, host: str = "127.0.0.1") -> ThreadingHTTPServer:
+    return ThreadingHTTPServer((host, default_port() if port is None else port), make_handler())
 
 
-def serve(port: int = 8787) -> None:
+def serve(port: int | None = None) -> None:
+    port = port or default_port()
     try:
         srv = server(port)
     except OSError as e:
