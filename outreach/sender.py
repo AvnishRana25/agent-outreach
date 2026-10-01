@@ -92,7 +92,8 @@ def _candidates(conn, now_iso: str):
     return list(followups) + list(firsts)
 
 
-TRUSTED_SOURCES = ("website", "osm", "post", "registry", "maps")
+# provider_verified: an email finder confirmed the mailbox (see verify.confirm_guesses)
+TRUSTED_SOURCES = ("website", "osm", "post", "registry", "maps", "provider_verified")
 INBOX_FRESH = timedelta(minutes=30)   # the inbox job runs every 10 minutes; replies must be read before sending
 MAX_ATTEMPTS = 3                       # provider rejections before an email is held for you to look at
 
@@ -211,6 +212,7 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
                 print(f"  [dry-run] {box['email']} -> {lead['email']} step {msg['step']}: {msg['subject']}")
                 sent += 1
                 continue
+            conn.commit()  # nothing may hold the database while we talk to the mail provider
             try:  # log in first: a failure here certainly sent nothing
                 transport.ready(box)
             except Exception as e:
@@ -240,6 +242,7 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
                     conn.execute("UPDATE messages SET status='needs_reconciliation', error=? WHERE id=?",
                                  (f"{what}. Check your Sent folder, then mark it in the dashboard.", msg["id"]))
                     print(f"  ! send uncertain {box['email']} -> {lead['email']}: {type(e).__name__}")
+                    conn.commit()  # save it before the Telegram call
                     replies.notify(f"⚠️ Not sure an email to {lead['email']} went out ({type(e).__name__}). "
                                    "Check Sent in Zoho, then mark it in the dashboard (Review → Needs a decision).")
                 conn.commit()

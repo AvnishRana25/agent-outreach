@@ -13,7 +13,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from . import (community, config, db, engine, firecrawl, growth, importer, personalize, replies, report, review, sender,
+from . import (community, config, db, engine, firecrawl, growth, importer, leadview, personalize, replies, report, review, sender,
                sources, turso)
 
 REMOTE_SCHEMA = [
@@ -219,6 +219,20 @@ def _promote_prospect(target: int, payload: dict) -> str:
     return "sent to the engine: researched and drafted on the next run" if ok else "skipped: already known or suppressed"
 
 
+def _approve_many(target: int, payload: dict) -> str:
+    """'Approve all' in Review: the same as pressing Approve on each draft (each still passes the send checks)."""
+    done, skipped = 0, 0
+    for lid in payload.get("ids") or []:
+        out = _approve(int(lid), {})
+        done, skipped = (done + 1, skipped) if out == "approved" else (done, skipped + 1)
+    return f"approved {done}" + (f", skipped {skipped} (no longer drafts)" if skipped else "")
+
+
+def _run_all(target: int, payload: dict) -> str:
+    """Engine tab: start new leads, community boards and LinkedIn posts together (each is its own job)."""
+    return "; ".join(f"{job}: {engine.spawn(job)}" for job in ("prepare", "community", "content"))
+
+
 def _find_prospects(target: int, payload: dict) -> str:
     """Email searches queued from the dashboard (one person or a CSV), run in the background job."""
     from .prospecting.models import ProspectInput
@@ -251,10 +265,12 @@ APPLY = {"approve": _approve, "reject": _reject, "regenerate": _regenerate,
                                                     str(p.get("opportunity_type", ""))),
          "make_plan": lambda t, p: growth.make_plan(t), "sync": lambda t, p: "synced",
          "send_anyway": _send_anyway, "mark_sent": _mark_sent, "retry_send": _retry_send,
-         "promote_prospect": _promote_prospect, "find_prospects": _find_prospects}
+         "promote_prospect": _promote_prospect, "find_prospects": _find_prospects,
+         "approve_many": _approve_many, "run_all": _run_all,
+         "draft_lead": lambda t, p: leadview.draft_one(t)}
 # These wait on Gemini (up to minutes when it's busy), so the engine run hands them to the background
 # "assist" job instead of doing them itself.
-SLOW = ("regenerate", "make_plan", "find_prospects")
+SLOW = ("regenerate", "make_plan", "find_prospects", "draft_lead")
 
 
 def _num(v) -> float | None:
@@ -338,7 +354,7 @@ def _held_items(conn) -> list[dict]:
 def _reply_items(conn) -> list[dict]:
     rows = conn.execute(
         "SELECT r.*, l.company, l.first_name, l.segment FROM replies r JOIN leads l ON l.id=r.lead_id "
-        f"WHERE r.handled=0 AND r.category IN {report.NEEDS_YOU_SQL} ORDER BY r.received_at LIMIT 60").fetchall()
+        "WHERE r.handled=0 AND r.category != 'bounce' ORDER BY r.received_at LIMIT 100").fetchall()  # every reply
     return [{"id": r["id"], "received_at": r["received_at"], "from": r["from_addr"], "company": r["company"],
              "first_name": r["first_name"], "segment": r["segment"], "category": r["category"],
              "summary": r["summary"], "subject": r["subject"], "body": (r["body"] or "")[:4000],
@@ -435,7 +451,7 @@ def snapshot() -> dict:
     with db.connect() as conn:
         db.purge_mock(conn)
         return {"review": _review_items(conn), "reply": _reply_items(conn), "post": _post_items(conn),
-                "held": _held_items(conn),
+                "held": _held_items(conn), "lead": leadview.items(conn),
                 "stats": {"segments": report.funnel(conn, "segment"), "sources": report.funnel(conn, "source"),
                           "angles": report.angles(conn),
                           "contract": report.funnel(conn, "segment", opportunity_type="contract"),
@@ -449,9 +465,9 @@ def snapshot() -> dict:
 def push(snap: dict | None = None) -> dict:
     snap = snap or snapshot()
     stmts: list = ["BEGIN", "DELETE FROM dash_items"]
-    for kind in ("review", "reply", "post", "pipeline", "held"):
+    for kind in ("review", "reply", "post", "pipeline", "held", "lead"):
         for item in snap[kind]:
-            sort = str(item.get("received_at") or item.get("posted_at") or item.get("confidence") or "")
+            sort = str(item.get("received_at") or item.get("posted_at") or item.get("confidence") or item.get("updated") or "")
             stmts.append(("INSERT INTO dash_items (kind, id, sort, data) VALUES (?,?,?,?)",
                           (kind, str(item["id"]), sort, json.dumps(item, default=str))))
     for key in ("stats", "health", "engine", "prospecting"):

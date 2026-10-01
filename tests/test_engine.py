@@ -200,3 +200,28 @@ def test_broken_settings_stop_the_run_with_a_plain_message(tmp_path, monkeypatch
     assert f"near line {line}" in config.check()
     engine.tick()
     assert "STOPPED: config/settings.yaml has a formatting mistake" in capsys.readouterr().out
+
+
+def test_database_waits_for_another_writer_instead_of_failing(tmp_path):
+    """Several processes write to the same file; one holding a write for a few seconds must not crash
+    another with 'database is locked'."""
+    import threading
+    import time
+    from outreach import db
+    with db.connect() as conn:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    done = []
+
+    def slow_writer():
+        with db.connect() as conn:
+            db.set_state(conn, "a", 1)
+            time.sleep(6)          # longer than sqlite's default 5 s wait
+    t = threading.Thread(target=slow_writer)
+    t.start()
+    time.sleep(0.3)
+    with db.connect() as conn:
+        assert db.get_state(conn, "a") in (None, "")   # reads aren't blocked (WAL)
+        db.set_state(conn, "b", 2)                      # this write waits its turn
+        done.append(1)
+    t.join()
+    assert done

@@ -171,6 +171,7 @@ def main() -> None:
             enrich.run(args.limit * 4)
             checked = verify.run()
             print(checked)
+            print("founder emails confirmed:", verify.confirm_guesses())
             limit, held = args.limit, ""
             if not args.mock:
                 r = sender.draft_room()

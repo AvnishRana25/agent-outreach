@@ -30,7 +30,8 @@ FAMILIES = {"review": {"approve", "reject", "regenerate"}, "reply": {"reply_send
             "sending": {"pause_sending", "resume_sending"}, "lead": {"add_lead"},
             "deal": {"set_stage"}, "plan": {"make_plan"}, "content": {"run_content"},
             "sync": {"sync"}, "held": {"send_anyway", "mark_sent", "retry_send"},
-            "prospect": {"promote_prospect"}, "find": {"find_prospects"}}
+            "prospect": {"promote_prospect"}, "find": {"find_prospects"},
+            "bulk": {"approve_many"}, "runall": {"run_all"}, "draftlead": {"draft_lead"}}
 STAGES = {"", "call_booked", "proposal_sent", "won", "lost"}
 CURRENCIES = {"USD", "GBP", "AED", "INR"}
 KIND_FAMILY = {k: fam for fam, kinds in FAMILIES.items() for k in kinds}
@@ -121,6 +122,11 @@ def clean_action(body: dict) -> tuple[str, int, dict]:
         if not text:
             raise ValueError("empty reply")
         payload = {"body": text[:20_000]}
+    elif kind == "approve_many":
+        ids = payload.get("ids")
+        if not isinstance(ids, list) or not ids or len(ids) > 300 or not all(isinstance(i, int) and i > 0 for i in ids):
+            raise ValueError("bad ids")
+        payload = {"ids": ids}
     elif kind == "find_prospects":
         people = payload.get("prospects")
         if not isinstance(people, list) or not people or len(people) > MAX_BULK:
@@ -456,6 +462,11 @@ class handler(BaseHTTPRequestHandler):
                 kind, target, payload = clean_action(self._json_body())
                 turso(queue_statements(kind, target, payload))
                 return self._send(200, {"ok": True})
+            if p_route == "activity/clear":
+                # Only finished entries: anything still waiting for the Mac must still run.
+                [_, rows] = turso([("DELETE FROM actions WHERE status != 'pending'", ()),
+                                   ("SELECT COUNT(*) AS n FROM actions", ())])
+                return self._send(200, {"ok": True, "left": int(rows[0]["n"]) if rows else 0})
 
             # Prospecting POST routes
             if p_route == "prospects/enrich":

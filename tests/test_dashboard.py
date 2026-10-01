@@ -430,3 +430,18 @@ def test_queued_search_runs_in_the_background_job(env, monkeypatch):
                                                             "domain": "", "title": "", "linkedin_url": ""}]})
     assert out.startswith("searched 0 of 1") and seen[0].domain is None and seen[0].first_name == "Ana"
     assert "find_prospects" in dashboard_sync.SLOW
+
+
+def test_clear_activity_keeps_waiting_items(env):
+    from outreach import dashboard_sync, turso
+    dashboard_sync.init_remote()
+    cookie = _login(env)
+    _queue(env, cookie, "approve", 5)
+    _queue(env, cookie, "approve_many", 77, {"ids": [1, 2]})
+    turso.run(["UPDATE actions SET status='applied' WHERE kind='approve'"])
+    s, d, _ = call(env, "POST", "/api/activity/clear", {}, cookie)
+    assert s == 200 and d["left"] == 1
+    [rows] = turso.run(["SELECT kind FROM actions"])
+    assert [r["kind"] for r in rows] == ["approve_many"]
+    s, _, _ = call(env, "POST", "/api/action", {"kind": "approve_many", "target": 3, "payload": {"ids": ["x"]}}, cookie)
+    assert s == 400
