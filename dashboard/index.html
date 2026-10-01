@@ -206,7 +206,8 @@ const SOURCE_LABEL = { yc: "YC directory", hn_hiring: "HN Who is hiring", hn_fre
   launch_hn: "Launch HN", osm: "OpenStreetMap", companies_house: "Companies House", dld: "Dubai broker register",
   apify_maps: "Google Maps (Apify)", adlibrary: "Meta Ad Library", csv: "CSV import" };
 const srcName = (s) => SOURCE_LABEL[s] || (s && s.startsWith("jobs_") ? "Job board · " + s.slice(5) : s || "—");
-const CATEGORY_LABEL = { interested: "Interested", meeting_request: "Wants a call", question: "Question", referral: "Referral" };
+const CATEGORY_LABEL = { interested: "Interested", meeting_request: "Wants a call", question: "Question", referral: "Referral",
+  other: "Other reply", unclassified: "Not read by AI yet" };
 
 const state = { data: null, tab: localGet("tab") || "review", segment: "all", edits: {}, drafts: {}, loading: false };
 
@@ -342,6 +343,7 @@ function render() {
     <main class="wrap">
       ${healthTiles(openReview, openRespond)}
       ${state.tab !== "engine" ? configError() : ""}
+      ${placeholderWarn()}
       <nav class="tabs" role="tablist">
         ${tabs.map(([id, name, n]) => `<button class="tab" role="tab" data-tab="${id}" aria-selected="${state.tab === id}">${name}${n !== null ? `<span class="count num">${n}</span>` : ""}</button>`).join("")}
       </nav>
@@ -658,6 +660,15 @@ function bindChartTips(root) {
 }
 
 /* ------------------------------------------------------------------ engine */
+function placeholderWarn() {
+  const list = (state.data.engine || {}).placeholders || [];
+  if (!list.length) return "";
+  return `<div class="card" style="border-color:var(--warning)"><h3>Fill in your profile before these emails go out</h3>
+    <p class="small" style="margin:6px 0 0">Emails are held while your signature or booking link still has template text:</p>
+    <ul class="small" style="margin:6px 0 0">${list.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+    <p class="small muted" style="margin:6px 0 0">Edit <code>config/profile.yaml</code> on the Mac. Sending picks it up on the next run.</p></div>`;
+}
+
 function configError() {
   const err = state.data.engine_error;
   if (!err) return "";

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -50,6 +51,27 @@ def settings() -> dict:
             _fill_missing(seg, default_segments.get(name, {}))
         _fill_missing(user, default)
     return user
+
+
+# Template text that must never reach a prospect: "github.com/YOUR-GITHUB", "[First Name]", "{company}".
+PLACEHOLDER = re.compile(r"YOUR[-_ ]?[A-Z]{3,}|(?i:\[(?:first[ _]?name|last[ _]?name|name|company|your [^\]]+)\]|"
+                         r"\{(?:first_?name|company|name)\})")  # upper-case YOUR- only: "your team" is fine
+PLACEHOLDER_STRICT = re.compile(r"YOUR[-_ ]?[A-Z]{3,}(?:[-_ ][A-Z]{3,})*")  # the profile's own markers are upper case
+
+
+def placeholders() -> list[str]:
+    """Unfilled template text in profile.yaml's signatures and booking link, as readable lines."""
+    try:
+        p = _load_yaml("profile.yaml")
+    except (OSError, yaml.YAMLError):
+        return []
+    found = []
+    for name, text in (p.get("signatures") or {}).items():
+        for m in PLACEHOLDER_STRICT.finditer(str(text)):
+            found.append(f"signature '{name}' still says {m.group(0)}")
+    if PLACEHOLDER_STRICT.search(str(p.get("calendar_link", ""))):
+        found.append(f"calendar_link is still {p['calendar_link']}")
+    return found
 
 
 def check() -> str:

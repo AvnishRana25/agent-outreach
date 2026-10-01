@@ -139,13 +139,23 @@ def main() -> None:
             enrich.run(args.limit * 4)
             checked = verify.run()
             print(checked)
-            # Research more than we draft: the fit filter drops some.
-            researched = research.run(int(args.limit * 1.3), args.mock)
+            limit, held = args.limit, ""
+            if not args.mock:
+                r = sender.draft_room()
+                if r["room"] < limit:
+                    limit = r["room"]
+                    held = (f"; drafting held to {limit}: {r['waiting']} emails already wait for review or sending "
+                            f"and the inboxes send {r['capacity']} in 2 days")
+                    print(held.lstrip("; "))
+            # Research more than we draft (the fit filter drops some), minus what's already researched.
+            with db.connect() as conn:
+                ready = conn.execute("SELECT COUNT(*) FROM leads WHERE status='researched'").fetchone()[0]
+            researched = research.run(max(0, int(limit * 1.3) - ready), args.mock) if limit else {"researched": 0}
             print(researched)
-            drafted = personalize.run(args.limit, args.mock)
+            drafted = personalize.run(limit, args.mock) if limit else 0
             print(f"drafted {drafted} sequences. Next: review them in the dashboard (or python -m outreach review)")
             new = sum(v for v in found.values() if isinstance(v, int))
-            summary = f"{new} new companies, {researched.get('researched', 0)} researched, {drafted} drafted"
+            summary = f"{new} new companies, {researched.get('researched', 0)} researched, {drafted} drafted{held}"
             from . import llm
             if llm.last_stop:
                 at = engine.schedule_retry("prepare", llm.last_stop)
@@ -240,7 +250,7 @@ def zoho_token(code: str) -> None:
               "ZohoMail.accounts.READ,ZohoMail.messages.ALL,ZohoMail.folders.READ")
     print("Put this line in .env (replace the old ZOHO_REFRESH_TOKEN):\n")
     print(f"ZOHO_REFRESH_TOKEN={data['refresh_token']}\n")
-    print(f"Then run: python -m outreach zoho-check --send-test YOUR_GMAIL@gmail.com")
+    print("Then run: python -m outreach zoho-check --send-test YOUR_GMAIL@gmail.com")
 
 
 def zoho_check(send_to: str | None) -> None:
