@@ -304,6 +304,23 @@ def _linkedin_items(conn) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _prospecting_summary(conn) -> dict:
+    from .prospecting import config as p_cfg
+    stats = db.get_prospecting_stats(conn)
+    recent = db.list_prospects(conn, limit=50)
+    limits = {
+        "prospeo": p_cfg.provider_monthly_limit("prospeo"),
+        "hunter": p_cfg.provider_monthly_limit("hunter"),
+        "skrapp": p_cfg.provider_monthly_limit("skrapp"),
+    }
+    return {
+        **stats,
+        "target_daily": p_cfg.daily_verified_target(),
+        "provider_limits": limits,
+        "recent": recent,
+    }
+
+
 def snapshot() -> dict:
     with db.connect() as conn:
         db.purge_mock(conn)
@@ -314,7 +331,8 @@ def snapshot() -> dict:
                           "internship": report.funnel(conn, "segment", opportunity_type="internship")},
                 "pipeline": growth.pipeline_items(conn),
                 "health": _health(conn),
-                "engine": {**_engine(conn), "adlib": sources.adlibrary_searches(), "linkedin": _linkedin_items(conn)}}
+                "engine": {**_engine(conn), "adlib": sources.adlibrary_searches(), "linkedin": _linkedin_items(conn)},
+                "prospecting": _prospecting_summary(conn)}
 
 
 def push(snap: dict | None = None) -> dict:
@@ -325,7 +343,7 @@ def push(snap: dict | None = None) -> dict:
             sort = str(item.get("received_at") or item.get("posted_at") or item.get("confidence") or "")
             stmts.append(("INSERT INTO dash_items (kind, id, sort, data) VALUES (?,?,?,?)",
                           (kind, str(item["id"]), sort, json.dumps(item, default=str))))
-    for key in ("stats", "health", "engine"):
+    for key in ("stats", "health", "engine", "prospecting"):
         stmts.append(("INSERT OR REPLACE INTO dash_meta (key, value) VALUES (?,?)", (key, json.dumps(snap[key]))))
     stmts.append("DELETE FROM dash_meta WHERE key='engine_error'")  # a run got this far, so settings are fine
     stmts.append(("INSERT OR REPLACE INTO dash_meta (key, value) VALUES (?,?)",

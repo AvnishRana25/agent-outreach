@@ -10,6 +10,7 @@ What turns replies into contracts, and the channels beyond cold email (case-stud
 | Step | Command | Runs | What it does |
 |---|---|---|---|
 | Prospect | `prospect` | cron (in `prepare`) | YC directory (hiring startups), HN "Who is hiring" / "Seeking freelancer" / "Launch HN" posts, remote job boards (Remotive, Himalayas, RemoteOK, Jobicy, We Work Remotely), UK Companies House (agencies + director names), Dubai Land Department broker register, OpenStreetMap businesses, optional Google Maps via Apify |
+| B2B Finder | `prospect-find` / `prospect-enrich` | you / dashboard | Free B2B email prospecting pipeline: pattern deduction, public discovery, 0-100 confidence scoring, ~38 verified/day target, fallback to free-tier APIs |
 | Ad Library | `adlib` | cron → you | `data/adlibrary_today.md`: 3 Meta Ad Library searches for brokerages running click-to-WhatsApp ads; you add ~10 to `data/adlibrary.csv` and `import --source adlibrary` |
 | Community | `community` | cron, every 30 min | New "[Hiring]" posts on the n8n forum and Reddit → Gemini checks fit and drafts a reply → `data/opportunities_today.md` + Telegram. **You reply by hand**, then `post-done <id>` |
 | Import | `import leads.csv --segment X` | you, optional | Add your own lists |
@@ -23,6 +24,52 @@ What turns replies into contracts, and the channels beyond cold email (case-stud
 | Sync | `sync` | cron, every 20 min | Replies → stop sequence → Gemini triage → suppress opt-outs → draft answer → Telegram |
 | Reply | `reply <id>` | you | Edit and send a drafted answer (needed for Zoho API inboxes) |
 | Report | `report` | you | Funnel per segment + positive replies waiting on you |
+
+## Free/Low-Cost B2B Email Prospecting Pipeline
+
+An automated, low-cost B2B prospecting pipeline designed for **~38 high-confidence verified prospects per day** without relying on paid enrichment subscriptions.
+
+### Workflow
+1. **Input**: First name, last name, company, domain (optional), job title, LinkedIn URL (via CLI, CSV, or Dashboard).
+2. **Domain Normalization**: Cleans and canonicalizes domains, automatically filtering out social networks (LinkedIn, Twitter, Facebook, Instagram) and directories. Resolves missing domains from company names using cache, local DB, or web heuristics.
+3. **Public-Source Discovery**: Crawls official company pages (`/about`, `/team`, `/contact`, `/people`, `/leadership`), searches indexed web pages, and checks public GitHub repositories for `@domain` emails.
+4. **Pattern Inference**: Deduce company naming conventions from discovered employee emails (e.g. `first.last@`, `flast@`, `f.last@`, `first@`, `last@`).
+5. **Permutation Generation**: Intelligently ranks and generates 10 candidate permutations with the company's dominant convention prioritized first.
+6. **Local Validation**: Syntax checks (RFC 5322), DNS/MX mail server lookup, disposable domain detection, role-address detection (`info@`, `sales@`, `support@`), and safe catch-all detection.
+7. **Public Evidence Verification**: Searches exact candidate email strings online to find public citations.
+8. **Confidence Scoring (0-100)**:
+   - `Exact public match found`: +45
+   - `Confirmed company naming pattern`: +25
+   - `Multiple employee emails confirm pattern`: +10
+   - `Valid MX records`: +10
+   - `Name identity match`: +10
+   - Penalties: `Catch-all domain`: -15, `Unverified pattern`: -20, `Role address`: -30
+   - Classification: `Verified (90-100%)`, `High Confidence (75-89%)`, `Needs Review (55-74%)`, `Unverified (<55%)`.
+9. **External Free-Tier Fallback**: Only called when confidence is insufficient (<75). Queries Prospeo (100 free/mo), Hunter (50 free/mo), and Skrapp (50 free/mo) sequentially, strictly respecting monthly credit limits tracked in SQLite.
+10. **Persistence & Provenance**: Saves results with granular evidence trails in `prospects`, `prospect_domain_cache`, and `provider_credits` tables.
+
+### CLI Usage
+```bash
+# Find a single prospect
+python -m outreach prospect-find "Alex" "Smith" "Acme" --domain acme.com --title "Founder"
+
+# Enrich a batch from CSV (stops automatically when 38 verified prospects are reached)
+python -m outreach prospect-enrich leads.csv --target 38 --workers 3 --output results.csv
+
+# View prospecting KPIs and provider credits
+python -m outreach prospect-stats
+
+# Export verified prospects to CSV
+python -m outreach prospect-export verified_prospects.csv --status verified
+```
+
+### Dashboard UI
+- **Prospecting Tab**: Interactive desk with KPI tiles tracking the daily target (38 verified/day), status breakdown, and provider credit usage.
+- **Table**: View discovered emails with confidence badges, pattern detection, MX validity, and catch-all flags.
+- **Modals**:
+  - `+ Enrich Prospect`: Instant single-prospect enrichment with live status.
+  - `Bulk CSV Import`: Upload a `.csv` or paste rows directly with custom verified target cap and automatic deduplication.
+  - `Inspect Evidence`: Full audit trail detailing scoring weights, public sources, MX records, and provider outputs.
 
 ## Setup
 

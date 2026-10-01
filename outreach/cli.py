@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from . import (community, config, dashboard_sync, db, engine, enrich, importer, personalize, prospect, replies,
-               report, research, review, sender, sources, transport, verify)
+from . import (community, config, dashboard_sync, db, engine, enrich, importer, personalize, prospect,
+               prospecting, replies, report, research, review, sender, sources, transport, verify)
 
 
 def main() -> None:
@@ -105,6 +105,26 @@ def main() -> None:
     p = sub.add_parser("zoho-check", help="test Zoho API access for each zoho_api inbox")
     p.add_argument("--send-test", metavar="EMAIL", help="also send a test email to this address")
     p.add_argument("--probe", action="store_true", help="self-addressed send, threaded follow-up, and reply check")
+
+    p = sub.add_parser("prospect-find", help="enrich a single prospect and identify professional email")
+    p.add_argument("--first", required=True, help="first name")
+    p.add_argument("--last", default="", help="last name")
+    p.add_argument("--company", required=True, help="company name")
+    p.add_argument("--domain", default=None, help="company domain if known")
+    p.add_argument("--title", default=None, help="job title")
+    p.add_argument("--linkedin", default=None, help="LinkedIn profile URL")
+
+    p = sub.add_parser("prospect-enrich", help="bulk enrich prospects from a CSV file")
+    p.add_argument("csv", type=Path, help="input CSV path")
+    p.add_argument("--output", type=Path, default=None, help="optional export CSV path")
+    p.add_argument("--target", type=int, default=None, help="daily target verified prospects to collect (default 38)")
+    p.add_argument("--workers", type=int, default=3, help="concurrency worker count")
+
+    sub.add_parser("prospect-stats", help="display prospecting pipeline database counts and confidence distribution")
+
+    p = sub.add_parser("prospect-export", help="export prospects to a CSV file")
+    p.add_argument("output", type=Path, help="output CSV destination")
+    p.add_argument("--status", choices=["verified", "high_confidence", "uncertain", "all"], default="verified")
 
     args = ap.parse_args()
     if getattr(args, "mock", False):
@@ -246,6 +266,69 @@ def main() -> None:
         zoho_token(args.code)
     elif args.cmd == "zoho-check":
         zoho_check(args.send_test, getattr(args, "probe", False))
+    elif args.cmd == "prospect-find":
+        proc = prospecting.ProspectProcessor()
+        inp = prospecting.ProspectInput(
+            first_name=args.first, last_name=args.last, company=args.company,
+            domain=args.domain, title=args.title, linkedin_url=args.linkedin
+        )
+        res = proc.process(inp)
+        print(f"\nResult for {res.full_name} ({res.company}):")
+        print(f"  Email:      {res.final_email or '(none)'}")
+        print(f"  Confidence: {res.confidence_score}/100 [{res.confidence_level}]")
+        print(f"  Status:     {res.email_status}")
+        print(f"  Source:     {res.source}")
+        if res.source_url:
+            print(f"  Source URL: {res.source_url}")
+        print(f"  Pattern:    {res.email_pattern or 'n/a'}")
+        print("  Evidence:")
+        for ev in res.evidence:
+            print(f"    - [{ev.type}] {ev.detail} ({ev.weight:+d})")
+
+    elif args.cmd == "prospect-enrich":
+        inputs = prospecting.load_prospects_from_csv(args.csv)
+        print(f"Loaded {len(inputs)} prospect(s) from {args.csv}")
+        bp = prospecting.BulkProcessor(max_workers=args.workers, target_verified=args.target)
+        def _prog(r, i, total):
+            print(f"  [{i:>3}/{total}] {r.full_name[:22]:<22} | {r.company[:20]:<20} -> {r.final_email or '(none)':<28} [{r.confidence_score:>2}/100 {r.email_status}]")
+        results = bp.process_batch(inputs, on_progress=_prog)
+        verified = sum(1 for r in results if r.confidence_level in ("verified", "high_confidence") and r.final_email)
+        print(f"\nProcessed {len(results)} prospects: {verified} verified/high-confidence")
+        if args.output:
+            out_p = bp.export_to_csv(results, args.output)
+            print(f"Exported results to {out_p}")
+
+    elif args.cmd == "prospect-stats":
+        with db.connect() as conn:
+            total = db.count_prospects(conn)
+            print(f"\nTotal Prospects in DB: {total}")
+            print("\nBy Status:")
+            for row in conn.execute("SELECT email_status, count(*) FROM prospects GROUP BY email_status ORDER BY count(*) DESC"):
+                print(f"  {row[0]:<20} {row[1]}")
+            print("\nBy Confidence Level:")
+            for row in conn.execute("SELECT confidence_level, count(*) FROM prospects GROUP BY confidence_level ORDER BY count(*) DESC"):
+                print(f"  {row[0]:<20} {row[1]}")
+            print("\nCached Domains:")
+            dom_cnt = conn.execute("SELECT count(*) FROM prospect_domain_cache").fetchone()[0]
+            print(f"  {dom_cnt} domain patterns cached")
+            print("\nProvider Credits Used This Month:")
+            from datetime import datetime, timezone
+            start_month = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0).isoformat()
+            for row in conn.execute("SELECT provider, sum(credits_used) FROM provider_credits WHERE request_timestamp >= ? GROUP BY provider", (start_month,)):
+                print(f"  {row[0]:<15} {row[1]} credits")
+
+    elif args.cmd == "prospect-export":
+        with db.connect() as conn:
+            status_filter = None if args.status == "all" else args.status
+            rows = db.list_prospects(conn, status=status_filter, limit=10000)
+        import csv
+        fieldnames = ["id", "full_name", "company", "title", "domain", "final_email", "confidence_score", "email_status", "source", "source_url", "linkedin_url"]
+        with open(args.output, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            w.writeheader()
+            for r in rows:
+                w.writerow(r)
+        print(f"Exported {len(rows)} prospect(s) to {args.output}")
 
 
 def zoho_token(code: str) -> None:

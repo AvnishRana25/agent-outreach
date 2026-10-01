@@ -70,6 +70,57 @@ CREATE TABLE IF NOT EXISTS posts (            -- community "[Hiring]" posts you 
     status TEXT DEFAULT 'new',               -- new | notified | done
     UNIQUE(source, ext_id)
 );
+CREATE TABLE IF NOT EXISTS prospects (
+    id INTEGER PRIMARY KEY,
+    first_name TEXT,
+    last_name TEXT,
+    full_name TEXT,
+    company TEXT,
+    title TEXT,
+    linkedin_url TEXT,
+    domain TEXT,
+    candidate_email TEXT,
+    final_email TEXT,
+    email_pattern TEXT,
+    confidence_score INTEGER DEFAULT 0,
+    confidence_level TEXT DEFAULT 'unresolved',
+    email_status TEXT DEFAULT 'new',
+    source TEXT DEFAULT '',
+    source_url TEXT DEFAULT '',
+    mx_valid INTEGER DEFAULT 0,
+    catch_all INTEGER DEFAULT 0,
+    role_email INTEGER DEFAULT 0,
+    verification_provider TEXT DEFAULT '',
+    verification_result TEXT DEFAULT '',
+    provenance TEXT DEFAULT '[]',
+    created_at TEXT,
+    updated_at TEXT,
+    last_checked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_prospects_final_email ON prospects(final_email);
+CREATE INDEX IF NOT EXISTS idx_prospects_domain ON prospects(domain);
+CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(email_status);
+CREATE INDEX IF NOT EXISTS idx_prospects_full_name_company ON prospects(full_name, company);
+
+CREATE TABLE IF NOT EXISTS prospect_domain_cache (
+    domain TEXT PRIMARY KEY,
+    detected_pattern TEXT,
+    pattern_confidence REAL DEFAULT 0.0,
+    known_emails TEXT DEFAULT '[]',
+    mx_valid INTEGER DEFAULT 0,
+    is_catch_all INTEGER DEFAULT 0,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS provider_credits (
+    id INTEGER PRIMARY KEY,
+    provider TEXT NOT NULL,
+    credits_used INTEGER DEFAULT 1,
+    request_timestamp TEXT NOT NULL,
+    result TEXT DEFAULT '',
+    prospect_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_credits_provider_time ON provider_credits(provider, request_timestamp);
 """
 
 
@@ -224,3 +275,171 @@ def send_count(conn, day: str, inbox: str, kind: str | None = None) -> int:
             (day, inbox),
         ).fetchone()
     return row[0]
+
+
+# --------------------------------------------------------------------------- Prospects Helpers
+
+def find_prospect_duplicate(
+    conn,
+    email: str | None = None,
+    linkedin_url: str | None = None,
+    full_name: str | None = None,
+    company: str | None = None,
+    domain: str | None = None
+) -> dict | None:
+    """Check for existing duplicate prospect by linkedin, email, name+company, or name+domain."""
+    if linkedin_url and linkedin_url.strip():
+        clean_li = linkedin_url.strip().lower().rstrip("/")
+        row = conn.execute("SELECT * FROM prospects WHERE lower(rtrim(linkedin_url, '/')) = ?", (clean_li,)).fetchone()
+        if row:
+            return dict(row)
+
+    if email and email.strip():
+        clean_email = email.strip().lower()
+        row = conn.execute("SELECT * FROM prospects WHERE lower(final_email) = ?", (clean_email,)).fetchone()
+        if row:
+            return dict(row)
+
+    if full_name and full_name.strip():
+        name_clean = full_name.strip().lower()
+        if domain and domain.strip():
+            row = conn.execute(
+                "SELECT * FROM prospects WHERE lower(full_name) = ? AND lower(domain) = ?",
+                (name_clean, domain.strip().lower())
+            ).fetchone()
+            if row:
+                return dict(row)
+        if company and company.strip():
+            row = conn.execute(
+                "SELECT * FROM prospects WHERE lower(full_name) = ? AND lower(company) = ?",
+                (name_clean, company.strip().lower())
+            ).fetchone()
+            if row:
+                return dict(row)
+
+    return None
+
+
+def add_prospect(conn, **fields) -> int:
+    """Insert a new prospect and return its row ID."""
+    t = now()
+    if "created_at" not in fields:
+        fields["created_at"] = t
+    if "updated_at" not in fields:
+        fields["updated_at"] = t
+    if "last_checked_at" not in fields:
+        fields["last_checked_at"] = t
+    cols = ", ".join(fields)
+    conn.execute(
+        f"INSERT INTO prospects ({cols}) VALUES ({', '.join('?' * len(fields))})",
+        tuple(fields.values())
+    )
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def update_prospect(conn, prospect_id: int, **fields) -> None:
+    """Update fields on an existing prospect record."""
+    fields["updated_at"] = now()
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    conn.execute(f"UPDATE prospects SET {cols} WHERE id = ?", (*fields.values(), prospect_id))
+
+
+def get_prospect(conn, prospect_id: int) -> dict | None:
+    row = conn.execute("SELECT * FROM prospects WHERE id = ?", (prospect_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_prospects(
+    conn,
+    status: str | None = None,
+    confidence_level: str | None = None,
+    company: str | None = None,
+    search: str | None = None,
+    limit: int = 100,
+    offset: int = 0
+) -> list[dict]:
+    clauses, args = [], []
+    if status:
+        clauses.append("email_status = ?")
+        args.append(status)
+    if confidence_level:
+        clauses.append("confidence_level = ?")
+        args.append(confidence_level)
+    if company:
+        clauses.append("lower(company) LIKE ?")
+        args.append(f"%{company.lower().strip()}%")
+    if search:
+        s = f"%{search.lower().strip()}%"
+        clauses.append("(lower(full_name) LIKE ? OR lower(company) LIKE ? OR lower(domain) LIKE ? OR lower(final_email) LIKE ?)")
+        args.extend([s, s, s, s])
+
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    query = f"SELECT * FROM prospects {where} ORDER BY confidence_score DESC, id DESC LIMIT ? OFFSET ?"
+    args.extend([limit, offset])
+    rows = conn.execute(query, tuple(args)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def count_prospects(conn, status: str | None = None) -> int:
+    if status:
+        row = conn.execute("SELECT count(*) FROM prospects WHERE email_status = ?", (status,)).fetchone()
+    else:
+        row = conn.execute("SELECT count(*) FROM prospects").fetchone()
+    return int(row[0]) if row else 0
+
+
+def get_prospect_domain_cache(conn, domain: str) -> dict | None:
+    dom = domain.strip().lower().removeprefix("www.")
+    row = conn.execute("SELECT * FROM prospect_domain_cache WHERE domain = ?", (dom,)).fetchone()
+    return dict(row) if row else None
+
+
+def set_prospect_domain_cache(conn, domain: str, **fields) -> None:
+    dom = domain.strip().lower().removeprefix("www.")
+    fields["domain"] = dom
+    fields["updated_at"] = now()
+    cols = ", ".join(fields)
+    placeholders = ", ".join("?" * len(fields))
+    updates = ", ".join(f"{k} = excluded.{k}" for k in fields if k != "domain")
+    conn.execute(
+        f"INSERT INTO prospect_domain_cache ({cols}) VALUES ({placeholders}) "
+        f"ON CONFLICT(domain) DO UPDATE SET {updates}",
+        tuple(fields.values())
+    )
+
+
+def get_prospecting_stats(conn) -> dict:
+    """Return summary statistics and KPIs for the prospecting engine."""
+    total = count_prospects(conn)
+    counts_by_status = {}
+    for row in conn.execute("SELECT email_status, count(*) FROM prospects GROUP BY email_status"):
+        counts_by_status[row[0] or "unverified"] = int(row[1])
+
+    counts_by_confidence = {}
+    for row in conn.execute("SELECT confidence_level, count(*) FROM prospects GROUP BY confidence_level"):
+        counts_by_confidence[row[0] or "unresolved"] = int(row[1])
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    row_today = conn.execute(
+        "SELECT count(*) FROM prospects WHERE email_status IN ('verified', 'high_confidence') "
+        "AND (date(created_at) = ? OR date(last_checked_at) = ?)",
+        (today, today)
+    ).fetchone()
+    verified_today = int(row_today[0]) if row_today else 0
+
+    start_month = f"{datetime.now(timezone.utc).strftime('%Y-%m')}-01T00:00:00Z"
+    credits_used = {}
+    for row in conn.execute(
+        "SELECT provider, COALESCE(sum(credits_used), 0) FROM provider_credits WHERE request_timestamp >= ? GROUP BY provider",
+        (start_month,)
+    ):
+        credits_used[row[0]] = int(row[1])
+
+    return {
+        "total": total,
+        "verified_today": verified_today,
+        "counts_by_status": counts_by_status,
+        "counts_by_confidence": counts_by_confidence,
+        "credits_used": credits_used,
+    }
+

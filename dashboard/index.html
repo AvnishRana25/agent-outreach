@@ -184,7 +184,25 @@ svg.chart text { fill: var(--muted); font-size: 11px; }
 }
 .icon-btn.spinning { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .icon-btn.spinning { animation: none; opacity: .6; } }
+/* modal */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(3px); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.modal { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,0.25); max-width: 620px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; animation: pop .15s ease-out; }
+@keyframes pop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+.modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.modal-header h3 { margin: 0; font-size: 17px; }
+.modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+.modal-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; background: var(--surface-2); }
+.modal-form { display: grid; gap: 12px; }
+.modal-form label { font-size: 13px; font-weight: 550; color: var(--ink-2); display: flex; flex-direction: column; gap: 4px; }
+.modal-form input, .modal-form select, .modal-form textarea { width: 100%; background: var(--page); border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 11px; }
+
+/* badges */
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 6px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.badge.verified { background: rgba(12, 163, 12, 0.15); color: var(--good-ink); }
+.badge.high { background: rgba(42, 120, 214, 0.15); color: var(--accent-ink); }
+.badge.review { background: rgba(250, 178, 25, 0.20); color: var(--warning-ink); }
+.badge.unverified, .badge.invalid, .badge.low { background: rgba(111, 109, 104, 0.15); color: var(--muted); }
+.badge.catchall { background: rgba(235, 104, 52, 0.15); color: #d95926; }
 </style>
 </head>
 <body>
@@ -330,7 +348,7 @@ function render() {
   const review = d.review || [], reply = d.reply || [], post = d.post || [];
   const openReview = review.filter((x) => !pend["review:" + x.id]).length;
   const openRespond = reply.filter((x) => !pend["reply:" + x.id]).length + post.filter((x) => !pend["post:" + x.id]).length;
-  const tabs = [["review", "Review", openReview], ["respond", "Respond", openRespond], ["engine", "Engine", null], ["results", "Results", null], ["activity", "Activity", null]];
+  const tabs = [["review", "Review", openReview], ["respond", "Respond", openRespond], ["prospects", "Prospecting", null], ["engine", "Engine", null], ["results", "Results", null], ["activity", "Activity", null]];
   $("#app").innerHTML = `
     <header class="bar"><div class="wrap">
       <div class="brand">${LOGO}<span>Outreach Desk</span></div>
@@ -355,6 +373,7 @@ function render() {
   const panel = $("#panel");
   if (state.tab === "review") renderReview(panel, pend);
   else if (state.tab === "respond") renderRespond(panel, pend);
+  else if (state.tab === "prospects") renderProspects(panel);
   else if (state.tab === "results") renderResults(panel);
   else if (state.tab === "engine") renderEngine(panel, pend);
   else renderActivity(panel);
@@ -822,6 +841,481 @@ function renderEngine(panel, pend) {
     if (!f.website && !f.email) return toast("Add a website or an email.");
     act("add_lead", Math.floor(Math.random() * 2e9) + 1, f, `Added ${f.company}. It's researched and drafted on the next run.`);
   };
+}
+
+/* ------------------------------------------------------------------ prospecting */
+state.prospects = null;
+state.prospects_stats = null;
+state.prospects_filter = { status: "all", confidence: "all", search: "" };
+
+function showModal(contentHtml) {
+  const existing = $("#modal-container");
+  if (existing) existing.remove();
+  const div = document.createElement("div");
+  div.id = "modal-container";
+  div.className = "modal-backdrop";
+  div.innerHTML = contentHtml;
+  document.body.appendChild(div);
+  div.onclick = (e) => {
+    if (e.target === div) closeModal();
+  };
+  return div;
+}
+
+function closeModal() {
+  const m = $("#modal-container");
+  if (m) m.remove();
+}
+
+function parseCSVClient(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const header = lines[0].split(",").map((c) => c.trim().toLowerCase().replace(/^["']|["']$/g, ""));
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const values = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(",");
+    const row = {};
+    header.forEach((h, idx) => {
+      row[h] = (values[idx] || "").replace(/^["']|["']$/g, "").trim();
+    });
+    const p = {
+      first_name: row.first_name || row.firstname || row.first || "",
+      last_name: row.last_name || row.lastname || row.last || "",
+      company: row.company || row.organization || row.agency || "",
+      domain: row.domain || row.website || row.site || "",
+      title: row.title || row.role || row.position || "",
+      linkedin_url: row.linkedin_url || row.linkedin || ""
+    };
+    if (!p.first_name && !p.last_name && row.name) {
+      const parts = row.name.split(/\s+/);
+      p.first_name = parts[0] || "";
+      p.last_name = parts.slice(1).join(" ") || "";
+    }
+    if ((p.first_name || p.last_name) && (p.company || p.domain)) {
+      rows.push(p);
+    }
+  }
+  return rows;
+}
+
+function buildProspectsQuery() {
+  const params = new URLSearchParams();
+  if (state.prospects_filter.status && state.prospects_filter.status !== "all") {
+    params.set("status", state.prospects_filter.status);
+  }
+  if (state.prospects_filter.confidence && state.prospects_filter.confidence !== "all") {
+    params.set("confidence", state.prospects_filter.confidence);
+  }
+  if (state.prospects_filter.search) {
+    params.set("search", state.prospects_filter.search);
+  }
+  const q = params.toString();
+  return q ? "?" + q : "";
+}
+
+async function loadProspectingData() {
+  try {
+    const [stats, listData] = await Promise.all([
+      api("prospects/stats"),
+      api("prospects" + buildProspectsQuery())
+    ]);
+    state.prospects_stats = stats || {};
+    state.prospects = listData.prospects || [];
+  } catch (err) {
+    console.error("Failed to load prospects:", err);
+  }
+}
+
+async function renderProspects(panel) {
+  panel.innerHTML = `<div class="empty"><strong>Loading prospects...</strong>Fetching verified B2B contacts.</div>`;
+  await loadProspectingData();
+
+  const stats = state.prospects_stats || {};
+  const list = state.prospects || [];
+  const targetDaily = stats.target_daily || 38;
+  const verifiedToday = stats.verified_today || 0;
+  const total = stats.total || list.length;
+  const counts = stats.counts_by_status || {};
+  const credits = stats.credits_used || {};
+  const limits = stats.provider_limits || {};
+
+  const pct = (a, b) => (b ? Math.min(100, Math.round((100 * a) / b)) : 0);
+
+  panel.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+      <div>
+        <h2 style="margin:0; font-size:18px; font-weight:650;">B2B Email Prospecting Engine</h2>
+        <div class="small muted" style="margin-top:2px;">Free-source discovery, pattern deduction, and confidence-scored email verification</div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn primary" id="btn-add-prospect">+ Enrich Prospect</button>
+        <button class="btn" id="btn-bulk-import">📁 Bulk CSV Import</button>
+        <a class="btn" href="/api/prospects/export" target="_blank" download="prospects.csv">⬇ Export CSV</a>
+      </div>
+    </div>
+
+    <!-- KPI Tiles -->
+    <div class="tiles" style="margin-top:0;">
+      <div class="tile">
+        <div class="label">Daily Verified Target</div>
+        <div class="value num">${verifiedToday}<small> / ${targetDaily}</small></div>
+        <div class="meter" role="img" aria-label="${verifiedToday} of ${targetDaily} verified today"><i style="width:${pct(verifiedToday, targetDaily)}%"></i></div>
+        <div class="sub">${pct(verifiedToday, targetDaily)}% of daily goal reached</div>
+      </div>
+      <div class="tile">
+        <div class="label">Total Prospects</div>
+        <div class="value num">${total}</div>
+        <div class="sub">${counts.verified || 0} verified · ${counts.high_confidence || 0} high conf</div>
+      </div>
+      <div class="tile">
+        <div class="label">Needs Review</div>
+        <div class="value num">${counts.review || 0}</div>
+        <div class="sub">55-74% confidence · review before send</div>
+      </div>
+      <div class="tile">
+        <div class="label">Free Provider Credits</div>
+        <div class="small" style="margin-top:4px; display:flex; flex-direction:column; gap:2px;">
+          <div>Prospeo: <strong class="num">${credits.prospeo || 0}</strong> / ${limits.prospeo || 100}</div>
+          <div>Hunter: <strong class="num">${credits.hunter || 0}</strong> / ${limits.hunter || 50}</div>
+          <div>Skrapp: <strong class="num">${credits.skrapp || 0}</strong> / ${limits.skrapp || 50}</div>
+        </div>
+        <div class="sub" style="margin-top:4px;">Fallback used only when score &lt; 75%</div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="toolbar" style="margin-top:16px;">
+      <input type="text" id="prospect-search" placeholder="Search name, company, email..." value="${esc(state.prospects_filter.search)}" style="min-width:240px;">
+      <select id="prospect-status">
+        <option value="all" ${state.prospects_filter.status === "all" ? "selected" : ""}>All Statuses</option>
+        <option value="verified" ${state.prospects_filter.status === "verified" ? "selected" : ""}>Verified (90%+)</option>
+        <option value="high_confidence" ${state.prospects_filter.status === "high_confidence" ? "selected" : ""}>High Confidence (75-89%)</option>
+        <option value="review" ${state.prospects_filter.status === "review" ? "selected" : ""}>Needs Review (55-74%)</option>
+        <option value="unverified" ${state.prospects_filter.status === "unverified" ? "selected" : ""}>Unverified (&lt;55%)</option>
+      </select>
+      <button class="btn" id="prospect-filter-apply">Filter</button>
+      ${state.prospects_filter.search || state.prospects_filter.status !== "all" ? `<button class="btn ghost small" id="prospect-filter-clear">Clear</button>` : ""}
+      <span class="spacer"></span>
+      <span class="small muted num">${list.length} results</span>
+    </div>
+
+    <!-- Prospects Table -->
+    ${list.length ? `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Contact & Title</th>
+              <th>Company & Domain</th>
+              <th>Discovered Email</th>
+              <th>Confidence</th>
+              <th>Pattern</th>
+              <th>Source / Provider</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${list.map((p) => {
+              const name = p.full_name || [p.first_name, p.last_name].filter(Boolean).join(" ") || "Unknown";
+              const conf = p.confidence_score != null ? p.confidence_score : 0;
+              let badgeCls = "unverified";
+              let badgeLabel = "Unverified";
+              if (conf >= 90 || p.email_status === "verified") {
+                badgeCls = "verified"; badgeLabel = "Verified";
+              } else if (conf >= 75 || p.confidence_level === "high_confidence") {
+                badgeCls = "high"; badgeLabel = "High";
+              } else if (conf >= 55 || p.email_status === "review") {
+                badgeCls = "review"; badgeLabel = "Review";
+              }
+              const hasEmail = Boolean(p.final_email);
+              return `<tr>
+                <td>
+                  <strong>${esc(name)}</strong>
+                  ${p.title ? `<div class="small muted">${esc(p.title)}</div>` : ""}
+                  ${p.linkedin_url ? `<a href="${esc(safeUrl(p.linkedin_url))}" target="_blank" rel="noopener noreferrer" class="small" style="font-size:11px;">LinkedIn ↗</a>` : ""}
+                </td>
+                <td>
+                  <strong>${esc(p.company || p.domain || "—")}</strong>
+                  ${p.domain ? `<div><a href="${esc(safeUrl('https://' + p.domain))}" target="_blank" rel="noopener noreferrer" class="small muted">${esc(p.domain)} ↗</a></div>` : ""}
+                </td>
+                <td>
+                  ${hasEmail ? `<div style="display:flex; align-items:center; gap:6px;">
+                    <span class="num font-bold">${esc(p.final_email)}</span>
+                    <button class="btn ghost icon-btn small" data-copy-email="${esc(p.final_email)}" title="Copy email">📋</button>
+                  </div>` : `<span class="muted small">None found</span>`}
+                </td>
+                <td>
+                  <span class="badge ${badgeCls}">${badgeLabel} ${conf}%</span>
+                  ${p.catch_all ? `<div style="margin-top:3px;"><span class="badge catchall" title="Catch-all domain">Catch-all</span></div>` : ""}
+                </td>
+                <td>
+                  ${p.email_pattern ? `<code class="small">${esc(p.email_pattern)}</code>` : `<span class="muted small">—</span>`}
+                </td>
+                <td>
+                  <div class="small">${esc(p.verification_provider ? 'Provider: ' + p.verification_provider : p.source || 'local')}</div>
+                  ${p.mx_valid ? `<div class="small muted" style="color:var(--good-ink);">✓ MX Valid</div>` : `<div class="small muted">MX: ?</div>`}
+                </td>
+                <td>
+                  <div style="display:flex; gap:4px; justify-content:flex-end;">
+                    <button class="btn small" data-inspect-prospect="${p.id}">Inspect</button>
+                    <button class="btn small ghost" data-reenrich-prospect="${p.id}" title="Re-enrich prospect">↻</button>
+                  </div>
+                </td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    ` : `
+      <div class="empty">
+        <strong>No prospects found</strong>
+        ${state.prospects_filter.search || state.prospects_filter.status !== "all" ? "Try adjusting your search filters or clear them." : "Click '+ Enrich Prospect' to add your first target, or 'Bulk CSV Import' to enrich a list."}
+      </div>
+    `}
+  `;
+
+  // Bind events
+  $("#btn-add-prospect").onclick = () => showSingleProspectModal();
+  $("#btn-bulk-import").onclick = () => showBulkImportModal();
+  $("#prospect-filter-apply").onclick = () => {
+    state.prospects_filter.search = $("#prospect-search").value.trim();
+    state.prospects_filter.status = $("#prospect-status").value;
+    renderProspects(panel);
+  };
+  $("#prospect-search").onkeydown = (e) => {
+    if (e.key === "Enter") {
+      state.prospects_filter.search = e.target.value.trim();
+      renderProspects(panel);
+    }
+  };
+  const clearBtn = $("#prospect-filter-clear");
+  if (clearBtn) {
+    clearBtn.onclick = () => {
+      state.prospects_filter = { status: "all", confidence: "all", search: "" };
+      renderProspects(panel);
+    };
+  }
+
+  panel.querySelectorAll("[data-copy-email]").forEach((b) => {
+    b.onclick = () => copy(b.dataset.copyEmail);
+  });
+
+  panel.querySelectorAll("[data-inspect-prospect]").forEach((b) => {
+    const id = Number(b.dataset.inspectProspect);
+    const p = (state.prospects || []).find((x) => x.id === id);
+    if (p) showEvidenceModal(p);
+  });
+
+  panel.querySelectorAll("[data-reenrich-prospect]").forEach((b) => {
+    const id = Number(b.dataset.reenrichProspect);
+    const p = (state.prospects || []).find((x) => x.id === id);
+    if (p) reEnrichProspect(p, b);
+  });
+}
+
+function showSingleProspectModal() {
+  const modal = showModal(`
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <h3 id="modal-title">Enrich B2B Prospect</h3>
+        <button class="btn ghost icon-btn" id="modal-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form class="modal-form" id="enrich-form">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <label>First Name *<input type="text" name="first_name" required placeholder="Alex"></label>
+            <label>Last Name *<input type="text" name="last_name" required placeholder="Smith"></label>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <label>Company *<input type="text" name="company" required placeholder="Acme"></label>
+            <label>Domain / Website<input type="text" name="domain" placeholder="acme.com (optional)"></label>
+          </div>
+          <label>Job Title<input type="text" name="title" placeholder="Founder, CEO, VP Sales..."></label>
+          <label>LinkedIn URL<input type="url" name="linkedin_url" placeholder="https://linkedin.com/in/alexsmith"></label>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" id="modal-cancel">Cancel</button>
+        <button class="btn primary" id="modal-submit">Enrich Email</button>
+      </div>
+    </div>
+  `);
+
+  $("#modal-close").onclick = closeModal;
+  $("#modal-cancel").onclick = closeModal;
+  $("#modal-submit").onclick = async () => {
+    const form = $("#enrich-form");
+    if (!form.reportValidity()) return;
+    const data = Object.fromEntries(new FormData(form).entries());
+    const submitBtn = $("#modal-submit");
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="icon-btn spinning" style="display:inline-block;padding:0;height:auto;">↻</span> Finding email...';
+    try {
+      const res = await api("prospects/enrich", data);
+      closeModal();
+      if (res.final_email) {
+        toast(`Found ${res.final_email} (${res.confidence_score}%)`);
+      } else {
+        toast(`Completed: ${res.confidence_level || 'unverified'}`);
+      }
+      renderProspects($("#panel"));
+    } catch (e) {
+      toast("Error: " + (e.message || "Failed to enrich"));
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Enrich Email";
+    }
+  };
+}
+
+function showBulkImportModal() {
+  const modal = showModal(`
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <h3 id="modal-title">Bulk Prospect CSV Import</h3>
+        <button class="btn ghost icon-btn" id="modal-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-form">
+          <label>CSV File
+            <input type="file" id="bulk-file" accept=".csv" style="padding:6px;">
+          </label>
+          <div class="small muted" style="margin-top:-6px;">Or paste CSV text below:</div>
+          <label>Paste CSV Data
+            <textarea id="bulk-text" rows="6" placeholder="first_name,last_name,company,domain,title,linkedin_url&#10;Alex,Smith,Acme,acme.com,Founder,&#10;Jane,Doe,StartupX,startupx.ai,CEO,"></textarea>
+          </label>
+          <label>Daily Verified Target Cap
+            <input type="number" id="bulk-target" value="38" min="1" max="500">
+          </label>
+          <div class="small muted">Processing stops automatically once the target verified cap is reached. Deduplication is performed across existing prospects.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" id="modal-cancel">Cancel</button>
+        <button class="btn primary" id="modal-submit">Run Bulk Enrichment</button>
+      </div>
+    </div>
+  `);
+
+  $("#modal-close").onclick = closeModal;
+  $("#modal-cancel").onclick = closeModal;
+
+  const fileInput = $("#bulk-file");
+  fileInput.onchange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        $("#bulk-text").value = evt.target.result;
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  $("#modal-submit").onclick = async () => {
+    const rawText = $("#bulk-text").value.trim();
+    if (!rawText) return toast("Please select a CSV file or paste CSV content.");
+    const parsed = parseCSVClient(rawText);
+    if (!parsed.length) return toast("No valid prospect rows found. Check column headers.");
+    const target = parseInt($("#bulk-target").value, 10) || 38;
+
+    const submitBtn = $("#modal-submit");
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `<span class="icon-btn spinning" style="display:inline-block;padding:0;height:auto;">↻</span> Processing ${parsed.length} prospects...`;
+
+    try {
+      const res = await api("prospects/bulk-enrich", { prospects: parsed, max_verified_target: target });
+      closeModal();
+      toast(`Bulk enrichment complete: ${res.verified || 0} verified of ${res.processed || 0} processed.`);
+      renderProspects($("#panel"));
+    } catch (e) {
+      toast("Bulk import failed: " + (e.message || "Unknown error"));
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Run Bulk Enrichment";
+    }
+  };
+}
+
+function showEvidenceModal(p) {
+  let evList = [];
+  try {
+    evList = typeof p.provenance === "string" ? JSON.parse(p.provenance || "[]") : (p.provenance || []);
+  } catch (err) {}
+
+  const name = p.full_name || [p.first_name, p.last_name].filter(Boolean).join(" ") || "Unknown";
+  const conf = p.confidence_score != null ? p.confidence_score : 0;
+
+  showModal(`
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <h3 id="modal-title">Evidence & Provenance: ${esc(name)}</h3>
+        <button class="btn ghost icon-btn" id="modal-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--border);">
+          <div style="font-size:16px; font-weight:600;">${esc(p.final_email || "No email resolved")}</div>
+          <div class="small muted" style="margin-top:2px;">
+            ${esc(p.company || "")} · ${esc(p.domain || "")} ${p.title ? '· ' + esc(p.title) : ''}
+          </div>
+          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+            <span class="badge ${conf >= 90 ? 'verified' : conf >= 75 ? 'high' : conf >= 55 ? 'review' : 'unverified'}">Score: ${conf}% (${esc(p.confidence_level || 'unverified')})</span>
+            ${p.email_pattern ? `<span class="badge high">Pattern: ${esc(p.email_pattern)}</span>` : ""}
+            ${p.mx_valid ? `<span class="badge verified">✓ Valid MX</span>` : `<span class="badge unverified">Missing MX</span>`}
+            ${p.catch_all ? `<span class="badge catchall">Catch-all Domain</span>` : ""}
+            ${p.role_email ? `<span class="badge review">Role Address</span>` : ""}
+            ${p.verification_provider ? `<span class="badge high">Provider: ${esc(p.verification_provider)}</span>` : ""}
+          </div>
+        </div>
+
+        <h4 style="margin:12px 0 8px; font-size:14px; font-weight:600;">Audit Trail & Scoring Signals</h4>
+        ${evList && evList.length ? `
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            ${evList.map((e) => {
+              const w = e.weight != null ? e.weight : 0;
+              const wCls = w > 0 ? "good-ink" : w < 0 ? "critical-ink" : "muted";
+              const wPrefix = w > 0 ? "+" : "";
+              return `<div style="background:var(--surface-2); border-radius:8px; padding:10px 12px; font-size:13.5px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <strong style="text-transform:capitalize;">${esc(String(e.type || "").replace(/_/g, " "))}</strong>
+                  <span class="num font-bold" style="color:var(--${wCls});">${wPrefix}${w}</span>
+                </div>
+                <div class="small muted" style="margin-top:3px;">${esc(e.detail || "")}</div>
+                ${e.source_url ? `<div style="margin-top:4px;"><a href="${esc(safeUrl(e.source_url))}" target="_blank" rel="noopener noreferrer" class="small muted">Source: ${esc(e.source_url)} ↗</a></div>` : ""}
+              </div>`;
+            }).join("")}
+          </div>
+        ` : `<div class="small muted">No granular evidence records stored for this prospect.</div>`}
+      </div>
+      <div class="modal-footer">
+        <button class="btn primary" id="modal-close-btn">Close</button>
+      </div>
+    </div>
+  `);
+
+  $("#modal-close").onclick = closeModal;
+  $("#modal-close-btn").onclick = closeModal;
+}
+
+async function reEnrichProspect(p, btn) {
+  btn.disabled = true;
+  btn.classList.add("spinning");
+  try {
+    const res = await api("prospects/enrich", {
+      first_name: p.first_name,
+      last_name: p.last_name,
+      company: p.company,
+      domain: p.domain,
+      title: p.title,
+      linkedin_url: p.linkedin_url
+    });
+    toast(`Re-enriched: ${res.final_email || 'No email'} (${res.confidence_score}%)`);
+    renderProspects($("#panel"));
+  } catch (e) {
+    toast("Re-enrichment failed: " + e.message);
+    btn.disabled = false;
+    btn.classList.remove("spinning");
+  }
 }
 
 /* ------------------------------------------------------------------ activity */
