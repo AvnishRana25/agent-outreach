@@ -293,7 +293,7 @@ async function load(quiet) {
 const FAMILY_OF = { approve: "review", reject: "review", regenerate: "review", reply_send: "reply", reply_done: "reply",
   post_done: "post", run_prepare: "run", run_community: "community", pause_sending: "sending", resume_sending: "sending", add_lead: "lead",
   set_stage: "deal", make_plan: "plan", run_content: "content", sync: "sync",
-  send_anyway: "held", mark_sent: "held", retry_send: "held", promote_prospect: "prospect" };
+  send_anyway: "held", mark_sent: "held", retry_send: "held", promote_prospect: "prospect", find_prospects: "find" };
 const POST_KIND = { news: "Take on this week's AI news", industry: "Opinion on the AI industry", build: "Lesson from building" };
 const STAGE_LABEL = { "": "No stage", call_booked: "Call booked", proposal_sent: "Proposal sent", won: "Won", lost: "Lost" };
 
@@ -985,7 +985,6 @@ async function renderProspects(panel) {
   const total = stats.total || list.length;
   const counts = stats.counts_by_status || {};
   const credits = stats.credits_used || {};
-  const limits = stats.provider_limits || {};
 
   const pct = (a, b) => (b ? Math.min(100, Math.round((100 * a) / b)) : 0);
 
@@ -1017,17 +1016,22 @@ async function renderProspects(panel) {
       </div>
       <div class="tile">
         <div class="label">Needs Review</div>
-        <div class="value num">${counts.review || 0}</div>
+        <div class="value num">${counts.uncertain || 0}</div>
         <div class="sub">55-74% confidence · review before send</div>
       </div>
       <div class="tile">
-        <div class="label">Free Provider Credits</div>
-        <div class="small" style="margin-top:4px; display:flex; flex-direction:column; gap:2px;">
-          <div>Prospeo: <strong class="num">${credits.prospeo || 0}</strong> / ${limits.prospeo || 100}</div>
-          <div>Hunter: <strong class="num">${credits.hunter || 0}</strong> / ${limits.hunter || 50}</div>
-          <div>Skrapp: <strong class="num">${credits.skrapp || 0}</strong> / ${limits.skrapp || 50}</div>
+        <div class="label">Provider credits (free plans)</div>
+        <div class="small" style="margin-top:4px; display:flex; flex-direction:column; gap:3px;">
+          ${["prospeo", "hunter", "skrapp"].map((name) => {
+            const b = (stats.budget || {})[name];
+            if (!b) return `<div>${esc(name)}: <strong class="num">${credits[name] || 0}</strong></div>`;
+            const label = name[0].toUpperCase() + name.slice(1);
+            return `<div title="Plan ${b.plan_monthly}/month; the engine uses at most ${b.usable_monthly} and spreads them over the month${b.balance != null ? ". Account balance: " + b.balance : ""}">
+              ${esc(label)}: <strong class="num">${b.used_month}</strong>/${b.usable_monthly} this month · today ${b.used_today}/${b.daily_cap}
+              ${b.paused ? `<div class="small" style="color:var(--critical-ink)">Paused: ${esc(b.paused)}</div>` : ""}</div>`;
+          }).join("")}
         </div>
-        <div class="sub" style="margin-top:4px;">Fallback used only when score &lt; 75%</div>
+        <div class="sub" style="margin-top:4px;">Used only when free sources can't confirm an email; 20% of each plan is never touched.</div>
       </div>
     </div>
 
@@ -1038,8 +1042,8 @@ async function renderProspects(panel) {
         <option value="all" ${state.prospects_filter.status === "all" ? "selected" : ""}>All Statuses</option>
         <option value="verified" ${state.prospects_filter.status === "verified" ? "selected" : ""}>Verified (90%+)</option>
         <option value="high_confidence" ${state.prospects_filter.status === "high_confidence" ? "selected" : ""}>High Confidence (75-89%)</option>
-        <option value="review" ${state.prospects_filter.status === "review" ? "selected" : ""}>Needs Review (55-74%)</option>
-        <option value="unverified" ${state.prospects_filter.status === "unverified" ? "selected" : ""}>Unverified (&lt;55%)</option>
+        <option value="uncertain" ${state.prospects_filter.status === "uncertain" ? "selected" : ""}>Needs Review (55-74%)</option>
+        <option value="not_found" ${state.prospects_filter.status === "not_found" ? "selected" : ""}>Not found (&lt;55%)</option>
       </select>
       <button class="btn" id="prospect-filter-apply">Filter</button>
       ${state.prospects_filter.search || state.prospects_filter.status !== "all" ? `<button class="btn ghost small" id="prospect-filter-clear">Clear</button>` : ""}
@@ -1149,19 +1153,19 @@ async function renderProspects(panel) {
     b.onclick = () => copy(b.dataset.copyEmail);
   });
 
-  panel.querySelectorAll("[data-inspect-prospect]").forEach((b) => {
-    const id = Number(b.dataset.inspectProspect);
-    const p = (state.prospects || []).find((x) => x.id === id);
+  // Wire the buttons; nothing may run until it's clicked (these used to fire on every render, re-checking
+  // every prospect in a loop and spending provider credits).
+  panel.querySelectorAll("[data-inspect-prospect]").forEach((b) => (b.onclick = () => {
+    const p = (state.prospects || []).find((x) => x.id === Number(b.dataset.inspectProspect));
     if (p) showEvidenceModal(p);
-  });
+  }));
 
   panel.querySelectorAll("[data-promote-prospect]").forEach((b) => (b.onclick = () => promoteProspect(Number(b.dataset.promoteProspect))));
 
-  panel.querySelectorAll("[data-reenrich-prospect]").forEach((b) => {
-    const id = Number(b.dataset.reenrichProspect);
-    const p = (state.prospects || []).find((x) => x.id === id);
+  panel.querySelectorAll("[data-reenrich-prospect]").forEach((b) => (b.onclick = () => {
+    const p = (state.prospects || []).find((x) => x.id === Number(b.dataset.reenrichProspect));
     if (p) reEnrichProspect(p, b);
-  });
+  }));
 }
 
 function promoteProspect(id) {
@@ -1223,7 +1227,9 @@ function showSingleProspectModal() {
     try {
       const res = await api("prospects/enrich", data);
       closeModal();
-      if (res.final_email) {
+      if (res.queued) {
+        toast("Queued: your Mac searches for this email in the next minute or two.");
+      } else if (res.final_email) {
         toast(`Found ${res.final_email} (${res.confidence_score}%)`);
       } else {
         toast(`Completed: ${res.confidence_level || 'unverified'}`);
@@ -1293,9 +1299,13 @@ function showBulkImportModal() {
     submitBtn.innerHTML = `<span class="icon-btn spinning" style="display:inline-block;padding:0;height:auto;">↻</span> Processing ${parsed.length} prospects...`;
 
     try {
-      const res = await api("prospects/bulk-enrich", { prospects: parsed, max_verified_target: target });
+      let queued = 0;
+      for (let i = 0; i < parsed.length; i += 200) {   // the server takes 200 rows per request
+        const res = await api("prospects/bulk-enrich", { prospects: parsed.slice(i, i + 200), max_verified_target: target });
+        queued += res.count || 0;
+      }
       closeModal();
-      toast(`Bulk enrichment complete: ${res.verified || 0} verified of ${res.processed || 0} processed.`);
+      toast(`Queued ${queued} prospects. They're searched in the background on your Mac; results appear here as they finish (see Activity).`);
       renderProspects($("#panel"));
     } catch (e) {
       toast("Bulk import failed: " + (e.message || "Unknown error"));
@@ -1349,7 +1359,7 @@ function showEvidenceModal(p) {
                   <span class="num font-bold" style="color:var(--${wCls});">${wPrefix}${w}</span>
                 </div>
                 <div class="small muted" style="margin-top:3px;">${esc(e.detail || "")}</div>
-                ${e.source_url ? `<div style="margin-top:4px;"><a href="${esc(safeUrl(e.source_url))}" target="_blank" rel="noopener noreferrer" class="small muted">Source: ${esc(e.source_url)} ↗</a></div>` : ""}
+                ${(e.url || e.source_url) ? `<div style="margin-top:4px;"><a href="${esc(safeUrl(e.url || e.source_url))}" target="_blank" rel="noopener noreferrer" class="small muted">Source: ${esc(e.url || e.source_url)} ↗</a></div>` : ""}
               </div>`;
             }).join("")}
           </div>
@@ -1377,7 +1387,7 @@ async function reEnrichProspect(p, btn) {
       title: p.title,
       linkedin_url: p.linkedin_url
     });
-    toast(`Re-enriched: ${res.final_email || 'No email'} (${res.confidence_score}%)`);
+    toast(res.queued ? "Queued: your Mac re-checks this in the next minute or two." : `Re-enriched: ${res.final_email || 'No email'} (${res.confidence_score}%)`);
     renderProspects($("#panel"));
   } catch (e) {
     toast("Re-enrichment failed: " + e.message);
@@ -1391,7 +1401,8 @@ function renderActivity(panel) {
   const acts = state.data.actions || [];
   const label = { approve: "Approve", reject: "Reject", regenerate: "Regenerate", reply_send: "Send reply", reply_done: "Reply done", post_done: "Post answered",
     run_prepare: "Find & draft", run_community: "Check boards", pause_sending: "Pause sending", resume_sending: "Resume sending", add_lead: "Add company",
-    set_stage: "Deal stage", make_plan: "Make plan", run_content: "Draft posts", sync: "Sync now" };
+    set_stage: "Deal stage", make_plan: "Make plan", run_content: "Draft posts", sync: "Sync now",
+    find_prospects: "Find emails", promote_prospect: "Send to engine", send_anyway: "Send anyway", mark_sent: "Marked sent", retry_send: "Retry send" };
   panel.innerHTML = acts.length ? `<div class="table-wrap"><table>
     <thead><tr><th>When</th><th>Action</th><th>Item</th><th>Status</th><th>Result</th></tr></thead>
     <tbody>${acts.map((a) => {

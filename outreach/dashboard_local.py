@@ -99,8 +99,11 @@ def watch_once(state: dict) -> str:
     if os.getenv("TURSO_DATABASE_URL"):
         from .dashboard_sync import SLOW
         marks = ",".join("?" * len(SLOW))
-        [rows] = turso.run([(f"SELECT COUNT(*) AS n FROM actions WHERE status='pending' AND kind NOT IN ({marks})", SLOW)])
-        waiting = bool(rows and int(rows[0]["n"]))
+        quick, slow = turso.run([
+            (f"SELECT COUNT(*) AS n FROM actions WHERE status='pending' AND kind NOT IN ({marks})", SLOW),
+            (f"SELECT COUNT(*) AS n FROM actions WHERE status='pending' AND kind IN ({marks})", SLOW)])
+        # Slow actions (Gemini, email searches) run in the assist job: start it unless it's already on them.
+        waiting = bool(quick and int(quick[0]["n"])) or (bool(slow and int(slow[0]["n"])) and not engine.is_running("assist"))
     from . import config
     if stale and not waiting and config.check():
         return "idle"  # the run would only stop at the broken settings file again; it already told the dashboard

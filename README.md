@@ -409,9 +409,13 @@ FIRECRAWL_API_KEY=your_firecrawl_key
 GITHUB_TOKEN=your_github_token
 
 # Fallback Email APIs (Optional free tiers)
-PROSPEO_API_KEY=your_prospeo_key             # 100 free/mo
-HUNTER_API_KEY=your_hunter_key               # 50 free/mo
-SKRAPP_API_KEY=your_skrapp_key               # 50 free/mo
+PROSPEO_API_KEY=your_prospeo_key             # free plan; the engine uses at most 80% of it
+HUNTER_API_KEY=your_hunter_key               # free plan (25 searches/month); at most 80%, ~2 a day
+SKRAPP_API_KEY=your_skrapp_key               # free plan; at most 80%
+# Provider credit guard rails (settings.yaml -> provider_budget): every call counts, found or not; never the
+# same person twice; monthly cap = use_pct of plan_monthly, spread evenly per day; per-bulk-run cap; a provider
+# pauses itself on a rejected key (401/403), empty account (402) or rate limit (429). Check with:
+#   python -m outreach providers-check        (real balances via free account endpoints + this month's budget)
 
 # Zoho Mail API Sending (Free plan compatible)
 ZOHO_CLIENT_ID=your_zoho_client_id

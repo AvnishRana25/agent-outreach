@@ -9,12 +9,8 @@ from ..models import ProviderResult
 
 
 def get_providers() -> list[BaseProvider]:
-    """Return available fallback providers in priority sequence."""
-    return [
-        ProspeoProvider(),
-        HunterProvider(),
-        SkrappProvider()
-    ]
+    """Fallback order: most free credits first, scarcest (Hunter) last."""
+    return [ProspeoProvider(), SkrappProvider(), HunterProvider()]
 
 
 def query_fallback_providers(
@@ -22,15 +18,21 @@ def query_fallback_providers(
     last_name: str,
     company: str,
     domain: str,
-    prospect_id: int | None = None
+    prospect_id: int | None = None,
+    max_providers: int = 2,
 ) -> ProviderResult | None:
-    """Query fallback providers sequentially when local confidence is insufficient."""
-    providers = get_providers()
-    for prov in providers:
-        if prov.is_available() and prov.has_credits_remaining():
-            res = prov.find_email(first_name, last_name, company, domain, prospect_id=prospect_id)
-            if res and res.email:
-                return res
+    """Ask providers in order until one finds the email, spending at most `max_providers` calls on this
+    person. Every call goes through the budget (memory, pauses, monthly/daily/per-run caps)."""
+    from . import budget
+    spent = 0
+    for prov in get_providers():
+        if spent >= max_providers:
+            break
+        res = budget.lookup(prov, first_name, last_name, company, domain, prospect_id)
+        if res.status in ("verified", "inferred", "not_found") or res.status.startswith(("http_", "error_")):
+            spent += 1   # a real call was made
+        if res.email:
+            return res
     return None
 
 

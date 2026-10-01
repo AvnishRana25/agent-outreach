@@ -53,7 +53,8 @@ def daily_verified_target() -> int:
         except ValueError:
             pass
     try:
-        return int(base_config.settings().get("prospecting", {}).get("daily_verified_target", DEFAULT_DAILY_VERIFIED_TARGET))
+        desk = base_config.settings().get("prospecting_desk") or {}   # "prospecting" is the list of lead sources
+        return int(desk.get("daily_verified_target", DEFAULT_DAILY_VERIFIED_TARGET))
     except Exception:
         return DEFAULT_DAILY_VERIFIED_TARGET
 

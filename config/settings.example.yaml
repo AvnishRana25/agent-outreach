@@ -1,5 +1,18 @@
 # Copy to config/settings.yaml (git-ignored) and fill in your inboxes.
 
+# Email-finder providers on free plans (Prospeo, Hunter, Skrapp). The engine uses at most use_pct of each
+# plan per month, spread evenly (never more than daily_max a day, per_run_max per bulk run), counts every call
+# (found or not), never asks about the same person twice, and pauses a provider on key/credit/rate errors.
+# Set plan_monthly to what your plan really gives (python -m outreach providers-check shows the balance).
+provider_budget:
+  prospeo: {plan_monthly: 75, use_pct: 80, daily_max: 5, per_run_max: 10}
+  hunter: {plan_monthly: 25, use_pct: 80, daily_max: 2, per_run_max: 4}
+  skrapp: {plan_monthly: 50, use_pct: 80, daily_max: 3, per_run_max: 6}
+
+# Prospects desk: how many verified emails a day the bulk finder aims for before it stops.
+prospecting_desk:
+  daily_verified_target: 38
+
 # Only fresh postings: these caps apply on top of every source's own max age.
 freshness:
   community_hours: 24        # forum / Reddit posts older than this are skipped

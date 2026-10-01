@@ -30,10 +30,11 @@ FAMILIES = {"review": {"approve", "reject", "regenerate"}, "reply": {"reply_send
             "sending": {"pause_sending", "resume_sending"}, "lead": {"add_lead"},
             "deal": {"set_stage"}, "plan": {"make_plan"}, "content": {"run_content"},
             "sync": {"sync"}, "held": {"send_anyway", "mark_sent", "retry_send"},
-            "prospect": {"promote_prospect"}}
+            "prospect": {"promote_prospect"}, "find": {"find_prospects"}}
 STAGES = {"", "call_booked", "proposal_sent", "won", "lost"}
 CURRENCIES = {"USD", "GBP", "AED", "INR"}
 KIND_FAMILY = {k: fam for fam, kinds in FAMILIES.items() for k in kinds}
+MAX_BULK = 200   # prospects per bulk request; bigger files are split by the page
 MAX_BODY = 100_000
 
 
@@ -120,6 +121,12 @@ def clean_action(body: dict) -> tuple[str, int, dict]:
         if not text:
             raise ValueError("empty reply")
         payload = {"body": text[:20_000]}
+    elif kind == "find_prospects":
+        people = payload.get("prospects")
+        if not isinstance(people, list) or not people or len(people) > MAX_BULK:
+            raise ValueError("bad prospects")
+        cleaned = [clean_person(p) for p in people if isinstance(p, dict)]
+        payload = {"prospects": [p for p in cleaned if p], "target": int(payload.get("target") or 38)}
     elif kind == "promote_prospect":
         segment = str(payload.get("segment", "")).strip()[:60]
         if not segment.replace("_", "").isalnum():
@@ -196,6 +203,57 @@ def load_data() -> dict:
     return out
 
 
+def clean_person(raw: dict) -> dict | None:
+    """One prospect from the dashboard, trimmed to sane lengths; None without a name and company/domain."""
+    limits = {"first_name": 60, "last_name": 60, "company": 120, "domain": 120, "title": 120, "linkedin_url": 300}
+    p = {k: str(raw.get(k) or "").strip()[:n] for k, n in limits.items()}
+    if not (p["first_name"] or p["last_name"]) or not (p["company"] or p["domain"]):
+        return None
+    return p
+
+
+def _csv_safe(value) -> str:
+    """Spreadsheet apps run cells that start with = + - @ as formulas; names and titles come from the web."""
+    text = "" if value is None else str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
+# --------------------------------------------------------------------------- login throttle
+LOCK_AFTER, LOCK_WINDOW = 10, 15 * 60   # 10 wrong passwords from one address in 15 minutes -> 15-minute lock
+
+
+def _fail_key(ip: str) -> str:
+    return "login_fail:" + hashlib.sha256(ip.encode()).hexdigest()[:16]
+
+
+def login_locked(ip: str) -> bool:
+    try:
+        [rows] = turso([("SELECT value FROM dash_meta WHERE key=?", (_fail_key(ip),))])
+    except Exception:   # the database being down must not lock you out
+        return False
+    if not rows:
+        return False
+    st = json.loads(rows[0]["value"])
+    return st.get("n", 0) >= LOCK_AFTER and time.time() - st.get("since", 0) < LOCK_WINDOW
+
+
+def login_failed(ip: str) -> None:
+    try:
+        [rows] = turso([("SELECT value FROM dash_meta WHERE key=?", (_fail_key(ip),))])
+        st = json.loads(rows[0]["value"]) if rows else {}
+        if time.time() - st.get("since", 0) >= LOCK_WINDOW:
+            st = {"n": 0, "since": time.time()}
+        st["n"] = st.get("n", 0) + 1
+        turso([("INSERT OR REPLACE INTO dash_meta (key, value) VALUES (?,?)", (_fail_key(ip), json.dumps(st)))])
+    except Exception:
+        pass
+
+
+def _job_id() -> int:
+    """Each queued search gets its own target, so a second one doesn't replace the first while it waits."""
+    return int(time.time() * 1000) % 2_000_000_000
+
+
 def _get_db():
     try:
         from outreach import db
@@ -216,7 +274,7 @@ def _prospects_to_csv(prospects: list[dict]) -> str:
     writer = csv.DictWriter(out, fieldnames=fields, extrasaction="ignore")
     writer.writeheader()
     for p in prospects:
-        writer.writerow(p)
+        writer.writerow({k: _csv_safe(v) for k, v in p.items()})
     return out.getvalue()
 
 
@@ -269,6 +327,11 @@ class handler(BaseHTTPRequestHandler):
         secure = "" if host in ("localhost", "127.0.0.1") else "; Secure"
         return f"session={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}{secure}"
 
+    def _client_ip(self) -> str:
+        # Vercel puts the real client first in X-Forwarded-For; locally it's always 127.0.0.1
+        fwd = (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+        return fwd or self.client_address[0]
+
     def _authed(self) -> bool:
         c = SimpleCookie(self.headers.get("Cookie") or "")
         return "session" in c and valid_session(c["session"].value)
@@ -300,16 +363,13 @@ class handler(BaseHTTPRequestHandler):
                     with db_mod.connect() as conn:
                         stats = db_mod.get_prospecting_stats(conn)
                         try:
-                            from outreach.prospecting.config import daily_verified_target, provider_monthly_limit
+                            from outreach.prospecting.config import daily_verified_target
+                            from outreach.prospecting.providers import budget
                             stats["target_daily"] = daily_verified_target()
-                            stats["provider_limits"] = {
-                                "prospeo": provider_monthly_limit("prospeo"),
-                                "hunter": provider_monthly_limit("hunter"),
-                                "skrapp": provider_monthly_limit("skrapp"),
-                            }
+                            stats["budget"] = budget.summary()
                         except Exception:
                             stats["target_daily"] = 38
-                            stats["provider_limits"] = {}
+                            stats["budget"] = {}
                         return self._send(200, stats)
                 # Fallback to Turso dash_meta
                 try:
@@ -365,6 +425,8 @@ class handler(BaseHTTPRequestHandler):
                 return self._send(200, {"prospects": [], "total": 0, "limit": limit, "offset": offset})
 
             return self._send(404, {"error": "not found"})
+        except (ValueError, TypeError) as e:
+            return self._send(400, {"error": str(e) or "bad request"})
         except (urllib.error.URLError, RuntimeError, KeyError) as e:
             return self._send(502, {"error": f"backend unavailable: {e}"})
 
@@ -376,9 +438,13 @@ class handler(BaseHTTPRequestHandler):
             if self.headers.get("X-Requested-With") != "dashboard":
                 return self._send(403, {"error": "forbidden"})
             if route == "login":
+                ip = self._client_ip()
+                if login_locked(ip):
+                    return self._send(429, {"error": "too many wrong passwords; try again in 15 minutes"})
                 pw = str(self._json_body().get("password", ""))
                 expected = os.environ.get("DASHBOARD_PASSWORD", "")
                 if len(expected) < 10 or not hmac.compare_digest(pw.encode(), expected.encode()):
+                    login_failed(ip)
                     time.sleep(1.0)
                     return self._send(401, {"error": "wrong password"})
                 return self._send(200, {"ok": True}, self._cookie(make_session(), SESSION_SECONDS))
@@ -393,55 +459,27 @@ class handler(BaseHTTPRequestHandler):
 
             # Prospecting POST routes
             if p_route == "prospects/enrich":
-                body = self._json_body()
-                from outreach.prospecting.pipeline.processor import enrich_prospect
-                from outreach.prospecting.models import ProspectInput
-                input_data = ProspectInput(
-                    first_name=str(body.get("first_name", "")).strip(),
-                    last_name=str(body.get("last_name", "")).strip(),
-                    company=str(body.get("company", "")).strip(),
-                    domain=str(body.get("domain", "")).strip() or None,
-                    title=str(body.get("title", "")).strip() or None,
-                    linkedin_url=str(body.get("linkedin_url", "")).strip() or None,
-                )
-                if not (input_data.first_name or input_data.last_name) or not (input_data.company or input_data.domain):
+                person = clean_person(self._json_body())
+                if not person:
                     return self._send(400, {"error": "Name and Company or Domain are required"})
-                result = enrich_prospect(input_data)
-                return self._send(200, result.model_dump())
+                if _get_db() is None:   # on Vercel: the Mac does the search (it has the keys and the budget)
+                    turso(queue_statements("find_prospects", _job_id(), {"prospects": [person]}))
+                    return self._send(202, {"queued": True, "count": 1})
+                from outreach.prospecting.pipeline.processor import enrich_prospect
+                return self._send(200, enrich_prospect(person).model_dump())
 
             if p_route == "prospects/bulk-enrich":
                 body = self._json_body()
-                from outreach.prospecting.pipeline.bulk import BulkProcessor
-                from outreach.prospecting.models import ProspectInput
-                items_raw = body.get("prospects", [])
-                if not isinstance(items_raw, list):
+                items = body.get("prospects", [])
+                if not isinstance(items, list):
                     return self._send(400, {"error": "prospects must be an array"})
-                inputs = []
-                for item in items_raw:
-                    if isinstance(item, dict):
-                        first = str(item.get("first_name", "")).strip()
-                        last = str(item.get("last_name", "")).strip()
-                        comp = str(item.get("company", "")).strip()
-                        dom = str(item.get("domain", "")).strip() or None
-                        if (first or last) and (comp or dom):
-                            inputs.append(ProspectInput(
-                                first_name=first,
-                                last_name=last,
-                                company=comp,
-                                domain=dom,
-                                title=str(item.get("title", "")).strip() or None,
-                                linkedin_url=str(item.get("linkedin_url", "")).strip() or None,
-                            ))
-                target = int(body.get("max_verified_target", 38))
-                processor = BulkProcessor(target_verified=target)
-                results = processor.process_batch(inputs)
-                verified = sum(1 for r in results if r.confidence_level in ("verified", "high_confidence") and r.final_email)
-                return self._send(200, {
-                    "total": len(inputs),
-                    "processed": len(results),
-                    "verified": verified,
-                    "results": [r.model_dump() for r in results]
-                })
+                people = [p for p in (clean_person(i) for i in items[:MAX_BULK] if isinstance(i, dict)) if p]
+                if not people:
+                    return self._send(400, {"error": "no valid rows (each needs a name and a company or domain)"})
+                # Runs in the background on the Mac (minutes for a big file), not inside this request.
+                turso(queue_statements("find_prospects", _job_id(), {"prospects": people,
+                                                             "target": int(body.get("max_verified_target") or 38)}))
+                return self._send(202, {"queued": True, "count": len(people), "skipped": len(items) - len(people)})
 
             if p_route == "prospects/export":
                 body = self._json_body()

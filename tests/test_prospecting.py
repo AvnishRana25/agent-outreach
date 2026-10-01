@@ -26,7 +26,6 @@ from outreach.prospecting.email.generator import generate_candidates
 from outreach.prospecting.email.scorer import score_candidate, classify_confidence
 from outreach.prospecting.pipeline.processor import enrich_prospect
 from outreach.prospecting.pipeline.bulk import BulkProcessor, load_prospects_from_csv
-from outreach.prospecting.providers.prospeo import ProspeoProvider
 from outreach.prospecting.providers import query_fallback_providers
 
 
@@ -249,28 +248,6 @@ def test_unverified_candidate_scoring():
 
 
 # --------------------------------------------------------------------------- 5. Fallback Providers
-def test_provider_monthly_credit_capping(monkeypatch):
-    monkeypatch.setenv("PROSPEO_API_KEY", "mock_key")
-    monkeypatch.setenv("PROSPEO_MONTHLY_LIMIT", "2")
-
-    provider = ProspeoProvider()
-    assert provider.is_available() is True
-    from outreach.prospecting.config import provider_monthly_limit
-    assert provider_monthly_limit("prospeo") == 2
-
-    # Simulate 2 credits already used this month
-    provider.record_usage(credits_used=1, result="found")
-    provider.record_usage(credits_used=1, result="found")
-
-    assert provider.credits_used_this_month() == 2
-    assert provider.has_credits_remaining() is False
-
-    # Should report limit reached and refuse to call external service
-    res = provider.find_email("Alex", "Smith", "Acme", "acme.com")
-    assert res.status == "limit_reached"
-    assert res.email is None
-
-
 def test_fallback_dispatcher_skips_when_no_keys(monkeypatch):
     monkeypatch.delenv("PROSPEO_API_KEY", raising=False)
     monkeypatch.delenv("HUNTER_API_KEY", raising=False)

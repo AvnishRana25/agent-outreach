@@ -387,3 +387,46 @@ def test_settings_error_shows_until_a_good_run(env):
     dashboard_sync.push()
     _, data, _ = call(env, "GET", "/api/data", cookie=cookie)
     assert "engine_error" not in data
+
+
+def test_login_lockout_after_ten_wrong_passwords(env, monkeypatch):
+    from outreach import dashboard_sync
+    api = __import__("outreach.dashboard_local", fromlist=["api_module"]).api_module()
+    dashboard_sync.init_remote()
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    for _ in range(10):
+        assert call(env, "POST", "/api/login", {"password": "nope"})[0] == 401
+    s, d, _ = call(env, "POST", "/api/login", {"password": "correct horse battery"})
+    assert s == 429 and "15 minutes" in d["error"]
+    assert api.LOCK_AFTER == 10
+
+
+def test_prospect_searches_are_queued_and_csv_is_safe(env, monkeypatch):
+    from outreach import dashboard_sync, db, turso
+    dashboard_sync.init_remote()
+    cookie = _login(env)
+    rows = [{"first_name": "Ana", "last_name": "Ruiz", "company": "Acme"}, {"first_name": "", "company": "x"}] * 3
+    s, d, _ = call(env, "POST", "/api/prospects/bulk-enrich", {"prospects": rows}, cookie)
+    assert s == 202 and d == {"queued": True, "count": 3, "skipped": 3}
+    s, d, _ = call(env, "POST", "/api/prospects/bulk-enrich", {"prospects": rows[:1]}, cookie)
+    [pending] = turso.run(["SELECT kind, payload FROM actions WHERE status='pending'"])
+    assert [p["kind"] for p in pending] == ["find_prospects", "find_prospects"]   # the second didn't replace the first
+    s, d, _ = call(env, "GET", "/api/prospects?limit=abc", cookie=cookie)
+    assert s == 400
+    with db.connect() as conn:
+        db.add_prospect(conn, full_name="=HYPERLINK(\"http://evil\")", company="Acme", final_email="a@acme.com")
+    s, csv_text, _ = call(env, "GET", "/api/prospects/export", cookie=cookie)
+    assert "'=HYPERLINK" in csv_text
+    s, stats, _ = call(env, "GET", "/api/prospects/stats", cookie=cookie)
+    assert stats["budget"]["hunter"]["usable_monthly"] == 20
+
+
+def test_queued_search_runs_in_the_background_job(env, monkeypatch):
+    from outreach import dashboard_sync
+    from outreach.prospecting.pipeline import bulk
+    seen = []
+    monkeypatch.setattr(bulk.BulkProcessor, "process_batch", lambda self, people: seen.extend(people) or [])
+    out = dashboard_sync._find_prospects(1, {"prospects": [{"first_name": "Ana", "last_name": "Ruiz", "company": "Acme",
+                                                            "domain": "", "title": "", "linkedin_url": ""}]})
+    assert out.startswith("searched 0 of 1") and seen[0].domain is None and seen[0].first_name == "Ana"
+    assert "find_prospects" in dashboard_sync.SLOW

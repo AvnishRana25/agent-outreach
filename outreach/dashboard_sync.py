@@ -219,6 +219,27 @@ def _promote_prospect(target: int, payload: dict) -> str:
     return "sent to the engine: researched and drafted on the next run" if ok else "skipped: already known or suppressed"
 
 
+def _find_prospects(target: int, payload: dict) -> str:
+    """Email searches queued from the dashboard (one person or a CSV), run in the background job."""
+    from .prospecting.models import ProspectInput
+    from .prospecting.pipeline.bulk import BulkProcessor
+    from .prospecting.providers import budget
+    people = []
+    for p in payload.get("prospects") or []:
+        try:
+            people.append(ProspectInput(**{k: (v or None) if k in ("domain", "title", "linkedin_url") else v
+                                           for k, v in p.items()}))
+        except (TypeError, ValueError):
+            continue
+    if not people:
+        return "error: no valid prospects"
+    budget.new_run()
+    results = BulkProcessor(target_verified=int(payload.get("target") or 38)).process_batch(people)
+    found = sum(1 for r in results if r.final_email and r.confidence_level in ("verified", "high_confidence"))
+    paid = sum(1 for r in results if r.verification_provider)
+    return f"searched {len(results)} of {len(people)}: {found} verified or high-confidence, {paid} used a provider credit"
+
+
 APPLY = {"approve": _approve, "reject": _reject, "regenerate": _regenerate,
          "reply_send": _reply_send, "reply_done": _reply_done, "post_done": _post_done,
          "run_prepare": _run("prepare"), "run_community": _run("community"),
@@ -230,10 +251,10 @@ APPLY = {"approve": _approve, "reject": _reject, "regenerate": _regenerate,
                                                     str(p.get("opportunity_type", ""))),
          "make_plan": lambda t, p: growth.make_plan(t), "sync": lambda t, p: "synced",
          "send_anyway": _send_anyway, "mark_sent": _mark_sent, "retry_send": _retry_send,
-         "promote_prospect": _promote_prospect}
+         "promote_prospect": _promote_prospect, "find_prospects": _find_prospects}
 # These wait on Gemini (up to minutes when it's busy), so the engine run hands them to the background
 # "assist" job instead of doing them itself.
-SLOW = ("regenerate", "make_plan")
+SLOW = ("regenerate", "make_plan", "find_prospects")
 
 
 def _num(v) -> float | None:
@@ -400,10 +421,12 @@ def _prospecting_summary(conn) -> dict:
         "hunter": p_cfg.provider_monthly_limit("hunter"),
         "skrapp": p_cfg.provider_monthly_limit("skrapp"),
     }
+    from .prospecting.providers import budget
     return {
         **stats,
         "target_daily": p_cfg.daily_verified_target(),
         "provider_limits": limits,
+        "budget": budget.summary(),
         "recent": recent,
     }
 
