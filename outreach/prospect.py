@@ -149,10 +149,12 @@ def run_hn(job: dict) -> int:
     kind = job.get("thread", "hiring")
     hits = _get_json(HN_SEARCH)["hits"]
     story = next((h for h in hits if THREAD_TITLES[kind] in (h.get("title") or "").lower()), None)
-    if not story:
-        print(f"  no recent HN '{kind}' thread found")
+    if not story or time.time() - (story.get("created_at_i") or 0) > 35 * 86400:
+        print(f"  no HN '{kind}' thread from this month yet")
         return 0
     item = _get_json(HN_ITEM.format(id=story["objectID"]))
+    days = min(job.get("max_age_days", 7), (config.settings().get("freshness") or {}).get("job_post_days", 7))
+    oldest = time.time() - days * 86400   # only comments posted recently
     include = [k.lower() for k in job.get("include_any", [])]
     include_re = re.compile(job["include_regex"], re.I) if job.get("include_regex") else None
     exclude = [k.lower() for k in job.get("exclude_any", [])]
@@ -160,6 +162,8 @@ def run_hn(job: dict) -> int:
     with db.connect() as conn:
         for child in item.get("children") or []:
             if added >= job.get("max_new", 20) or not child.get("text"):
+                continue
+            if (child.get("created_at_i") or 0) < oldest:
                 continue
             post = parse_hn_post(child["text"])
             low = post["text"].lower()
@@ -241,8 +245,8 @@ RUNNERS = {"yc": run_yc, "hn": run_hn, "osm": run_osm}
 
 
 def all_runners() -> dict:
-    from . import sources  # imported here: sources builds on helpers in this module
-    return {**RUNNERS, **sources.RUNNERS}
+    from . import hiring, sources  # imported here: they build on helpers in this module
+    return {**RUNNERS, **sources.RUNNERS, **hiring.RUNNERS}
 
 
 def run(only: str | None = None) -> dict:

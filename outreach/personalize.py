@@ -113,7 +113,7 @@ def _auto_sequence(row) -> Sequence | None:
     segment = row["segment"]
     if (int(sending.get("auto_approve_daily_cap", 0)) <= 0
             or segment not in sending.get("auto_approve_segments", [])
-            or segment not in sending.get("allowed_segments", [])
+            or (sending.get("allowed_segments") is not None and segment not in sending["allowed_segments"])
             or row["email_status"] != "valid" or row["email_source"] not in ("website", "post")
             or row["fit"] is None or row["fit"] < 6
             or not all(row[k] for k in ("email", "company", "website", "source_text", "site_text", "created_at"))
@@ -256,7 +256,7 @@ def save(lead_id: int, seq: Sequence, auto_approve: bool = False) -> None:
                     and all((text or "").strip() and not config.PLACEHOLDER.search(text)
                             for text in [seq.subject, seq.body, *(f.body for f in seq.followups[:len(days)])])):
                 from .review import approve_lead
-                approve_lead(conn, lead_id)
+                approve_lead(conn, lead_id, by="auto")
                 db.set_state(conn, key, used + 1)
 
 

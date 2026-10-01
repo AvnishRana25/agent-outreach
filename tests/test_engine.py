@@ -1,6 +1,5 @@
 """The background engine: what a tick runs and when, job bookkeeping, and the installer's guard rails."""
 from datetime import datetime, timezone
-from unittest import mock
 
 import pytest
 
@@ -28,13 +27,17 @@ def test_tick_schedules(monkeypatch):
     monkeypatch.setattr(replies, "sync", lambda d, **kw: calls.append("replies") or 0)
     fake_clock(monkeypatch, 2026, 10, 5, 2, 30)          # Mon 08:00 IST: after 07:30
     engine.tick()
-    assert calls == ["prepare", "community", "content", "replies", "send", "inbox"]   # Monday 08:00 also drafts posts
+    assert calls == ["prepare", "community", "content", "inbox", "send"]   # Monday 08:00 also drafts posts
     calls.clear()
     fake_clock(monkeypatch, 2026, 10, 5, 2, 35)          # 5 minutes later: only sending is due
     engine.tick()
-    assert calls == ["replies", "send"]
+    assert calls == ["send"]
+    fake_clock(monkeypatch, 2026, 10, 5, 2, 41)          # 11 minutes after the first run: read the inbox again
+    calls.clear()
+    engine.tick()
+    assert calls == ["inbox", "send"]
     with db.connect() as conn:
-        assert db.get_state(conn, "engine:heartbeat").startswith("2026-10-05T02:35")
+        assert db.get_state(conn, "engine:heartbeat").startswith("2026-10-05T02:41")
 
 
 def test_no_prepare_on_sunday_or_before_0730(monkeypatch):
@@ -58,26 +61,15 @@ def test_failing_step_does_not_stop_others(monkeypatch):
     monkeypatch.setattr(replies, "sync", lambda d, **kw: calls.append("replies") or 0)
     fake_clock(monkeypatch, 2026, 10, 5, 2, 30)
     engine.tick()
-    assert calls == ["replies", "send"]
+    assert calls == ["send"]
 
 
-def test_tick_never_runs_slow_work_itself(monkeypatch):
-    """The send gate fetches replies without waiting for Gemini triage."""
+def test_tick_never_reads_the_inbox_itself(monkeypatch):
+    """Reading the inbox is slow (Zoho, then Gemini), so it's the background inbox job."""
     from outreach import engine, replies, sender
     monkeypatch.setattr(engine, "spawn", lambda job: "started")
     monkeypatch.setattr(sender, "tick", lambda n: 0)
-    def quick_sync(days, **kw):
-        assert kw == {"require_all": True, "triage": False}
-    monkeypatch.setattr(replies, "sync", quick_sync)
-    fake_clock(monkeypatch, 2026, 10, 5, 2, 30)
-    engine.tick()
-
-
-def test_failed_inbound_sync_holds_sending(monkeypatch):
-    from outreach import engine, replies, sender, transport
-    monkeypatch.setattr(engine, "spawn", lambda job: "started")
-    monkeypatch.setattr(replies, "sync", mock.Mock(side_effect=transport.InboxUnavailable("offline")))
-    monkeypatch.setattr(sender, "tick", lambda n: pytest.fail("sent without inbox sync"))
+    monkeypatch.setattr(replies, "sync", lambda *a, **kw: pytest.fail("the tick read the inbox"))
     fake_clock(monkeypatch, 2026, 10, 5, 2, 30)
     engine.tick()
 

@@ -1,12 +1,20 @@
 # Copy to config/settings.yaml (git-ignored) and fill in your inboxes.
 
+# Only fresh postings: these caps apply on top of every source's own max age.
+freshness:
+  community_hours: 24        # forum / Reddit posts older than this are skipped
+  job_post_days: 7           # job-board, HN and company-board postings
+  news_days: 14              # funding news, Launch HN
+
 targeting:
   india_share_max: 0.33       # at most a third of each day's new emails go to India-market segments
   min_fit: 6                  # research fit score (0-10) needed before a lead is drafted
 
 sending:
   home_timezone: Asia/Kolkata
-  allowed_segments: [uk_agencies, india_startups_intern]
+  # Every segment sends once you approve its drafts. To switch some off, list the ones that may send:
+  # allowed_segments: [gulf_realestate, india_realestate, intl_freelance_posts, india_startups_intern]
+  # Auto-approval (off while the cap is 0): fixed template copy for these segments, sent without review.
   auto_approve_segments: [uk_agencies, india_startups_intern]
   auto_approve_daily_cap: 0 # opt in only after reviewing template copy and delivery
   min_gap_minutes: 8          # never two sends from one inbox closer than this...
@@ -281,6 +289,7 @@ prospecting:
     segment: intl_freelance_posts
     include_any: [automation, whatsapp, crm, ai, llm, react, next.js, python, node, zapier, n8n, scraping, dashboard]
     exclude_any: [senior only, "10+ years", unpaid]
+    max_age_days: 7                      # only comments posted in the last week
     max_new: 10
   - source: hn
     thread: hiring
@@ -288,6 +297,7 @@ prospecting:
     include_regex: "\\bintern(s|ship|ships)?\\b"
     exclude_any: ["us citizens only", "must be located in the us", "no remote", "onsite only"]
     require_remote: true
+    max_age_days: 7
     max_new: 15
   - source: yc
     segment: intl_startups_intern
@@ -312,28 +322,88 @@ prospecting:
   # --- Remote job boards: one fetch per board per run, shared by both jobs below --------------
   - source: jobs
     segment: intl_freelance_posts        # contract / part-time roles = paid work with a budget
-    boards: [remotive, himalayas, remoteok, jobicy, wwr]
+    boards: [remotive, himalayas, remoteok, jobicy, wwr, workingnomads]
     job_types: [contract, freelance, part-time, part time, temporary]
     include_regex: "automation|n8n|zapier|make\\.com|whatsapp|crm|hubspot|llm|\\bai\\b|chatbot|gpt|scrap|integration|python|node|next\\.js|react|dashboard"
     exclude_any: ["us citizens", "security clearance", "must be located in the us", "w2 only", "10+ years", "principal"]
     allowed_locations: [worldwide, anywhere, global, remote, india, asia, apac, emea, middle east, uae]
-    max_age_days: 21
+    max_age_days: 7                      # only fresh postings; undated ones are skipped
     max_new: 8
   - source: jobs
     segment: intl_startups_intern
-    boards: [remotive, himalayas, remoteok, jobicy, wwr]
+    boards: [remotive, himalayas, remoteok, jobicy, wwr, workingnomads]
     title_regex: "\\b(intern|internship|junior|graduate|entry[- ]level|trainee|associate engineer)\\b"
     include_regex: "\\bai\\b|llm|machine learning|automation|full[- ]?stack|backend|product engineer|python|typescript"
     exclude_any: ["us citizens", "must be located in the us", "security clearance", "eu only", "europe only"]
     allowed_locations: [worldwide, anywhere, global, remote, india, asia, apac]
-    max_age_days: 30
+    max_age_days: 7
     max_new: 8
 
   # --- Hacker News "Launch HN": YC startups in their launch week ------------------------------
   - source: launch_hn
     segment: intl_startups_intern
-    max_age_days: 120
+    max_age_days: 30
     max_new: 6
+
+  # --- Startups' own job boards (Greenhouse, Lever, Ashby: free public APIs) ---------------------
+  # Checks the startups already in your leads (YC, Launch HN, funding news, GitHub) for fresh roles.
+  # Add more with `companies: [{name: Acme, domain: acme.ai}]` or `boards_list: ["greenhouse:acme"]`.
+  - source: ats
+    segment: intl_startups_intern
+    title_regex: "\\b(intern|internship|new grad|graduate|junior|entry[- ]level|ai engineer|ml engineer|llm|applied ai|product engineer|founding engineer)\\b"
+    exclude_any: ["us citizens", "must be located in the us", "security clearance", "senior", "staff ", "principal", "director"]
+    allowed_locations: [remote, anywhere, worldwide, india, bengaluru, bangalore, delhi, gurugram, noida, mumbai, pune, hyderabad, apac, asia]
+    max_age_days: 14
+    max_checks: 40                       # companies looked at per run (each has 1-6 requests the first time)
+    max_new: 8
+  - source: ats
+    segment: intl_freelance_posts
+    title_regex: "automation|integration|n8n|zapier|ai engineer|llm|contract|freelance|part[- ]time"
+    job_types: [contract, freelance, part-time, part time, temporary, contractor]
+    allowed_locations: [remote, anywhere, worldwide, india, apac, asia, emea]
+    max_age_days: 14
+    max_checks: 40
+    max_new: 5
+
+  # --- Funding news: startups that raised in the last two weeks are about to hire -----------------
+  - source: funding
+    segment: india_startups_intern
+    feeds: [inc42, entrackr, yourstory]
+    include_regex: "\\bai\\b|saas|software|tech|platform|automation|fintech|data|developer|b2b"
+    max_age_days: 14
+    max_new: 6
+  - source: funding
+    segment: intl_startups_intern
+    feeds: [techcrunch]
+    include_regex: "\\bai\\b|saas|software|automation|developer|agent|llm|data"
+    max_age_days: 14
+    max_new: 4
+
+  # --- GitHub: startups' repos with open "good first issue" tickets (internships) ----------------
+  # Fix one before emailing. GITHUB_TOKEN in .env (free) raises GitHub's limit from 60 to 5,000 requests/hour.
+  - source: github
+    segment: intl_startups_intern
+    topics: [llm, ai-agents, rag, workflow-automation, generative-ai]
+    min_stars: 30
+    max_stars: 8000
+    max_age_days: 14                     # repos pushed to in the last two weeks
+    max_checks: 15
+    max_new: 4
+
+  # --- Directories found with Firecrawl search (uses Firecrawl credits, within the daily cap) -----
+  # Agencies that sell HubSpot/Webflow but need automation built (white-label), and Dubai agencies.
+  - source: search
+    segment: uk_agencies
+    queries: ["site:ecosystem.hubspot.com/marketplace/solutions London agency", "site:webflow.com/@ agency United Kingdom"]
+    directories: [hubspot.com, webflow.com]
+    per_query: 5
+    max_new: 4
+  - source: search
+    segment: gulf_realestate
+    queries: ["site:bayut.com/companies real estate brokers Dubai", "site:propertyfinder.ae/en/broker real estate Dubai"]
+    directories: [bayut.com, propertyfinder.ae, dubizzle.com]
+    per_query: 5
+    max_new: 4
 
   # --- UK Companies House: small agencies with a named director (free API key in .env) ----------
   # SIC 73110 advertising agencies, 70210 PR, 62012 software development, 74100 design.
@@ -382,28 +452,66 @@ prospecting:
 # Community boards where people post paid "[Hiring]" work. Answered by hand, not by email:
 # `python -m outreach community` (cron, every 30 min) -> data/opportunities_today.md + Telegram.
 community:
+# Only fresh posts: anything older than max_age_hours (or without a date) is skipped.
   - name: n8n community jobs
     type: discourse
     url: https://community.n8n.io
     category: jobs
-    max_age_hours: 72
+    max_age_hours: 24
+  - name: Bubble forum jobs
+    type: discourse
+    url: https://forum.bubble.io
+    category: jobs
+    include_regex: "automation|api|integration|ai|llm|zapier|make|n8n|backend|plugin|workflow"
+    max_age_hours: 24
+  - name: Make community hire a pro
+    type: discourse
+    url: https://community.make.com
+    category: hire-a-pro
+    max_age_hours: 24
   - name: r/forhire
     type: reddit
     subreddit: forhire
     title_regex: "\\[hiring\\]"
     include_regex: "automation|n8n|zapier|make\\.com|whatsapp|crm|llm|\\bai\\b|chatbot|gpt|scrap|integration|python|node|next\\.js|react|dashboard|api"
     exclude_any: ["[for hire]"]
-    max_age_hours: 48
+    max_age_hours: 24
   - name: r/n8n hiring
     type: reddit
     subreddit: n8n
     title_regex: "hiring|looking for|need (an? )?(n8n )?(dev|developer|expert|freelancer)|paid"
-    max_age_hours: 48
+    max_age_hours: 24
   - name: r/automation hiring
     type: reddit
     subreddit: automation
     title_regex: "hiring|looking for|need (an? )?(dev|developer|expert|freelancer)|paid"
-    max_age_hours: 48
+    max_age_hours: 24
+  - name: r/zapier hiring
+    type: reddit
+    subreddit: zapier
+    title_regex: "hiring|looking for|need (an? )?(dev|developer|expert|freelancer|engineer)|paid|budget"
+    max_age_hours: 24
+  - name: r/nocode hiring
+    type: reddit
+    subreddit: nocode
+    title_regex: "hiring|looking for|need (an? )?(dev|developer|expert|freelancer|engineer)|paid|budget"
+    max_age_hours: 24
+  - name: r/AI_Agents hiring
+    type: reddit
+    subreddit: AI_Agents
+    title_regex: "hiring|looking for|need (an? )?(dev|developer|expert|freelancer|engineer)|paid|budget"
+    max_age_hours: 24
+  - name: r/SaaS hiring
+    type: reddit
+    subreddit: SaaS
+    title_regex: "\\[hiring\\]|hiring|looking for (an? )?(dev|developer|engineer|cto|freelancer)"
+    max_age_hours: 24
+  - name: r/hiring
+    type: reddit
+    subreddit: hiring
+    title_regex: "automation|ai|llm|python|developer|engineer|n8n|zapier|chatbot|intern"
+    exclude_any: ["[for hire]"]
+    max_age_hours: 24
 
 # Meta Ad Library (by hand, 15 min/day): `python -m outreach adlib` writes today's searches.
 adlibrary:

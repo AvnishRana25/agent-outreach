@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import re
 from urllib.parse import urljoin
+from typing import Any
 import requests
-from bs4 import BeautifulSoup
 
 from ..validation.syntax import is_valid_syntax, is_role_email
 from ... import firecrawl

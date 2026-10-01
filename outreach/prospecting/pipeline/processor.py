@@ -11,10 +11,7 @@ from ..models import (
     Evidence
 )
 from ..config import (
-    CONFIDENCE_TO_SKIP_PROVIDERS,
-    THRESHOLD_VERIFIED,
-    THRESHOLD_HIGH,
-    THRESHOLD_REVIEW
+    CONFIDENCE_TO_SKIP_PROVIDERS
 )
 from ..domain import resolve_domain
 from ..discovery import (
@@ -32,9 +29,7 @@ from ..email import (
     classify_confidence
 )
 from ..validation import (
-    is_valid_syntax,
     is_role_email,
-    is_disposable_domain,
     check_mx,
     check_catch_all
 )

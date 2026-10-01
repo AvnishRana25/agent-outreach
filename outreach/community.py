@@ -35,7 +35,9 @@ class PostCheck(BaseModel):
 def fetch_discourse(src: dict) -> list[dict]:
     """Latest topics in one Discourse category, e.g. https://community.n8n.io + category 'jobs'."""
     base = src["url"].rstrip("/")
-    topics = requests.get(f"{base}/c/{src['category']}/l/latest.json", headers=UA, timeout=30).json()
+    # order=created: newest topics first (plain "latest" is by last reply, which resurfaces old posts)
+    topics = requests.get(f"{base}/c/{src['category']}/l/latest.json", params={"order": "created", "ascending": "false"},
+                          headers=UA, timeout=30).json()
     out = []
     for t in topics.get("topic_list", {}).get("topics", []):
         if t.get("pinned") or t.get("closed"):
@@ -109,8 +111,9 @@ def wanted(post: dict, src: dict) -> bool:
         return False
     if any(x.lower() in blob.lower() for x in src.get("exclude_any", [])):
         return False
-    posted = post.get("posted")
-    return not posted or posted > datetime.now(timezone.utc) - timedelta(hours=src.get("max_age_hours", 48))
+    posted = post.get("posted")  # undated posts are skipped: only fresh postings are worth answering
+    hours = min(src.get("max_age_hours", 24), (config.settings().get("freshness") or {}).get("community_hours", 24))
+    return bool(posted) and posted > datetime.now(timezone.utc) - timedelta(hours=hours)
 
 
 def _system() -> str:

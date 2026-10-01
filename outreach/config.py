@@ -49,8 +49,24 @@ def settings() -> dict:
         default_segments = default.pop("segments", {})
         for name, seg in (user.get("segments") or {}).items():
             _fill_missing(seg, default_segments.get(name, {}))
+        if user.get("sources_from_example", True):
+            _add_new_sources(user, default)
         _fill_missing(user, default)
     return user
+
+
+def _add_new_sources(user: dict, default: dict) -> None:
+    """New kinds of lead source reach an existing settings.yaml without copying anything: community boards
+    you don't have yet (by name), and prospecting jobs of a source type you don't use at all. Sources you
+    already configured are left exactly as they are. Turn off with `sources_from_example: false`."""
+    if isinstance(user.get("community"), list):
+        have = {c.get("name") for c in user["community"]}
+        user["community"] += [c for c in default.get("community") or [] if c.get("name") not in have]
+    if isinstance(user.get("prospecting"), list):
+        types = {j.get("source") for j in user["prospecting"]}
+        segs = set((user.get("segments") or {}))
+        user["prospecting"] += [j for j in default.get("prospecting") or []
+                                if j.get("source") not in types and j.get("segment") in segs]
 
 
 # Template text that must never reach a prospect: "github.com/YOUR-GITHUB", "[First Name]", "{company}".

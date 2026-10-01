@@ -10,28 +10,23 @@ Covers:
 - Bulk CSV parsing, deduplication, and daily target cap
 - Persistence in SQLite and dashboard API endpoints
 """
-import io
 import json
-from pathlib import Path
 from unittest import mock
 import pytest
 
 from outreach import db
-from outreach.prospecting.models import ProspectInput, ProspectResult, Evidence
+from outreach.prospecting.models import ProspectInput, ProspectResult
 from outreach.prospecting.domain.normalizer import normalize_domain, is_ignored_domain
 from outreach.prospecting.domain.resolver import resolve_domain
 from outreach.prospecting.validation.syntax import is_valid_syntax, is_role_email, is_disposable_domain
 from outreach.prospecting.validation.mx import check_mx
 from outreach.prospecting.validation.catch_all import check_catch_all
-from outreach.prospecting.email.patterns import deduce_pattern_from_email, detect_company_pattern, SUPPORTED_PATTERNS
+from outreach.prospecting.email.patterns import deduce_pattern_from_email, detect_company_pattern
 from outreach.prospecting.email.generator import generate_candidates
 from outreach.prospecting.email.scorer import score_candidate, classify_confidence
-from outreach.prospecting.pipeline.processor import ProspectProcessor, enrich_prospect
+from outreach.prospecting.pipeline.processor import enrich_prospect
 from outreach.prospecting.pipeline.bulk import BulkProcessor, load_prospects_from_csv
-from outreach.prospecting.providers.base import BaseProvider
 from outreach.prospecting.providers.prospeo import ProspeoProvider
-from outreach.prospecting.providers.hunter import HunterProvider
-from outreach.prospecting.providers.skrapp import SkrappProvider
 from outreach.prospecting.providers import query_fallback_providers
 
 

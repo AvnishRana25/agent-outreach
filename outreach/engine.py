@@ -1,7 +1,7 @@
 """The background engine: one `tick` every 5 minutes does whatever is due, so you never need the terminal.
 
   every tick      apply dashboard actions -> send due emails -> push a fresh dashboard snapshot
-  every 20 min    read replies (stop sequences, triage, Telegram)
+  every 10 min    read replies (stop sequences, triage, Telegram) as a background job
   every 30 min    community [Hiring] posts
   daily 07:30     prepare: find companies -> research -> draft (Mon-Sat, your time zone)
   daily 09:45     Ad Library searches and LinkedIn tasks for the dashboard
@@ -208,7 +208,7 @@ def _tick(dashboard_sync, growth, review, sender, sources) -> None:
     with db.connect() as conn:
         db.set_state(conn, "engine:heartbeat", _now().isoformat(timespec="seconds"))
         db.purge_mock(conn)
-        need_sync = _due(conn, "tick:replies", timedelta(minutes=20))
+        need_sync = _due(conn, "tick:replies", timedelta(minutes=10))
         need_community = _due(conn, "tick:community", timedelta(minutes=30))
         need_prepare = _daily_due(conn, "tick:prepare", 7, 30, weekdays=range(6))
         need_daily = _daily_due(conn, "tick:daily_tasks", 9, 45)
@@ -230,15 +230,11 @@ def _tick(dashboard_sync, growth, review, sender, sources) -> None:
         _step("linkedin posts", lambda: spawn("content"))
     if need_digest:
         _step("weekly digest", growth.weekly_digest)
-    from . import replies
-    try:
-        replies.sync(4, require_all=True, triage=False)
-    except Exception as e:
-        print(f"  send held: inbound sync failed ({e.__class__.__name__})")
-    else:
-        _step("send", lambda: sender.tick(2))
+    # Replies are read by the background inbox job (every 10 minutes); the sender only sends from an inbox
+    # read in the last 30 minutes, so a reply always stops its sequence before the next email goes out.
     if need_sync:
         _step("replies", lambda: spawn("inbox"))
+    _step("send", lambda: sender.tick(2))
     if need_daily:
         _step("ad library", lambda: sources.adlibrary_tasks(config.DATA_DIR / "adlibrary_today.md"))
         _step("linkedin", lambda: review.linkedin_tasks(config.DATA_DIR / "linkedin_today.md"))

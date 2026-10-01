@@ -29,7 +29,8 @@ FAMILIES = {"review": {"approve", "reject", "regenerate"}, "reply": {"reply_send
             "post": {"post_done"}, "run": {"run_prepare"}, "community": {"run_community"},
             "sending": {"pause_sending", "resume_sending"}, "lead": {"add_lead"},
             "deal": {"set_stage"}, "plan": {"make_plan"}, "content": {"run_content"},
-            "sync": {"sync"}}
+            "sync": {"sync"}, "held": {"send_anyway", "mark_sent", "retry_send"},
+            "prospect": {"promote_prospect"}}
 STAGES = {"", "call_booked", "proposal_sent", "won", "lost"}
 CURRENCIES = {"USD", "GBP", "AED", "INR"}
 KIND_FAMILY = {k: fam for fam, kinds in FAMILIES.items() for k in kinds}
@@ -119,6 +120,11 @@ def clean_action(body: dict) -> tuple[str, int, dict]:
         if not text:
             raise ValueError("empty reply")
         payload = {"body": text[:20_000]}
+    elif kind == "promote_prospect":
+        segment = str(payload.get("segment", "")).strip()[:60]
+        if not segment.replace("_", "").isalnum():
+            raise ValueError("bad segment")
+        payload = {"segment": segment}
     elif kind == "add_lead":
         fields = {"company": 120, "website": 300, "email": 200, "segment": 60, "country": 60, "notes": 1000,
                   "source": 60, "opportunity_type": 30}
@@ -180,7 +186,7 @@ def load_data() -> dict:
         ("SELECT id, kind, target, payload, status, result, created_at, applied_at FROM actions "
          "ORDER BY id DESC LIMIT 80", ()),
     ])
-    out = {"review": [], "reply": [], "post": []}
+    out = {"review": [], "reply": [], "post": [], "held": []}
     for row in items:
         out.setdefault(row["kind"], []).append(json.loads(row["data"]))
     out["review"].sort(key=lambda x: -(x.get("confidence") or 0))

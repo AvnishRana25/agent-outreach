@@ -87,14 +87,20 @@
 
 The engine automatically collects high-intent leads across 8+ zero-cost public channels:
 
-- **Remote Job Boards**: Scrapes Remotive, Himalayas, RemoteOK, Jobicy, and We Work Remotely for active hiring signals, technical requirements, and company websites.
+Only fresh postings are used: forum and Reddit posts from the last 24 hours, job posts from the last 7 days, news from the last 14 days (`freshness:` in settings). Undated posts are skipped. New source types and community boards from `settings.example.yaml` reach your own `settings.yaml` automatically (turn off with `sources_from_example: false`). Check them all live with `python -m outreach sources-check`.
+
+- **Remote Job Boards**: Remotive, Himalayas, RemoteOK, Jobicy, We Work Remotely and Working Nomads: contract roles become freelance leads, intern/junior roles internship leads.
+- **Startups' own job boards** (`ats`): Greenhouse, Lever and Ashby public APIs, checked for every startup already in your leads; a fresh intern / AI-engineer / contract role becomes the email's hook.
+- **Funding news** (`funding`): Inc42, Entrackr, YourStory and TechCrunch RSS; startups that raised in the last two weeks.
+- **GitHub good first issues** (`github`): startups' repos with open beginner tickets, for internship emails that mention a PR you opened.
+- **Directory search** (`search`): HubSpot/Webflow partner agencies and Bayut/Property Finder agency pages via Firecrawl search (daily credit cap applies).
 - **Y Combinator Startup Directory**: Scrapes YC companies filtering by batch, hiring status, and target industry.
 - **Hacker News Algolia API**: Real-time parsing of monthly "Who is hiring?", "Seeking freelancer?", and "Launch HN" threads.
 - **UK Companies House**: Queries the official Companies House API for newly incorporated agencies, SIC code classifications, and officer/director rosters.
 - **Dubai Land Department Register**: Scrapes registered UAE real estate brokerages, active license numbers, and managing directors.
 - **OpenStreetMap (Overpass API)**: Extracts local businesses across specific geographic bounding boxes (e.g. Dubai, London, Bangalore).
 - **Meta Ad Library Hunter**: Generates curated search links for advertisers running click-to-WhatsApp and lead ads in target regions.
-- **Community Forum Monitor**: Monitors n8n forums, Reddit (`r/forhire`, `r/freelance_forhire`), flags `[Hiring]` posts every 30 minutes, drafts custom applications, and notifies via Telegram.
+- **Community Forum Monitor**: the n8n, Bubble and Make forums and r/forhire, r/n8n, r/automation, r/zapier, r/nocode, r/AI_Agents, r/SaaS, r/hiring; flags fresh `[Hiring]` posts every 30 minutes, drafts a reply, and notifies via Telegram.
 - **Custom CSV/JSON Importer**: Import your own lists with deduplication and segment assignment (`python -m outreach import leads.csv --segment uk_agencies`).
 
 ---
@@ -177,8 +183,12 @@ Engineered to discover verified professional email addresses for founders, CEOs,
 
 ### 5. Deliverability, Safety Gates & Sending Control
 
-- **Pre-Send Inbox Synchronization**: Syncs the sending inbox immediately before any outbound send cycle; cancels follow-ups if an inbound message arrived.
-- **Durable `sending` State**: Sets a durable `sending` record before network transport; crashes or network timeouts never produce duplicate emails.
+- **Replies first**: the background inbox job reads replies every 10 minutes, and nothing sends from an inbox that hasn't been read in the last 30 minutes, so a reply always stops its sequence before the next email.
+- **Durable `sending` State**: the email is marked `sending` before the provider call, so a crash can't send it twice. If the mail provider refuses it (a 4xx answer, or a login problem), it simply waits and retries; after 3 refusals it's held. If the connection drops mid-send, it may have gone out: it appears under **Review → Needs a decision** with "It's in my Sent folder" / "Not sent, try again", and Telegram tells you.
+- **Safety checks before every send**, shown on the email under **Review → Held** with the reason:
+  - never: suppressed addresses, empty text, template placeholders, invalid/guessed addresses, companies whose post or site rejects AI-written applications;
+  - held until you press **Send anyway**: addresses not found on their website or a post (e.g. pattern guesses), research fit under 6;
+  - for auto-approved template emails only: generic `info@` addresses and AI confidence under 85%. Your own approval in Review is enough otherwise.
 - **Human-in-the-Loop Review**:
   - Interactive CLI review mode (`python -m outreach review`).
   - Web dashboard draft editor with instant AI regeneration.
@@ -225,7 +235,7 @@ Engineered to discover verified professional email addresses for founders, CEOs,
 - **Multi-Currency Support**: Tracks revenue and proposals natively in **USD**, **GBP**, **AED**, and **INR**.
 - **Automated "Make 1-Page Plan"**: One click generates a tailored, fixed-price project proposal synthesizing the lead's research brief and their specific reply.
 - **Weekly Executive Digest**: Telegram digest delivered Monday morning with funnel conversion metrics, positive replies, and pipeline value.
-- **Weekly Thought Leadership**: Generates 3 LinkedIn post drafts every Monday based on your case studies and proof points.
+- **Weekly LinkedIn posts on AI and automation**: every Monday, a take on one of this week's AI news stories (Hacker News + Google News, with the link), an opinion on the AI industry argued from the `linkedin.opinions` you write in `profile.yaml`, and a lesson from building AI systems. Opinions the AI adds are flagged "check before posting"; Caudal AI's work is never described.
 - **Included Case Study Page**: Ready-to-deploy static case-study showcase (`site/index.html`).
 
 ---
@@ -361,6 +371,7 @@ python -m outreach suppress prospect@domain.com  # Add email or @domain to suppr
 # Health & testing
 python -m outreach doctor                    # Run full system diagnostics
 python -m outreach groq-check                # Test Groq backup LLM connectivity
+python -m outreach sources-check             # Fetch every lead source once, show fresh counts (saves nothing)
 python -m outreach zoho-check --probe        # End-to-end Zoho API & reply probe
 python -m outreach zoho-token <code>         # Exchange Zoho Self-Client code for refresh token
 python -m outreach telegram-setup            # Pair Telegram bot and find chat ID
@@ -393,6 +404,9 @@ GROQ_API_KEY=your_groq_api_key
 
 # Web Scraping & Domain Resolution (Optional fallback)
 FIRECRAWL_API_KEY=your_firecrawl_key
+
+# GitHub good-first-issue source (optional, free: raises the limit from 60 to 5,000 requests/hour)
+GITHUB_TOKEN=your_github_token
 
 # Fallback Email APIs (Optional free tiers)
 PROSPEO_API_KEY=your_prospeo_key             # 100 free/mo
@@ -429,7 +443,7 @@ targeting:
 
 sending:
   home_timezone: Asia/Kolkata
-  allowed_segments: [uk_agencies, gulf_realestate]
+  # allowed_segments: [gulf_realestate, intl_freelance_posts]   # optional: only these segments send
   min_gap_minutes: 8
   gap_jitter_minutes: 7
   max_bounce_rate: 0.03       # Auto-pause threshold (3%)

@@ -153,6 +153,72 @@ def _add_lead(target: int, payload: dict) -> str:
     return "added; it's researched and drafted on the next run" if ok else "skipped: already known or suppressed"
 
 
+def _held(target: int):
+    with db.connect() as conn:
+        return conn.execute("SELECT * FROM messages WHERE id=?", (target,)).fetchone()
+
+
+def _send_anyway(target: int, payload: dict) -> str:
+    """You read the hold reason and decided it may go: skip the overridable checks for this email."""
+    m = _held(target)
+    if not m or m["status"] != "approved":
+        return f"skipped: email is {m['status'] if m else 'missing'}"
+    with db.connect() as conn:
+        conn.execute("UPDATE messages SET override=1, attempts=0, hold='' WHERE id=?", (target,))
+    return "will send at the next run inside business hours"
+
+
+def _mark_sent(target: int, payload: dict) -> str:
+    """An uncertain send that you found in your Sent folder: record it and start its follow-ups."""
+    m = _held(target)
+    if not m or m["status"] != "needs_reconciliation":
+        return "skipped: not waiting for a decision"
+    when = datetime.now(timezone.utc)
+    with db.connect() as conn:
+        conn.execute("UPDATE messages SET status='sent', sent_at=?, error='' WHERE id=?", (when.isoformat(), target))
+        db.bump_send_count(conn, when.date().isoformat(), m["inbox"] or "", "first" if m["step"] == 0 else "followup")
+        if m["step"] == 0:
+            db.set_lead(conn, m["lead_id"], status="active", inbox=m["inbox"])
+            personalize.schedule_followups(conn, m["lead_id"], when)
+    return "marked as sent; follow-ups scheduled"
+
+
+def _retry_send(target: int, payload: dict) -> str:
+    """An uncertain send that is NOT in your Sent folder: put it back in the queue."""
+    m = _held(target)
+    if not m or m["status"] != "needs_reconciliation":
+        return "skipped: not waiting for a decision"
+    with db.connect() as conn:
+        conn.execute("UPDATE messages SET status='approved', error='', attempts=0 WHERE id=?", (target,))
+    return "back in the send queue"
+
+
+def _promote_prospect(target: int, payload: dict) -> str:
+    """Send a person found on the Prospects desk into the engine: researched, drafted, then your review."""
+    segment = str(payload.get("segment", "")).strip()
+    if segment not in config.settings()["segments"]:
+        return f"error: unknown segment {segment!r}"
+    with db.connect() as conn:
+        p = db.get_prospect(conn, target)
+        if not p or not p.get("final_email"):
+            return "error: no email found for this prospect yet"
+        if p.get("confidence_level") not in ("verified", "high_confidence"):
+            return "error: only verified or high-confidence emails can be sent to the engine"
+        # Seen published on a public page = as good as an address on their site; a pattern guess is not, so
+        # those wait in Review > Held until you press Send anyway.
+        source = "website" if p.get("source") == "public_match" else f"prospecting:{p.get('source') or 'pattern'}"
+        ok = db.add_lead(conn, first_name=p.get("first_name") or "", last_name=p.get("last_name") or "",
+                         title=p.get("title") or "", company=p.get("company") or p.get("domain"),
+                         website=f"https://{p['domain']}" if p.get("domain") else "", domain=p.get("domain") or "",
+                         email=p["final_email"], email_status="valid", email_source=source, segment=segment,
+                         country=config.segment(segment).get("country", ""), source="prospecting",
+                         source_text=f"Found on the Prospects desk: {p.get('full_name') or ''}, "
+                                     f"{p.get('title') or 'role unknown'} at {p.get('company') or p.get('domain')}"
+                                     + (f" ({p['source_url']})" if p.get("source_url") else ""),
+                         status="new")
+    return "sent to the engine: researched and drafted on the next run" if ok else "skipped: already known or suppressed"
+
+
 APPLY = {"approve": _approve, "reject": _reject, "regenerate": _regenerate,
          "reply_send": _reply_send, "reply_done": _reply_done, "post_done": _post_done,
          "run_prepare": _run("prepare"), "run_community": _run("community"),
@@ -162,7 +228,9 @@ APPLY = {"approve": _approve, "reject": _reject, "regenerate": _regenerate,
                                                     str(p.get("note", "")), str(p.get("currency", "USD")),
                                                     str(p.get("next_action", "")), str(p.get("next_due", "")),
                                                     str(p.get("opportunity_type", ""))),
-         "make_plan": lambda t, p: growth.make_plan(t), "sync": lambda t, p: "synced"}
+         "make_plan": lambda t, p: growth.make_plan(t), "sync": lambda t, p: "synced",
+         "send_anyway": _send_anyway, "mark_sent": _mark_sent, "retry_send": _retry_send,
+         "promote_prospect": _promote_prospect}
 # These wait on Gemini (up to minutes when it's busy), so the engine run hands them to the background
 # "assist" job instead of doing them itself.
 SLOW = ("regenerate", "make_plan")
@@ -225,6 +293,25 @@ def _review_items(conn) -> list[dict]:
             "linkedin_note": lead["linkedin_note"], "linkedin_dm": lead["linkedin_dm"],
             "messages": [dict(m) for m in msgs]})
     return items
+
+
+def _held_items(conn) -> list[dict]:
+    """Approved emails the sender won't send yet, and sends that may or may not have gone out."""
+    rows = conn.execute(
+        "SELECT m.id, m.lead_id, m.step, m.subject, m.body, m.status, m.hold, m.error, m.inbox, m.confidence, "
+        "l.company, l.email, l.segment, l.email_source, l.email_status, l.fit FROM messages m "
+        "JOIN leads l ON l.id=m.lead_id WHERE (m.status='approved' AND m.hold != '') "
+        "OR m.status='needs_reconciliation' ORDER BY m.status DESC, m.id LIMIT 100").fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["body"] = (d["body"] or "")[:1500]
+        d["kind"] = "uncertain" if r["status"] == "needs_reconciliation" else "held"
+        # Some holds are about the lead itself (no-AI request, bad address, segment off): no Send anyway.
+        d["overridable"] = d["kind"] == "held" and not any(x in (r["hold"] or "") for x in (
+            "AI-written", "may bounce", "allowed_segments", "empty"))
+        out.append(d)
+    return out
 
 
 def _reply_items(conn) -> list[dict]:
@@ -325,6 +412,7 @@ def snapshot() -> dict:
     with db.connect() as conn:
         db.purge_mock(conn)
         return {"review": _review_items(conn), "reply": _reply_items(conn), "post": _post_items(conn),
+                "held": _held_items(conn),
                 "stats": {"segments": report.funnel(conn, "segment"), "sources": report.funnel(conn, "source"),
                           "angles": report.angles(conn),
                           "contract": report.funnel(conn, "segment", opportunity_type="contract"),
@@ -338,7 +426,7 @@ def snapshot() -> dict:
 def push(snap: dict | None = None) -> dict:
     snap = snap or snapshot()
     stmts: list = ["BEGIN", "DELETE FROM dash_items"]
-    for kind in ("review", "reply", "post", "pipeline"):
+    for kind in ("review", "reply", "post", "pipeline", "held"):
         for item in snap[kind]:
             sort = str(item.get("received_at") or item.get("posted_at") or item.get("confidence") or "")
             stmts.append(("INSERT INTO dash_items (kind, id, sort, data) VALUES (?,?,?,?)",

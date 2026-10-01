@@ -3,12 +3,14 @@
   deals      track each conversation: call booked -> proposal sent -> won (with value) / lost
   plan       a one-page plan for a lead who said "yes, send the plan", written from their research
              brief and their reply, priced from the segment's fixed offer
-  posts      three LinkedIn post drafts a week, each built on one real proof point
+  posts      three LinkedIn post drafts a week about AI and automation: a take on this week's AI news,
+             an opinion on the AI industry, and a lesson from building (your opinions in profile.yaml)
   digest     Monday summary on Telegram: last week's numbers plus specific changes to make
 """
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 
 from pydantic import BaseModel, Field
@@ -120,41 +122,128 @@ def make_plan(reply_id: int) -> str:
 
 # --------------------------------------------------------------------------- LinkedIn posts
 class Post(BaseModel):
-    proof_id: str
-    text: str = Field(description="120-220 words, plain text, short paragraphs, at most 3 hashtags at the end")
+    kind: str = Field(description="news | industry | build")
+    text: str = Field(description="120-230 words, plain text, short paragraphs, at most 3 hashtags at the end")
+    sources: list[str] = Field(description="URLs of the news items the post relies on; empty if none")
+    proof_id: str = Field(description="id of the proof point used, or empty")
+    check: str = Field(description="What he must check before posting: facts to verify, and any opinion in the "
+                                   "post that is NOT in his opinions list (say which sentence)")
 
 
 class Posts(BaseModel):
     posts: list[Post]
 
 
+AI_NEWS_QUERIES = ["AI agents", "large language model", "OpenAI OR Anthropic OR Gemini", "AI automation business",
+                   "AI regulation", "open source AI model"]
+
+
+def ai_news(days: int = 7, limit: int = 18) -> list[dict]:
+    """This week's AI headlines: Google News RSS for a few queries plus the most-upvoted AI stories on
+    Hacker News. Free, no keys. Each: title, url, source, date."""
+    import requests
+    import xml.etree.ElementTree as ET
+    from urllib.parse import quote
+    from .sources import _parse_time
+    cfg = config.profile().get("linkedin") or {}
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    seen, out = set(), []
+
+    def add(title, url, source, when):
+        key = re.sub(r"\W+", " ", title.lower())[:60]
+        if title and url and when and when >= since and key not in seen:
+            seen.add(key)
+            out.append({"title": title.strip(), "url": url, "source": source, "date": when.date().isoformat()})
+    try:
+        hits = requests.get("https://hn.algolia.com/api/v1/search_by_date", timeout=20, params={
+            "tags": "story", "query": "AI", "hitsPerPage": 60,
+            "numericFilters": f"created_at_i>{int(since.timestamp())},points>120"}).json().get("hits", [])
+        for h in sorted(hits, key=lambda h: -(h.get("points") or 0))[:8]:
+            add(h.get("title", ""), h.get("url") or f"https://news.ycombinator.com/item?id={h.get('objectID')}",
+                f"Hacker News ({h.get('points')} points)", _parse_time(h.get("created_at_i")))
+    except (requests.RequestException, ValueError):
+        pass
+    for q in cfg.get("news_queries") or AI_NEWS_QUERIES:
+        try:
+            r = requests.get(f"https://news.google.com/rss/search?q={quote(q + ' when:7d')}&hl=en-US&gl=US&ceid=US:en",
+                             timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+            for item in list(ET.fromstring(r.content).iter("item"))[:4]:
+                title = re.sub(r"\s+-\s+[^-]+$", "", item.findtext("title") or "")
+                add(title, item.findtext("link") or "", item.findtext("source") or "Google News",
+                    _parse_time(item.findtext("pubDate")))
+        except (requests.RequestException, ET.ParseError):
+            continue
+    return out[:limit]
+
+
+def _posts_system(p: dict) -> str:
+    cfg = p.get("linkedin") or {}
+    opinions = cfg.get("opinions") or []
+    topics = cfg.get("topics") or ["AI agents and automation in real businesses", "what working in AI research teaches",
+                                   "where the AI industry is heading", "building reliable LLM systems"]
+    return (
+        f"You ghost-write LinkedIn posts for {p['name']}, an AI researcher at Caudal AI who also builds AI and "
+        "automation systems for businesses. The posts are about AI and automation in general: this week's news, "
+        "where the industry is going, and lessons from building. The audience: founders, engineers and hiring "
+        "managers in tech, who should come away thinking he understands AI deeply and ships real systems.\n\n"
+        "WHO HE IS (only these facts)\n" + "\n".join(f"- {x}" for x in p["identity"]) +
+        "\n\nHIS OPINIONS (use these as his views; quote their substance, sharpen the wording)\n" +
+        ("\n".join(f"- {x}" for x in opinions) or "- (none written yet: propose a clear, defensible stance and flag "
+                                                 "every opinion sentence in `check`)") +
+        "\n\nTOPICS HE CARES ABOUT\n" + "\n".join(f"- {x}" for x in topics) +
+        "\n\nTHE THREE POSTS\n"
+        "1. kind=news: pick the ONE news item below that he can say something genuinely useful about. Say what "
+        "happened using only the headline's facts, then his take: what it means for people building with AI, what "
+        "most coverage misses, or what he'd do differently. Put its URL in `sources`.\n"
+        "2. kind=industry: an opinion about the AI industry (hype vs reality, agents, evaluation, open vs closed "
+        "models, AI jobs, how AI research turns into products...), argued from his opinions and from the perspective "
+        "of someone who works in AI research. It may draw on a second news item; cite it if so.\n"
+        "3. kind=build: one practical lesson from building AI or automation systems (reliability, evaluation, "
+        "prompts, data quality, integrations, cost, when not to use an LLM). It may use one proof point below as the "
+        "example; quote its numbers exactly.\n\n"
+        "RULES\n"
+        "- These are general AI and automation posts. At most ONE of the three may mention real estate, and only as "
+        "an example, never as the topic.\n"
+        "- Caudal AI: he may say he works as an AI researcher there and speak from that experience in general terms. "
+        "NEVER describe Caudal AI's projects, products, clients, data, models, results or internal views, and never "
+        "present an opinion as Caudal AI's. When in doubt, leave Caudal out.\n"
+        "- News facts come only from the headlines given; never add numbers, dates, quotes or details that aren't "
+        "there. If a headline is too thin to be sure what happened, pick another one.\n"
+        "- Never invent achievements, clients, numbers or results for him. Proof-point numbers are quoted exactly.\n"
+        "- Every opinion must be one he'd defend in a conversation; anything not in HIS OPINIONS goes in `check`.\n"
+        "- First line: a concrete claim or observation, no clickbait, no question-bait. 4-7 short paragraphs "
+        "separated by a blank line. First person. Plain words, no hype, no 'game-changer', no 'I'm thrilled', no "
+        "emojis, no engagement bait ('Agree?'), at most 3 hashtags at the end.")
+
+
 def linkedin_posts() -> str:
     p = config.profile()
     with db.connect() as conn:
         used = json.loads(db.get_state(conn, "content:used", "[]"))
-    proofs = sorted(p["proof_points"], key=lambda x: used.index(x["id"]) if x["id"] in used else -1)[:3]
-    system = (
-        f"You ghost-write LinkedIn posts for {p['name']}. Each post teaches one practical lesson from real work, so "
-        "that business owners and founders who see his profile trust he can deliver.\n\nWHO HE IS\n" +
-        "\n".join(f"- {x}" for x in p["identity"]) +
-        "\n\nRULES\n- One post per proof point given, built only on that proof point's facts; quote numbers exactly.\n"
-        "- Never add a number, amount of money, percentage, time saved, outcome or detail of how it was done that the "
-        "proof point doesn't state. If you'd need one to make a point, make the point without it. Opinions and general "
-        "lessons are fine; invented specifics are not.\n"
-        "- Structure: a concrete first line (a problem or a surprising fact, no clickbait), what was going wrong, what "
-        "he did, the result, one takeaway the reader can use. 4-6 short paragraphs separated by a blank line.\n"
-        "- First person ('I built...'). No client names unless the proof point names them. Never describe the NDA "
-        "employer's work.\n- No 'I'm thrilled', no 'humbled', no emojis, no engagement bait, at most 3 hashtags at the end.")
-    prompt = "Write one post for each of these proof points:\n" + "\n".join(f"- [{x['id']}] {x['text']}" for x in proofs)
-    out = llm.generate(system, prompt, Posts, kind="community", temperature=0.7)
+    news = ai_news()
+    proofs = sorted(p["proof_points"], key=lambda x: used.index(x["id"]) if x["id"] in used else -1)[:4]
+    prompt = ("THIS WEEK'S AI NEWS (title | source | date | url)\n" +
+              ("\n".join(f"- {n['title']} | {n['source']} | {n['date']} | {n['url']}" for n in news)
+               or "- (no news fetched: write the news post about a general AI trend instead, with no specific "
+                  "claims about recent events, and say so in `check`)") +
+              "\n\nPROOF POINTS (for the build post; use at most one)\n" +
+              "\n".join(f"- [{x['id']}] {x['text']}" for x in proofs) +
+              "\n\nWrite the three posts: news, industry, build.")
+    out = llm.generate(_posts_system(p), prompt, Posts, kind="community", temperature=0.7)
     if not out or not out.posts:
-        return "error: Gemini returned nothing usable"
+        return "error: the AI returned nothing usable"
+    known = {n["url"] for n in news}
+    posts = []
+    for x in out.posts[:3]:
+        d = x.model_dump()
+        d["sources"] = [u for u in d["sources"] if u in known]   # only links we actually gave it
+        d["news"] = [n for n in news if n["url"] in d["sources"]]
+        posts.append(d)
     with db.connect() as conn:
-        db.set_state(conn, "content:linkedin_posts", json.dumps(
-            {"at": db.now(), "posts": [x.model_dump() for x in out.posts[:3]]}))
-        ids = [x.proof_id for x in out.posts]
+        db.set_state(conn, "content:linkedin_posts", json.dumps({"at": db.now(), "posts": posts}))
+        ids = [x["proof_id"] for x in posts if x["proof_id"]]
         db.set_state(conn, "content:used", json.dumps([u for u in used if u not in ids] + ids))
-    return f"{len(out.posts[:3])} LinkedIn post drafts ready"
+    return f"{len(posts)} LinkedIn post drafts ready ({len(news)} news items read)"
 
 
 # --------------------------------------------------------------------------- weekly digest

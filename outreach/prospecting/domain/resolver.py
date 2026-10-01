@@ -4,7 +4,6 @@ from __future__ import annotations
 import re
 import urllib.parse
 import requests
-from typing import Callable
 
 from .normalizer import normalize_domain, is_ignored_domain
 from ... import db, firecrawl

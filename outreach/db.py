@@ -154,7 +154,8 @@ def init() -> None:
                       "deal_note TEXT DEFAULT ''", "deal_updated TEXT",
                       "deal_currency TEXT DEFAULT 'USD'", "deal_next_action TEXT DEFAULT ''",
                       "deal_next_due TEXT DEFAULT ''", "opportunity_type TEXT DEFAULT 'contract'"],
-            "messages": ["provider_id TEXT"],
+            "messages": ["provider_id TEXT", "approved_by TEXT DEFAULT ''", "hold TEXT DEFAULT ''",
+                         "override INTEGER DEFAULT 0", "attempts INTEGER DEFAULT 0"],
             "replies": ["plan TEXT DEFAULT ''"],
         }.items():
             have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}

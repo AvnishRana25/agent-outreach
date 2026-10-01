@@ -69,6 +69,11 @@ def _parse_time(value) -> datetime | None:
         return None
     if isinstance(value, (int, float)):
         return datetime.fromtimestamp(value, timezone.utc)
+    try:  # ISO 8601, including fractional seconds and "Z" (Ashby, Greenhouse, GitHub)
+        dt = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        pass
     for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d",
                 "%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S %Z"):
         try:
@@ -163,8 +168,19 @@ def _wwr() -> list[dict]:
     return out
 
 
+def _workingnomads() -> list[dict]:
+    out = []
+    for j in _get("https://www.workingnomads.com/api/exposed_jobs/").json():
+        out.append({"board": "Working Nomads", "id": j.get("url"), "title": j.get("title", ""),
+                    "company": j.get("company_name", ""), "location": j.get("location", ""),
+                    "job_type": "", "tags": f"{j.get('category_name', '')} {j.get('tags', '')}",
+                    "text": _clean(j.get("description", "")), "apply": j.get("url", ""),
+                    "posted": _parse_time((j.get("pub_date") or "")[:19])})
+    return out
+
+
 BOARDS = {"remotive": _remotive, "himalayas": _himalayas, "remoteok": _remoteok, "jobicy": _jobicy,
-          "wwr": _wwr}
+          "wwr": _wwr, "workingnomads": _workingnomads}
 
 
 @lru_cache(maxsize=None)
@@ -190,8 +206,9 @@ def job_matches(job: dict, rule: dict) -> bool:
     allowed = [a.lower() for a in rule.get("allowed_locations", [])]
     if allowed and loc and not any(a in loc for a in allowed):
         return False
-    if _age_days(job["posted"]) > rule.get("max_age_days", 21):
-        return False
+    cap = (config.settings().get("freshness") or {}).get("job_post_days", 7)
+    if not job["posted"] or _age_days(job["posted"]) > min(rule.get("max_age_days", 7), cap):
+        return False  # only fresh postings: an undated one could be months old
     return bool(job["company"])
 
 
@@ -252,7 +269,8 @@ def parse_launch(hit: dict) -> dict | None:
 
 
 def run_launch_hn(job: dict) -> int:
-    since = int((datetime.now(timezone.utc) - timedelta(days=job.get("max_age_days", 120))).timestamp())
+    days = min(job.get("max_age_days", 30), (config.settings().get("freshness") or {}).get("news_days", 14) * 2)
+    since = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
     hits = _get("https://hn.algolia.com/api/v1/search_by_date", params={
         "tags": "story", "query": "Launch HN", "hitsPerPage": 200,
         "numericFilters": f"created_at_i>{since}"}).json().get("hits", [])

@@ -42,6 +42,22 @@ proof_points:
   - id: hackathon
     text: "Top 10 of 300+ teams at HackCBS 2025."
 
+# LinkedIn posts (Engine tab, every Monday): general AI and automation, not one industry.
+# Write your real opinions here in your own words: the posts argue from these. Anything the AI adds that
+# isn't here is flagged on the draft as "check this opinion". Never write anything about Caudal AI's work.
+linkedin:
+  topics:
+    - "AI agents and automation inside real businesses: what works and what breaks"
+    - "what working as an AI researcher teaches you about the gap between demos and products"
+    - "where the AI industry is heading: models, tools, jobs, open vs closed"
+    - "building reliable LLM systems: evaluation, data quality, cost, when not to use an LLM"
+  opinions: []
+    # Examples of the kind of line to write (replace them with what YOU think, then remove the []):
+    # - "Most AI agent demos fail in production on boring things: retries, bad data, missing context."
+    # - "Evaluation is the real moat for AI products, not the model."
+    # - "Small teams win by wiring AI into existing workflows, not by building chatbots."
+  # news_queries: ["AI agents", "OpenAI OR Anthropic OR Gemini", "AI regulation"]   # optional override
+
 # The opt-out line keeps you compliant (UK PECR, US CAN-SPAM) and costs nothing.
 # CAN-SPAM also requires a valid postal address in commercial email to US recipients.
 signatures:

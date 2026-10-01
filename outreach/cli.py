@@ -87,6 +87,7 @@ def main() -> None:
     sub.add_parser("assist", help="background job: dashboard actions that need Gemini (regenerate, 1-page plan)")
     sub.add_parser("doctor", help="check why the engine isn't running")
     sub.add_parser("groq-check", help="test the Groq backup key with one tiny request per model")
+    sub.add_parser("sources-check", help="fetch every lead source once and show what's fresh (adds nothing)")
     p = sub.add_parser("install", help="run the engine (and dashboard) in the background, no terminal needed")
     p.add_argument("--force", action="store_true", help="install even inside Desktop/Documents/Downloads")
     p.add_argument("--port", type=int, default=None, help="dashboard port (default: DASHBOARD_PORT from .env, else 7347)")
@@ -162,7 +163,7 @@ def main() -> None:
     elif args.cmd == "research":
         print(research.run(args.limit, args.mock, getattr(args, "segment", None)))
     elif args.cmd == "draft":
-        print(f"drafted {personalize.run(args.limit, args.mock, getattr(args, "segment", None))} sequences")
+        print(f"drafted {personalize.run(args.limit, args.mock, getattr(args, 'segment', None))} sequences")
     elif args.cmd == "prepare":
         def prepare():
             found = prospect.run() if not args.skip_prospect else {}
@@ -254,6 +255,8 @@ def main() -> None:
         engine.doctor()
     elif args.cmd == "groq-check":
         groq_check()
+    elif args.cmd == "sources-check":
+        sources_check()
     elif args.cmd == "install":
         engine.install(args.force, args.port)
     elif args.cmd == "uninstall":
@@ -403,31 +406,32 @@ def _run_zoho_probe(box: dict, z: transport.Zoho) -> None:
 
     test_email = f"probe-{tag}@example.com"
     with db.connect() as conn:
-        db.add_lead(conn, email=test_email, domain="example.com", company="Probe Corp",
-                    segment="uk_agencies", status="active", fit=8, email_status="valid", email_source="website")
-        lead = conn.execute("SELECT id FROM leads WHERE email=?", (test_email,)).fetchone()[0]
-        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, message_id, provider_id, sent_at) "
-                     "VALUES (?, 0, ?, 'step 0', 'sent', ?, ?, ?)", (lead, subj, mid, pid, db.now()))
-        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence, due_at) "
-                     "VALUES (?, 1, ?, 'step 1', 'approved', 0.9, ?)",
-                     (lead, f"Re: {subj}", (datetime.now(timezone.utc)).isoformat()))
-        incoming = transport.Incoming(f"<reply-{tag}>", test_email, "Probe Contact",
-                                      f"Re: {subj}", "Yes, interested.", db.now(), refs=mid, provider_id=fpid)
-        lead_row = replies._match_lead(conn, incoming, is_bounce=False)
-        if not lead_row or lead_row["id"] != lead:
-            raise RuntimeError("Reply matching failed to link incoming message to active lead thread")
-        replies._apply(conn, lead_row, replies.ReplyClass(category="interested", summary="interested", suggested_reply="Great"))
-        m1 = conn.execute("SELECT status FROM messages WHERE lead_id=? AND step=1", (lead,)).fetchone()
-        if m1[0] != "cancelled":
-            raise RuntimeError(f"Follow-up step 1 was not cancelled after reply (status: {m1[0]})")
-        conn.execute("DELETE FROM messages WHERE lead_id=?", (lead,))
-        conn.execute("DELETE FROM leads WHERE id=?", (lead,))
+        lead = None
+        try:
+            db.add_lead(conn, email=test_email, domain="example.com", company="Probe Corp",
+                        segment="uk_agencies", status="active", fit=8, email_status="valid", email_source="website")
+            lead = conn.execute("SELECT id FROM leads WHERE email=?", (test_email,)).fetchone()[0]
+            conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, message_id, provider_id, sent_at) "
+                         "VALUES (?, 0, ?, 'step 0', 'sent', ?, ?, ?)", (lead, subj, mid, pid, db.now()))
+            conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence, due_at) "
+                         "VALUES (?, 1, ?, 'step 1', 'approved', 0.9, ?)",
+                         (lead, f"Re: {subj}", (datetime.now(timezone.utc)).isoformat()))
+            incoming = transport.Incoming(f"<reply-{tag}>", test_email, "Probe Contact",
+                                          f"Re: {subj}", "Yes, interested.", db.now(), refs=mid, provider_id=fpid)
+            lead_row = replies._match_lead(conn, incoming, is_bounce=False)
+            if not lead_row or lead_row["id"] != lead:
+                raise RuntimeError("Reply matching failed to link incoming message to active lead thread")
+            replies._apply(conn, lead_row, replies.ReplyClass(category="interested", summary="interested", suggested_reply="Great"))
+            m1 = conn.execute("SELECT status FROM messages WHERE lead_id=? AND step=1", (lead,)).fetchone()
+            if m1[0] != "cancelled":
+                raise RuntimeError(f"Follow-up step 1 was not cancelled after reply (status: {m1[0]})")
+        finally:  # never leave the test lead behind, even when a check fails
+            conn.execute("DELETE FROM messages WHERE lead_id=(SELECT id FROM leads WHERE email=?)", (test_email,))
+            conn.execute("DELETE FROM replies WHERE lead_id=(SELECT id FROM leads WHERE email=?)", (test_email,))
+            conn.execute("DELETE FROM leads WHERE email=?", (test_email,))
         print("  ✓ 3. Reply matched to thread, sequence stopped, follow-up cancelled.")
     print("✓ All self-addressed Zoho probe checks passed!\n")
 
-
-if __name__ == "__main__":
-    main()
 
 
 def groq_check() -> None:
@@ -445,3 +449,41 @@ def groq_check() -> None:
         detail = result[1] if result[0] == "ok" else " ".join(map(str, result[1:]))
         print(f"{m.removeprefix('groq/'):<28} {result[0]:<12} {detail}")
     print("Models marked ok are used automatically whenever Gemini can't answer.")
+
+
+
+def sources_check() -> None:
+    """One live fetch per feed, nothing saved: shows which sources answer and how many fresh posts each has."""
+    from datetime import datetime, timedelta, timezone
+
+    from . import hiring, sources
+
+    def line(name, fn):
+        try:
+            print(f"  ok     {name:<34} {fn()}")
+        except Exception as e:  # report every source, whatever goes wrong with one
+            print(f"  ERROR  {name:<34} {type(e).__name__}: {str(e)[:120]}")
+
+    week = datetime.now(timezone.utc) - timedelta(days=7)
+    print("Job boards (fresh = posted in the last 7 days):")
+    for name in sources.BOARDS:
+        line(name, lambda n=name: f"{sum(1 for j in sources.board_jobs(n) if j['posted'] and j['posted'] > week)} fresh "
+                                   f"of {len(sources.board_jobs(n))}")
+    print("Community boards (fresh = last 24 hours):")
+    day = datetime.now(timezone.utc) - timedelta(hours=24)
+    for src in config.settings().get("community", []):
+        name = src.get("name") or src.get("subreddit")
+        line(name, lambda s=src: f"{sum(1 for p in community.FETCHERS[s['type']](s) if p['posted'] and p['posted'] > day)} fresh")
+    print("Funding news (last 14 days, headlines that name a raise):")
+    two = datetime.now(timezone.utc) - timedelta(days=14)
+    for name, url in hiring.FUNDING_FEEDS.items():
+        line(name, lambda u=url: f"{sum(1 for i in hiring.parse_feed(hiring._get(u, headers={'User-Agent': 'Mozilla/5.0'}).text) if i['posted'] and i['posted'] > two and hiring.parse_raise(i['title']))} raises")
+    print("Company job boards and GitHub:")
+    line("greenhouse (vercel)", lambda: f"{len(hiring.ats_jobs('greenhouse', 'vercel'))} open roles")
+    line("lever (lever)", lambda: f"{len(hiring.ats_jobs('lever', 'lever'))} open roles")
+    line("ashby (ashby)", lambda: f"{len(hiring.ats_jobs('ashby', 'ashby'))} open roles")
+    line("github search", lambda: f"{hiring._gh('/search/repositories', q='topic:llm good-first-issues:>1', per_page=1).get('total_count')} repos")
+    print("A source showing ERROR is skipped by the engine; the rest keep working.")
+
+if __name__ == "__main__":
+    main()
