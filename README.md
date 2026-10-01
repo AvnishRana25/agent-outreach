@@ -65,7 +65,7 @@ python -m outreach send --dry-run
 python -m outreach install
 ```
 
-This is the last terminal command you need. On a Mac it registers a background job with launchd that runs `python -m outreach tick` every 5 minutes while the Mac is awake and you're logged in. When the dashboard variables are set in `.env`, it also keeps the dashboard running at http://127.0.0.1:8787. On Linux it prints the one crontab line to add instead.
+This is the last terminal command you need. On a Mac it registers a background job with launchd that runs `python -m outreach tick` every 5 minutes while the Mac is awake and you're logged in. When the dashboard variables are set in `.env`, it also keeps the dashboard running at http://127.0.0.1:7347 (change it with `DASHBOARD_PORT` in `.env`). On Linux it prints the one crontab line to add instead.
 
 Each tick:
 - applies what you did in the dashboard;
@@ -99,7 +99,7 @@ Setup, about 10 minutes:
    - Vercel publishes the repo's default branch as production. If this code is still on another branch, merge it or set Settings -> Git -> Production Branch.
 3. Run `python -m outreach install`. The engine's tick syncs the dashboard every 5 minutes.
 
-To use it without Vercel: `python -m outreach dashboard` serves the same page at http://127.0.0.1:8787 (it needs the four variables above in `.env`).
+To use it without Vercel: `python -m outreach dashboard` serves the same page at http://127.0.0.1:7347 (it needs the four variables above in `.env`).
 
 ## Firecrawl
 Set `FIRECRAWL_API_KEY` (or `FIRECRAWL_API_URL` for a self-hosted copy). It is used only when the free path fails:

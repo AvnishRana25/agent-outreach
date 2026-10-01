@@ -194,7 +194,9 @@ def _plist(label: str, args: list[str], interval: int | None, keep_alive: bool) 
     return p
 
 
-def install(force: bool = False) -> None:
+def install(force: bool = False, port: int | None = None) -> None:
+    from .dashboard_local import default_port
+    port = port or default_port()
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     if sys.platform != "darwin":
         print("Add this line with `crontab -e` (runs the engine every 5 minutes):\n")
@@ -215,7 +217,7 @@ def install(force: bool = False) -> None:
     jobs = [(f"{LABEL}.engine", _plist(f"{LABEL}.engine", ["tick"], 300, False))]
     dash_ready = all(os.getenv(k) for k in ("TURSO_DATABASE_URL", "DASHBOARD_PASSWORD", "SESSION_SECRET"))
     if dash_ready:
-        jobs.append((f"{LABEL}.dashboard", _plist(f"{LABEL}.dashboard", ["dashboard"], None, True)))
+        jobs.append((f"{LABEL}.dashboard", _plist(f"{LABEL}.dashboard", ["dashboard", "--port", str(port)], None, True)))
     uid = os.getuid()
     for label, plist in jobs:
         path = agents / f"{label}.plist"
@@ -227,7 +229,7 @@ def install(force: bool = False) -> None:
         print(f"{'installed' if r.returncode == 0 else 'FAILED'}: {label}  {r.stderr.strip()}")
     print("\nThe engine now runs every 5 minutes while your Mac is awake and you're logged in.")
     if dash_ready:
-        print("Dashboard: http://127.0.0.1:8787 (always on; bookmark it).")
+        print(f"Dashboard: http://127.0.0.1:{port} (always on; bookmark it).")
     else:
         print("Dashboard not started: set TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, DASHBOARD_PASSWORD and SESSION_SECRET "
               "in .env, then run `python -m outreach install` again.")

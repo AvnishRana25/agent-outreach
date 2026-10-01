@@ -77,12 +77,13 @@ def main() -> None:
     sub.add_parser("tick", help="the background engine's 5-minute step (installed by `install`)")
     p = sub.add_parser("install", help="run the engine (and dashboard) in the background, no terminal needed")
     p.add_argument("--force", action="store_true", help="install even inside Desktop/Documents/Downloads")
+    p.add_argument("--port", type=int, default=None, help="dashboard port (default: DASHBOARD_PORT from .env, else 7347)")
     sub.add_parser("uninstall", help="remove the background engine")
 
     sub.add_parser("dashboard-sync", help="apply dashboard actions, then push a fresh snapshot (cron, every 10 min)")
 
-    p = sub.add_parser("dashboard", help="run the dashboard locally on http://127.0.0.1:8787")
-    p.add_argument("--port", type=int, default=8787)
+    p = sub.add_parser("dashboard", help="run the dashboard locally on http://127.0.0.1:7347")
+    p.add_argument("--port", type=int, default=None, help="default: DASHBOARD_PORT from .env, else 7347")
 
     sub.add_parser("telegram-setup", help="find your Telegram chat id and send a test message")
 
@@ -178,7 +179,7 @@ def main() -> None:
     elif args.cmd == "tick":
         engine.tick()
     elif args.cmd == "install":
-        engine.install(args.force)
+        engine.install(args.force, args.port)
     elif args.cmd == "uninstall":
         engine.uninstall()
     elif args.cmd == "dashboard-sync":
