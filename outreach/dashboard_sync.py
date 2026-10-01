@@ -303,6 +303,7 @@ def push(snap: dict | None = None) -> dict:
                           (kind, str(item["id"]), sort, json.dumps(item, default=str))))
     for key in ("stats", "health", "engine"):
         stmts.append(("INSERT OR REPLACE INTO dash_meta (key, value) VALUES (?,?)", (key, json.dumps(snap[key]))))
+    stmts.append("DELETE FROM dash_meta WHERE key='engine_error'")  # a run got this far, so settings are fine
     stmts.append(("INSERT OR REPLACE INTO dash_meta (key, value) VALUES (?,?)",
                   ("synced_at", json.dumps(datetime.now(timezone.utc).isoformat(timespec="seconds")))))
     # Keep the action log short.

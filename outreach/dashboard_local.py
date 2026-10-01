@@ -101,6 +101,9 @@ def watch_once(state: dict) -> str:
         marks = ",".join("?" * len(SLOW))
         [rows] = turso.run([(f"SELECT COUNT(*) AS n FROM actions WHERE status='pending' AND kind NOT IN ({marks})", SLOW)])
         waiting = bool(rows and int(rows[0]["n"]))
+    from . import config
+    if stale and not waiting and config.check():
+        return "idle"  # the run would only stop at the broken settings file again; it already told the dashboard
     if (waiting or stale) and now - state.get("kicked", 0) > 45:
         state["kicked"] = now
         return f"{'dashboard action' if waiting else 'engine overdue'}: {engine.kick_tick()}"

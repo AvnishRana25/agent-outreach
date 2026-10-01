@@ -180,3 +180,18 @@ def test_prepare_retries_itself_after_gemini_stops(monkeypatch):
     with db.connect() as conn:
         assert db.get_state(conn, "retry:prepare") == ""
     _ = datetime, timezone
+
+
+def test_broken_settings_stop_the_run_with_a_plain_message(tmp_path, monkeypatch, capsys):
+    import shutil
+    from outreach import config, engine, sender
+    cfg = tmp_path / "config"
+    shutil.copytree(config.CONFIG_DIR, cfg)
+    text = (cfg / "settings.example.yaml").read_text().replace("\nprospecting:\n", "\n", 1)  # the heading went missing
+    (cfg / "settings.yaml").write_text(text)
+    monkeypatch.setattr(config, "CONFIG_DIR", cfg)
+    monkeypatch.setattr(sender, "tick", lambda n: pytest.fail("ran with broken settings"))
+    line = text.splitlines().index("  - source: osm") + 1
+    assert f"near line {line}" in config.check()
+    engine.tick()
+    assert "STOPPED: config/settings.yaml has a formatting mistake" in capsys.readouterr().out
