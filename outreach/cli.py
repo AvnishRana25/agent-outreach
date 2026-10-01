@@ -162,7 +162,7 @@ def main() -> None:
     elif args.cmd == "research":
         print(research.run(args.limit, args.mock, getattr(args, "segment", None)))
     elif args.cmd == "draft":
-        print(f"drafted {personalize.run(args.limit, args.mock, getattr(args, "segment", None))} sequences")
+        print(f"drafted {personalize.run(args.limit, args.mock, getattr(args, 'segment', None))} sequences")
     elif args.cmd == "prepare":
         def prepare():
             found = prospect.run() if not args.skip_prospect else {}
@@ -403,31 +403,32 @@ def _run_zoho_probe(box: dict, z: transport.Zoho) -> None:
 
     test_email = f"probe-{tag}@example.com"
     with db.connect() as conn:
-        db.add_lead(conn, email=test_email, domain="example.com", company="Probe Corp",
-                    segment="uk_agencies", status="active", fit=8, email_status="valid", email_source="website")
-        lead = conn.execute("SELECT id FROM leads WHERE email=?", (test_email,)).fetchone()[0]
-        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, message_id, provider_id, sent_at) "
-                     "VALUES (?, 0, ?, 'step 0', 'sent', ?, ?, ?)", (lead, subj, mid, pid, db.now()))
-        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence, due_at) "
-                     "VALUES (?, 1, ?, 'step 1', 'approved', 0.9, ?)",
-                     (lead, f"Re: {subj}", (datetime.now(timezone.utc)).isoformat()))
-        incoming = transport.Incoming(f"<reply-{tag}>", test_email, "Probe Contact",
-                                      f"Re: {subj}", "Yes, interested.", db.now(), refs=mid, provider_id=fpid)
-        lead_row = replies._match_lead(conn, incoming, is_bounce=False)
-        if not lead_row or lead_row["id"] != lead:
-            raise RuntimeError("Reply matching failed to link incoming message to active lead thread")
-        replies._apply(conn, lead_row, replies.ReplyClass(category="interested", summary="interested", suggested_reply="Great"))
-        m1 = conn.execute("SELECT status FROM messages WHERE lead_id=? AND step=1", (lead,)).fetchone()
-        if m1[0] != "cancelled":
-            raise RuntimeError(f"Follow-up step 1 was not cancelled after reply (status: {m1[0]})")
-        conn.execute("DELETE FROM messages WHERE lead_id=?", (lead,))
-        conn.execute("DELETE FROM leads WHERE id=?", (lead,))
+        lead = None
+        try:
+            db.add_lead(conn, email=test_email, domain="example.com", company="Probe Corp",
+                        segment="uk_agencies", status="active", fit=8, email_status="valid", email_source="website")
+            lead = conn.execute("SELECT id FROM leads WHERE email=?", (test_email,)).fetchone()[0]
+            conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, message_id, provider_id, sent_at) "
+                         "VALUES (?, 0, ?, 'step 0', 'sent', ?, ?, ?)", (lead, subj, mid, pid, db.now()))
+            conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence, due_at) "
+                         "VALUES (?, 1, ?, 'step 1', 'approved', 0.9, ?)",
+                         (lead, f"Re: {subj}", (datetime.now(timezone.utc)).isoformat()))
+            incoming = transport.Incoming(f"<reply-{tag}>", test_email, "Probe Contact",
+                                          f"Re: {subj}", "Yes, interested.", db.now(), refs=mid, provider_id=fpid)
+            lead_row = replies._match_lead(conn, incoming, is_bounce=False)
+            if not lead_row or lead_row["id"] != lead:
+                raise RuntimeError("Reply matching failed to link incoming message to active lead thread")
+            replies._apply(conn, lead_row, replies.ReplyClass(category="interested", summary="interested", suggested_reply="Great"))
+            m1 = conn.execute("SELECT status FROM messages WHERE lead_id=? AND step=1", (lead,)).fetchone()
+            if m1[0] != "cancelled":
+                raise RuntimeError(f"Follow-up step 1 was not cancelled after reply (status: {m1[0]})")
+        finally:  # never leave the test lead behind, even when a check fails
+            conn.execute("DELETE FROM messages WHERE lead_id=(SELECT id FROM leads WHERE email=?)", (test_email,))
+            conn.execute("DELETE FROM replies WHERE lead_id=(SELECT id FROM leads WHERE email=?)", (test_email,))
+            conn.execute("DELETE FROM leads WHERE email=?", (test_email,))
         print("  ✓ 3. Reply matched to thread, sequence stopped, follow-up cancelled.")
     print("✓ All self-addressed Zoho probe checks passed!\n")
 
-
-if __name__ == "__main__":
-    main()
 
 
 def groq_check() -> None:
@@ -445,3 +446,7 @@ def groq_check() -> None:
         detail = result[1] if result[0] == "ok" else " ".join(map(str, result[1:]))
         print(f"{m.removeprefix('groq/'):<28} {result[0]:<12} {detail}")
     print("Models marked ok are used automatically whenever Gemini can't answer.")
+
+
+if __name__ == "__main__":
+    main()

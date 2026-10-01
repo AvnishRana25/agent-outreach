@@ -2,16 +2,14 @@
 from __future__ import annotations
 
 import csv
-import json
 import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Iterable, Callable
+from typing import Callable
 
 from ..models import ProspectInput, ProspectResult
 from ..config import daily_verified_target
 from .processor import ProspectProcessor
-from ... import db
 
 CSV_COLUMN_ALIASES = {
     "first_name": ["first_name", "first name", "firstname", "first"],

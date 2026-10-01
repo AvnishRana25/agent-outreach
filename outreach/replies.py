@@ -22,6 +22,10 @@ from . import config, db, llm, transport
 BOUNCE_FROM = re.compile(r"mailer-daemon|postmaster|mail delivery", re.I)
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 POSITIVE = {"interested", "meeting_request", "question", "referral"}
+# Shared mail services: a reply from someone else @gmail.com is not from the same company.
+FREE_MAIL = {"gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.in", "outlook.com", "hotmail.com", "live.com",
+             "icloud.com", "me.com", "proton.me", "protonmail.com", "aol.com", "zoho.com", "zohomail.in",
+             "rediffmail.com", "gmx.com", "mail.com", "yandex.com"}
 UNCLASSIFIED = "unclassified"   # Gemini couldn't read it (quota, outage): shown to you as-is, retried later
 
 
@@ -49,16 +53,30 @@ def _strip_quoted(text: str) -> str:
     return "\n".join(out).strip()[:4000]
 
 
+def _topic(subject: str | None) -> str:
+    """'RE: Fwd: bayut enquiries at palm' -> 'bayut enquiries at palm'."""
+    return re.sub(r"^\s*((re|fwd?|aw|sv)\s*:\s*)+", "", subject or "", flags=re.I).strip().lower()
+
+
 def _match_lead(conn, msg: transport.Incoming, is_bounce: bool):
     for mid in re.findall(r"<[^>]+>", msg.refs or ""):
         row = conn.execute("SELECT l.* FROM messages m JOIN leads l ON l.id=m.lead_id WHERE m.message_id=?",
                            (mid,)).fetchone()
         if row:
             return row
-    lead = conn.execute("SELECT * FROM leads WHERE lower(email)=? AND status IN ('active','finished')",
+    lead = conn.execute("SELECT * FROM leads WHERE lower(email)=? ORDER BY status IN ('active','finished','replied') DESC",
                         (msg.from_addr.lower(),)).fetchone()
     if lead:
         return lead
+    domain = msg.from_addr.split("@")[-1].lower()
+    topic = _topic(msg.subject)
+    if domain and domain not in FREE_MAIL and not is_bounce and topic:
+        # A colleague answered or it was forwarded: same company AND the subject of an email we sent them.
+        for lead in conn.execute("SELECT * FROM leads WHERE domain=? AND status IN ('active','finished','replied') "
+                                 "ORDER BY updated_at DESC", (domain,)):
+            sent = conn.execute("SELECT subject FROM messages WHERE lead_id=? AND status='sent'", (lead["id"],))
+            if any(_topic(r["subject"]) == topic for r in sent):
+                return lead
     if is_bounce:  # bounce notices quote the original recipient
         for addr in EMAIL_RE.findall(msg.body or ""):
             lead = conn.execute("SELECT * FROM leads WHERE lower(email)=? AND status IN ('active','finished')",

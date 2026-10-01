@@ -119,7 +119,9 @@ def imap_save_draft(box: dict, to: str, subject: str, in_reply_to: str, body: st
 
 # --------------------------------------------------------------------------- Zoho Mail REST API
 class ZohoError(RuntimeError):
-    pass
+    def __init__(self, msg: str, http_status: int | None = None):
+        super().__init__(msg)
+        self.http_status = http_status   # set when Zoho's mail API answered with an error
 
 
 class InboxUnavailable(RuntimeError):
@@ -177,10 +179,11 @@ class Zoho:
         try:
             data = r.json()
         except ValueError:
-            raise ZohoError(f"{method} {path}: HTTP {r.status_code}")
+            raise ZohoError(f"{method} {path}: HTTP {r.status_code}", r.status_code)
         status = (data.get("status") or {}).get("code", r.status_code)
         if r.status_code >= 400 or (isinstance(status, int) and status >= 400):
-            raise ZohoError(f"{method} {path}: HTTP {r.status_code}, API status {status if isinstance(status, int) else 'unknown'}")
+            raise ZohoError(f"{method} {path}: HTTP {r.status_code}, API status {status if isinstance(status, int) else 'unknown'}",
+                            r.status_code if r.status_code >= 400 else int(status))
         return data
 
     def account_id(self) -> str:
@@ -272,6 +275,25 @@ def zoho(box: dict) -> Zoho:
     if box["email"] not in _zoho:
         _zoho[box["email"]] = Zoho(box)
     return _zoho[box["email"]]
+
+
+def ready(box: dict) -> None:
+    """Everything a send needs before the email itself goes out (Zoho token, account id). Called before a
+    message is marked 'sending', so a login problem leaves it simply waiting instead of 'maybe sent'."""
+    if box.get("transport") == "zoho_api":
+        zoho(box).account_id()
+
+
+def not_sent(e: BaseException) -> bool:
+    """True when the provider certainly did NOT accept the email, so it's safe to try again later.
+    Timeouts and dropped connections after the request went out stay uncertain."""
+    if isinstance(e, ZohoError):  # Zoho answered "no" (4xx): nothing was sent
+        return e.http_status is not None and 400 <= e.http_status < 500
+    if isinstance(e, (smtplib.SMTPRecipientsRefused, smtplib.SMTPSenderRefused, smtplib.SMTPDataError,
+                      smtplib.SMTPAuthenticationError, smtplib.SMTPHeloError, smtplib.SMTPNotSupportedError,
+                      smtplib.SMTPConnectError)):
+        return True
+    return isinstance(e, (requests.ConnectTimeout, ConnectionRefusedError))
 
 
 def send(box: dict, to: str, subject: str, body: str, thread: dict | None) -> tuple[str, str]:

@@ -172,6 +172,7 @@ def test_new_lead_template_autoapproval_is_opt_in_capped_and_respects_no_ai(monk
                         site_text=site, status="researched", email_status="valid",
                         email_source="website", fit=8)
     monkeypatch.setattr(personalize, "generate", lambda row, angle=None: personalize.mock(row))
+    monkeypatch.setattr(config, "placeholders", lambda: [])   # the example profile still says YOUR-GITHUB
     assert personalize.run(3) == 3
     with db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM leads WHERE status='approved'").fetchone()[0] == 1

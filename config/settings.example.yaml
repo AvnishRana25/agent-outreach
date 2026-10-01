@@ -6,7 +6,9 @@ targeting:
 
 sending:
   home_timezone: Asia/Kolkata
-  allowed_segments: [uk_agencies, india_startups_intern]
+  # Every segment sends once you approve its drafts. To switch some off, list the ones that may send:
+  # allowed_segments: [gulf_realestate, india_realestate, intl_freelance_posts, india_startups_intern]
+  # Auto-approval (off while the cap is 0): fixed template copy for these segments, sent without review.
   auto_approve_segments: [uk_agencies, india_startups_intern]
   auto_approve_daily_cap: 0 # opt in only after reviewing template copy and delivery
   min_gap_minutes: 8          # never two sends from one inbox closer than this...

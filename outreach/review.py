@@ -66,8 +66,10 @@ def _edit(msgs) -> list[tuple[int, str, str]] | None:
     return out
 
 
-def approve_lead(conn, lead_id: int) -> None:
-    conn.execute("UPDATE messages SET status='approved' WHERE lead_id=? AND status='draft'", (lead_id,))
+def approve_lead(conn, lead_id: int, by: str = "you") -> None:
+    """by: 'you' (a person approved it in Review or the CLI) or 'auto' (template auto-approval)."""
+    conn.execute("UPDATE messages SET status='approved', approved_by=? WHERE lead_id=? AND status='draft'",
+                 (by, lead_id))
     db.set_lead(conn, lead_id, status="approved")
 
 

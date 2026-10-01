@@ -169,3 +169,18 @@ def test_self_addressed_zoho_sends_threads_and_stops_after_reply(monkeypatch):
     # 3. Next sender tick runs: follow-up is stopped!
     assert sender.tick(1) == 0
     assert len(sent_calls) == 1  # no new send was attempted!
+
+
+def test_colleague_reply_on_our_subject_is_matched():
+    from outreach import db, replies, transport
+    with db.connect() as conn:
+        db.add_lead(conn, email="a@firm.com", domain="firm.com", segment="gulf_realestate", status="active")
+        lead = conn.execute("SELECT id FROM leads").fetchone()[0]
+        conn.execute("INSERT INTO messages (lead_id,step,subject,message_id,status) "
+                     "VALUES (?,0,'idea for firm','<sent@x>','sent')", (lead,))
+        forwarded = transport.Incoming("<f@x>", "owner@firm.com", "Owner", "RE: Fwd: idea for firm", "send it", "")
+        newsletter = transport.Incoming("<n@x>", "news@firm.com", "News", "October update", "hi", "")
+        gmail = transport.Incoming("<g@x>", "x@gmail.com", "X", "Re: idea for firm", "hi", "")
+        assert replies._match_lead(conn, forwarded, False)["id"] == lead
+        assert replies._match_lead(conn, newsletter, False) is None
+        assert replies._match_lead(conn, gmail, False) is None

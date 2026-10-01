@@ -12,7 +12,7 @@ import smtplib
 from datetime import date, datetime, time, timezone, timedelta
 from zoneinfo import ZoneInfo
 
-from . import config, db, personalize, transport
+from . import config, db, personalize, replies, transport
 from .sources import rejects_ai_application
 
 
@@ -92,6 +92,54 @@ def _candidates(conn, now_iso: str):
     return list(followups) + list(firsts)
 
 
+TRUSTED_SOURCES = ("website", "osm", "post", "registry", "maps")
+INBOX_FRESH = timedelta(minutes=30)   # the inbox job runs every 10 minutes; replies must be read before sending
+MAX_ATTEMPTS = 3                       # provider rejections before an email is held for you to look at
+
+
+def hold_reason(lead, msg, s: dict) -> str:
+    """Why this email must wait for you, in plain words; '' when it may go. You see the reason in the
+    dashboard's Review tab and can press "Send anyway" for the ones marked overridable there."""
+    override = bool(msg["override"])
+    by_you = msg["approved_by"] != "auto"
+    allowed = s.get("allowed_segments")
+    if allowed is not None and lead["segment"] not in allowed:
+        return f"segment {lead['segment']} is switched off in settings.yaml (sending: allowed_segments)"
+    if not (msg["subject"] or "").strip() or not (msg["body"] or "").strip():
+        return "the subject or body is empty"
+    if any(rejects_ai_application(lead[f] or "") for f in ("source_text", "site_text", "notes", "research")):
+        return "their post or site says AI-written applications are rejected; reply by hand instead"
+    if lead["email_status"] not in ("valid", "risky"):
+        return f"the address is {lead['email_status'] or 'unchecked'}, so it may bounce"
+    if (msg["attempts"] or 0) >= MAX_ATTEMPTS:
+        return f"the mail provider refused it {msg['attempts']} times: {msg['error'] or 'no details'}"
+    if override:
+        return ""
+    if lead["email_status"] == "risky" and not by_you:
+        return "generic address (info@/hello@): auto-approval only sends to named people"
+    if lead["email_source"] not in TRUSTED_SOURCES:
+        how = lead["email_source"] or "a guess"
+        return f"the address came from {how}, not from their website or a post"
+    if lead["fit"] is None or lead["fit"] < 6:
+        return f"research fit is {lead['fit'] if lead['fit'] is not None else 'unknown'}/10 (needs 6)"
+    if not by_you and (msg["confidence"] is None or msg["confidence"] < 0.85):
+        return "auto-approved, but the AI was less than 85% sure of the draft"
+    return ""
+
+
+def _hold(conn, msg, reason: str, dry_run: bool) -> None:
+    if not dry_run and (msg["hold"] or "") != reason:
+        conn.execute("UPDATE messages SET hold=? WHERE id=?", (reason, msg["id"]))
+
+
+def inbox_fresh(conn, email: str, now: datetime) -> bool:
+    try:
+        age = now - datetime.fromisoformat(db.get_state(conn, f"last_inbound_sync:{email}"))
+    except (ValueError, TypeError):
+        return False
+    return timedelta(0) <= age <= INBOX_FRESH
+
+
 def tick(max_sends: int = 2, dry_run: bool = False) -> int:
     s = config.settings()["sending"]
     now = datetime.now(timezone.utc)
@@ -118,38 +166,25 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
                 if not dry_run:
                     conn.execute("UPDATE messages SET status='cancelled' WHERE id=?", (msg["id"],))
                 continue
-            allowed_segments = s.get("allowed_segments")
-            if allowed_segments is not None and msg["segment"] not in allowed_segments:
-                continue
-            seg = config.segment(msg["segment"])
-            if not in_window(seg, now):
-                continue
             lead = conn.execute("SELECT * FROM leads WHERE id=?", (msg["lead_id"],)).fetchone()
             if db.suppressed(conn, lead["email"]):
                 if not dry_run:
                     conn.execute("UPDATE messages SET status='cancelled' WHERE lead_id=? AND status='approved'", (lead["id"],))
                     db.set_lead(conn, lead["id"], status="unsubscribed")
                 continue
-            if (lead["email_status"] != "valid"
-                    or lead["email_source"] not in ("website", "osm", "post", "registry", "maps")
-                    or any(rejects_ai_application(lead[field] or "")
-                           for field in ("source_text", "site_text", "notes", "research"))
-                    or lead["fit"] is None or lead["fit"] < 6
-                    or msg["confidence"] is None or msg["confidence"] < 0.85
-                    or not (msg["subject"] or "").strip() or not (msg["body"] or "").strip()):
-                print(f"  ! held {lead['email']}: address, fit, confidence, or content needs review")
+            reason = hold_reason(lead, msg, s)
+            _hold(conn, msg, reason, dry_run)
+            if reason:
+                continue
+            seg = config.segment(msg["segment"])
+            if not in_window(seg, now):
                 continue
 
             box = _choose_inbox(conn, msg, seg, boxes, paused, today, now, s)
             if not box:
                 continue
-            synced = db.get_state(conn, f"last_inbound_sync:{box['email']}")
-            try:
-                sync_age = now - datetime.fromisoformat(synced)
-            except (ValueError, TypeError):
-                sync_age = timedelta.max
-            if not timedelta(0) <= sync_age <= timedelta(minutes=20):
-                print(f"  ! held {lead['email']}: inbox {box['email']} has no recent successful sync")
+            if not inbox_fresh(conn, box["email"], now):  # a reply may be waiting: read it first
+                print(f"  waiting: {box['email']} hasn't been read in the last {INBOX_FRESH.seconds // 60} min")
                 continue
             thread = None
             if msg["step"] > 0:
@@ -176,20 +211,37 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
                 print(f"  [dry-run] {box['email']} -> {lead['email']} step {msg['step']}: {msg['subject']}")
                 sent += 1
                 continue
-            claimed = conn.execute("UPDATE messages SET status='sending', inbox=?, error=NULL "
+            try:  # log in first: a failure here certainly sent nothing
+                transport.ready(box)
+            except Exception as e:
+                print(f"  ! can't send from {box['email']} right now: {type(e).__name__}: {e}")
+                with_error = f"not sent yet: {type(e).__name__}: {e}"[:300]
+                conn.execute("UPDATE messages SET error=? WHERE id=?", (with_error, msg["id"]))
+                break
+            claimed = conn.execute("UPDATE messages SET status='sending', inbox=?, error=NULL, hold='' "
                                    "WHERE id=? AND status='approved'", (box["email"], msg["id"]))
             if not claimed.rowcount:
                 continue
-            conn.commit()  # Durable before the provider call; uncertain outcomes cannot be retried automatically.
+            conn.commit()  # durable before the provider call, so a crash mid-send can't send twice
             try:
                 message_id, provider_id = transport.send(box, lead["email"], msg["subject"], body, thread)
             except Exception as e:
-                conn.execute("UPDATE messages SET status='needs_reconciliation', error=? WHERE id=?",
-                             (f"{type(e).__name__}: check provider before retry", msg["id"]))
-                print(f"  ! send uncertain {box['email']} -> {lead['email']}: {type(e).__name__}")
+                what = f"{type(e).__name__}: {e}"[:300]
                 if isinstance(e, smtplib.SMTPRecipientsRefused):
-                    conn.execute("UPDATE messages SET status='failed' WHERE id=?", (msg["id"],))
+                    conn.execute("UPDATE messages SET status='failed', error=? WHERE id=?", (what, msg["id"]))
                     db.set_lead(conn, lead["id"], status="bounced")
+                elif transport.not_sent(e):  # the provider refused it: safe to try again later
+                    tries = (msg["attempts"] or 0) + 1
+                    conn.execute("UPDATE messages SET status='approved', attempts=?, error=?, hold=? WHERE id=?",
+                                 (tries, what, f"the mail provider refused it {tries} times: {what}"
+                                  if tries >= MAX_ATTEMPTS else "", msg["id"]))
+                    print(f"  ! not sent {box['email']} -> {lead['email']}: {what}")
+                else:  # timed out or dropped after the request left: it may have gone out
+                    conn.execute("UPDATE messages SET status='needs_reconciliation', error=? WHERE id=?",
+                                 (f"{what}. Check your Sent folder, then mark it in the dashboard.", msg["id"]))
+                    print(f"  ! send uncertain {box['email']} -> {lead['email']}: {type(e).__name__}")
+                    replies.notify(f"⚠️ Not sure an email to {lead['email']} went out ({type(e).__name__}). "
+                                   "Check Sent in Zoho, then mark it in the dashboard (Review → Needs a decision).")
                 conn.commit()
                 continue
 

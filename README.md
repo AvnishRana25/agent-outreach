@@ -177,8 +177,12 @@ Engineered to discover verified professional email addresses for founders, CEOs,
 
 ### 5. Deliverability, Safety Gates & Sending Control
 
-- **Pre-Send Inbox Synchronization**: Syncs the sending inbox immediately before any outbound send cycle; cancels follow-ups if an inbound message arrived.
-- **Durable `sending` State**: Sets a durable `sending` record before network transport; crashes or network timeouts never produce duplicate emails.
+- **Replies first**: the background inbox job reads replies every 10 minutes, and nothing sends from an inbox that hasn't been read in the last 30 minutes, so a reply always stops its sequence before the next email.
+- **Durable `sending` State**: the email is marked `sending` before the provider call, so a crash can't send it twice. If the mail provider refuses it (a 4xx answer, or a login problem), it simply waits and retries; after 3 refusals it's held. If the connection drops mid-send, it may have gone out: it appears under **Review → Needs a decision** with "It's in my Sent folder" / "Not sent, try again", and Telegram tells you.
+- **Safety checks before every send**, shown on the email under **Review → Held** with the reason:
+  - never: suppressed addresses, empty text, template placeholders, invalid/guessed addresses, companies whose post or site rejects AI-written applications;
+  - held until you press **Send anyway**: addresses not found on their website or a post (e.g. pattern guesses), research fit under 6;
+  - for auto-approved template emails only: generic `info@` addresses and AI confidence under 85%. Your own approval in Review is enough otherwise.
 - **Human-in-the-Loop Review**:
   - Interactive CLI review mode (`python -m outreach review`).
   - Web dashboard draft editor with instant AI regeneration.
@@ -429,7 +433,7 @@ targeting:
 
 sending:
   home_timezone: Asia/Kolkata
-  allowed_segments: [uk_agencies, gulf_realestate]
+  # allowed_segments: [gulf_realestate, intl_freelance_posts]   # optional: only these segments send
   min_gap_minutes: 8
   gap_jitter_minutes: 7
   max_bounce_rate: 0.03       # Auto-pause threshold (3%)

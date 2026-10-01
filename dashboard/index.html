@@ -292,7 +292,8 @@ async function load(quiet) {
 
 const FAMILY_OF = { approve: "review", reject: "review", regenerate: "review", reply_send: "reply", reply_done: "reply",
   post_done: "post", run_prepare: "run", run_community: "community", pause_sending: "sending", resume_sending: "sending", add_lead: "lead",
-  set_stage: "deal", make_plan: "plan", run_content: "content", sync: "sync" };
+  set_stage: "deal", make_plan: "plan", run_content: "content", sync: "sync",
+  send_anyway: "held", mark_sent: "held", retry_send: "held", promote_prospect: "prospect" };
 const STAGE_LABEL = { "": "No stage", call_booked: "Call booked", proposal_sent: "Proposal sent", won: "Won", lost: "Lost" };
 
 function pendingMap() {
@@ -423,10 +424,51 @@ function renderReview(panel, pend) {
       <span class="spacer"></span>
       <span class="small muted">Approved emails send on schedule in each market's business hours.</span>
     </div>
+    ${heldSection(pend)}
     ${list.length ? list.map((x) => reviewCard(x, pend["review:" + x.id])).join("")
       : `<div class="empty"><strong>Nothing to review</strong>New drafts appear after the morning run on your laptop.</div>`}`;
   $("#seg").onchange = (e) => { state.segment = e.target.value; render(); };
+  panel.querySelectorAll("[data-held-act]").forEach((b) => (b.onclick = () => {
+    const [kind, id] = b.dataset.heldAct.split(":");
+    const msg = { send_anyway: "Will send at the next run in business hours.", mark_sent: "Marked as sent; follow-ups scheduled.",
+      retry_send: "Back in the send queue." }[kind];
+    act(kind, Number(id), {}, msg);
+  }));
+  panel.querySelectorAll("[data-held-reject]").forEach((b) => (b.onclick = () => {
+    if (confirm("Don't send anything to this company?")) act("reject", Number(b.dataset.heldReject), {}, "Rejected.");
+  }));
   panel.querySelectorAll("[data-review]").forEach(bindReview);
+}
+
+/* Approved emails the engine won't send yet (with the reason), and sends that may or may not have gone out. */
+function heldSection(pend) {
+  const items = state.data.held || [];
+  if (!items.length) return "";
+  const uncertain = items.filter((x) => x.kind === "uncertain");
+  const held = items.filter((x) => x.kind === "held");
+  const row = (x) => {
+    const p = pend["held:" + x.id];
+    const step = x.step ? `follow-up ${x.step}` : "first email";
+    let buttons;
+    if (p) buttons = `<span class="small muted">Applies within a minute…</span>`;
+    else if (x.kind === "uncertain") buttons = `<button class="btn primary" data-held-act="mark_sent:${x.id}">It's in my Sent folder</button>
+        <button class="btn" data-held-act="retry_send:${x.id}">Not sent, try again</button>`;
+    else buttons = `${x.overridable ? `<button class="btn primary" data-held-act="send_anyway:${x.id}">Send anyway</button>` : ""}
+        <button class="btn danger" data-held-reject="${x.lead_id}">Don't send</button>`;
+    return `<div class="card" style="padding:12px 14px;margin:8px 0"><div class="card-head"><div class="meta">
+      <strong>${esc(x.company || x.email)}</strong> <span class="small muted">${esc(x.email)} · ${esc(step)} · ${esc(segName(x.segment))}</span>
+      <div class="small" style="margin-top:4px">${esc(x.kind === "uncertain" ? (x.error || "The send timed out.") : x.hold)}</div>
+      <details class="small" style="margin-top:4px"><summary>${esc(x.subject || "(no subject)")}</summary><div class="quote">${esc(x.body)}</div></details>
+      </div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${buttons}</div></div></div>`;
+  };
+  return `<section style="margin:4px 0 18px">
+    ${uncertain.length ? `<h3 style="margin:6px 0">Needs a decision <span class="count num">${uncertain.length}</span></h3>
+      <p class="small muted" style="margin:0 0 6px">The connection dropped mid-send, so these may have gone out. Check Sent in Zoho, then pick one.</p>
+      ${uncertain.map(row).join("")}` : ""}
+    ${held.length ? `<h3 style="margin:14px 0 6px">Held <span class="count num">${held.length}</span></h3>
+      <p class="small muted" style="margin:0 0 6px">You approved these, but a safety check stopped them. The reason is on each one.</p>
+      ${held.map(row).join("")}` : ""}
+  </section>`;
 }
 
 function reviewCard(x, pending) {
@@ -1061,6 +1103,7 @@ async function renderProspects(panel) {
                   <div style="display:flex; gap:4px; justify-content:flex-end;">
                     <button class="btn small" data-inspect-prospect="${p.id}">Inspect</button>
                     <button class="btn small ghost" data-reenrich-prospect="${p.id}" title="Re-enrich prospect">↻</button>
+                    ${p.final_email && ["verified", "high_confidence"].includes(p.confidence_level) ? `<button class="btn small" data-promote-prospect="${p.id}" title="Research, draft and queue for your review">Send to engine</button>` : ""}
                   </div>
                 </td>
               </tr>`;
@@ -1108,11 +1151,32 @@ async function renderProspects(panel) {
     if (p) showEvidenceModal(p);
   });
 
+  panel.querySelectorAll("[data-promote-prospect]").forEach((b) => (b.onclick = () => promoteProspect(Number(b.dataset.promoteProspect))));
+
   panel.querySelectorAll("[data-reenrich-prospect]").forEach((b) => {
     const id = Number(b.dataset.reenrichProspect);
     const p = (state.prospects || []).find((x) => x.id === id);
     if (p) reEnrichProspect(p, b);
   });
+}
+
+function promoteProspect(id) {
+  const segs = Object.keys((state.data.engine || {}).segments || {});
+  const modal = showModal(`
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="promote-title">
+      <h3 id="promote-title">Send to the email engine</h3>
+      <p class="small muted">It's researched and drafted on the next run, then waits in Review for you.</p>
+      <label class="small muted" for="promote-seg">Segment</label>
+      <select id="promote-seg">${segs.map((s) => `<option value="${esc(s)}">${esc(segName(s))}</option>`).join("")}</select>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button class="btn" data-close>Cancel</button><button class="btn primary" id="promote-go">Send to engine</button>
+      </div>
+    </div>`);
+  modal.querySelector("#promote-go").onclick = async () => {
+    await act("promote_prospect", id, { segment: modal.querySelector("#promote-seg").value }, "Sent to the engine. Drafted on the next run.");
+    closeModal();
+  };
+  modal.querySelector("[data-close]").onclick = closeModal;
 }
 
 function showSingleProspectModal() {

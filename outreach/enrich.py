@@ -147,6 +147,8 @@ def run(limit: int = 100) -> int:
             if not row["email"] and sig.get("emails_on_site"):
                 fields["email"] = _best_email(sig["emails_on_site"], row["domain"])
                 fields["email_source"] = "website"
+            elif row["email"] and row["email"].lower() in {e.lower() for e in sig.get("emails_on_site") or []}:
+                fields["email_source"] = "website"   # e.g. a guessed address that turns out to be published
             if not sig.get("reachable"):
                 fields["notes"] = ((row["notes"] or "") + " | website unreachable").strip(" |")
             db.set_lead(conn, row["id"], **fields)

@@ -1,7 +1,6 @@
 """DNS and MX record validation with caching."""
 from __future__ import annotations
 
-import functools
 import dns.resolver
 import dns.exception
 
