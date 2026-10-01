@@ -133,10 +133,52 @@ def _daily(e: errors.ClientError) -> bool:
     return "per day" in msg or "perday" in msg or "daily" in msg or "requestsperday" in msg
 
 
+class ModelsBusy(QuotaExhausted):
+    """No model could answer right now: some are out of quota, the rest overloaded. Worth retrying soon."""
+
+
+BUSY_WAIT = 20          # seconds before a second try at models that were overloaded (503)
+last_stop: str = ""     # "quota" or "busy" after a call gave up; read by prepare to schedule a retry
+
+
+def _try(model_id: str, prompt: str, cfg, schema):
+    """One model: returns ("ok", result) | ("quota",) | ("unavailable",) | ("busy",)."""
+    for attempt in range(3):
+        _pace()
+        try:
+            resp = client().models.generate_content(model=model_id, contents=prompt, config=cfg)
+        except errors.ClientError as e:
+            if e.code == 429 and _daily(e):
+                _mark(model_id, "quota", str(e))
+                return ("quota",)
+            if e.code == 429:
+                time.sleep(20 * (attempt + 1))              # per-minute limit: back off and retry
+                continue
+            if e.code in (400, 403, 404):                   # retired, not on this key, or no JSON mode
+                _mark(model_id, f"unavailable ({e.code})")
+                return ("unavailable",)
+            raise
+        except errors.ServerError:
+            if attempt == 1:
+                return ("busy",)
+            time.sleep(4)
+            continue
+        _count(model_id)
+        if isinstance(resp.parsed, schema):
+            return ("ok", resp.parsed)
+        try:  # some responses arrive as text only
+            return ("ok", schema.model_validate_json(resp.text or ""))
+        except ValidationError:
+            return ("ok", None)
+    return ("busy",)
+
+
 def generate(system: str, prompt: str, schema: type[T], kind: str = "draft",
              temperature: float = 0.7) -> T | None:
-    """Returns a validated instance of `schema`, or None if no model gave anything usable.
-    Raises QuotaExhausted only when every model in this kind's chain is used up for today."""
+    """Returns a validated instance of `schema`, or None if the model's answer wasn't usable.
+    Raises QuotaExhausted when every model in this kind's chain is used up for today, and
+    ModelsBusy (a QuotaExhausted) when the rest of the chain was only overloaded."""
+    global last_stop
     cfg = types.GenerateContentConfig(
         system_instruction=system,
         temperature=temperature,
@@ -145,41 +187,32 @@ def generate(system: str, prompt: str, schema: type[T], kind: str = "draft",
         max_output_tokens=8192,
     )
     out_today = _state().get("out", {})
-    quota_hit = False
+    reasons: dict[str, str] = {}
+    busy: list[str] = []
     for model_id in chain(kind):
         if model_id in _skip or model_id in out_today:
-            quota_hit = quota_hit or out_today.get(model_id) == "quota"
+            reasons[model_id] = out_today.get(model_id, "skipped")
             continue
-        for attempt in range(4):
-            _pace()
-            try:
-                resp = client().models.generate_content(model=model_id, contents=prompt, config=cfg)
-            except errors.ClientError as e:
-                if e.code == 429 and _daily(e):
-                    _mark(model_id, "quota", str(e))
-                    quota_hit = True
-                    break                                   # next model
-                if e.code == 429:
-                    time.sleep(30 * (attempt + 1))          # per-minute limit: back off and retry
-                    continue
-                if e.code in (400, 403, 404):               # retired, not on this key, or no JSON mode
-                    _mark(model_id, f"unavailable ({e.code})")
-                    break
-                raise
-            except errors.ServerError:
-                if attempt == 1:
-                    break                                   # overloaded twice: try the next model now
-                time.sleep(5 * (attempt + 1))
-                continue
-            _count(model_id)
-            if isinstance(resp.parsed, schema):
-                return resp.parsed
-            try:  # some responses arrive as text only
-                return schema.model_validate_json(resp.text or "")
-            except ValidationError:
-                return None
-    if quota_hit:
-        raise QuotaExhausted(f"every {kind} model is out of free quota for today ({quota_day()} Pacific)")
+        result = _try(model_id, prompt, cfg, schema)
+        if result[0] == "ok":
+            return result[1]
+        reasons[model_id] = result[0]
+        if result[0] == "busy":
+            busy.append(model_id)
+    if busy:                                               # overloads are usually brief: one more round
+        time.sleep(BUSY_WAIT)
+        for model_id in busy:
+            result = _try(model_id, prompt, cfg, schema)
+            if result[0] == "ok":
+                return result[1]
+            reasons[model_id] = result[0]
+    detail = ", ".join(f"{m.replace('gemini-', '')}: {r}" for m, r in reasons.items())
+    if any(r == "busy" for r in reasons.values()):
+        last_stop = "busy"
+        raise ModelsBusy(f"no {kind} model available right now ({detail}); it will retry later")
+    if any(r == "quota" for r in reasons.values()):
+        last_stop = "quota"
+        raise QuotaExhausted(f"every {kind} model is out of free quota for today ({detail})")
     return None
 
 

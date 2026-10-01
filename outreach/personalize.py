@@ -135,8 +135,8 @@ def run(limit: int, use_mock: bool = False) -> int:
                 db.set_lead(conn, row["id"], angle=angle["id"])
         try:
             seq = mock(row) if use_mock else generate(row, angle)
-        except llm.QuotaExhausted:
-            print("  Gemini daily quota reached; remaining drafts wait for tomorrow")
+        except llm.QuotaExhausted as e:
+            print(f"  stopped drafting: {e}")
             break
         if seq is None:
             print(f"  ! {row['company']}: no usable draft; will retry next run")

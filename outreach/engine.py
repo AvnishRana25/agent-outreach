@@ -94,6 +94,18 @@ def run_job(job: str, fn) -> None:
             raise
 
 
+def schedule_retry(job: str, why: str) -> datetime:
+    """After a run stopped on Gemini limits: retry in 45 minutes (overload) or just after the daily reset."""
+    from . import llm
+    if why == "busy":
+        at = _now() + timedelta(minutes=45)
+    else:
+        at = datetime.fromisoformat(llm.status()["reset_at"]) + timedelta(minutes=10)
+    with db.connect() as conn:
+        db.set_state(conn, f"retry:{job}", at.astimezone(timezone.utc).isoformat(timespec="seconds"))
+    return at.astimezone(ZoneInfo("Asia/Kolkata"))
+
+
 def spawn(job: str) -> str:
     """Start a long job in the background (its output goes to data/<job>.log)."""
     if job not in JOBS:
@@ -156,6 +168,11 @@ def tick() -> None:
         dashboard_on = bool(os.getenv("TURSO_DATABASE_URL"))
         if dashboard_on:
             _step("dashboard actions", lambda: dashboard_sync.pull_safe())
+        with db.connect() as conn:
+            retry_at = db.get_state(conn, "retry:prepare")
+            if retry_at and datetime.fromisoformat(retry_at) <= _now() and not is_running("prepare"):
+                db.set_state(conn, "retry:prepare", "")
+                need_prepare = True
         if need_prepare:
             _step("prepare", lambda: spawn("prepare"))
         if need_community and config.settings().get("community"):

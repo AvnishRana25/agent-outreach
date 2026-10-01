@@ -658,6 +658,8 @@ function jobCard(name, job, pend) {
   if (job.running) line = `<span class="status warning"><span class="dot"></span>Running · started ${esc(ago(job.started))}</span>`;
   else if (job.error) line = `<span class="status critical"><span class="dot"></span>Failed ${esc(ago(job.finished))}</span> <span class="small muted">${esc(job.error)}</span>`;
   else if (job.finished) line = `<span class="status good"><span class="dot"></span>Finished ${esc(ago(job.finished))}</span> <span class="small muted">${esc(job.result || "")}</span>`;
+  const retry = name === "prepare" && (state.data.engine || {}).retry_prepare;
+  if (retry && !job.running) line += `<div class="small" style="margin-top:4px"><span class="status warning"><span class="dot"></span>Continues by itself at ${esc(new Date(retry).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))}</span></div>`;
   return `<article class="card"><div class="card-head"><div class="meta"><h3>${title}</h3>
       <div class="small muted" style="margin-top:4px">${blurb}</div><div style="margin-top:8px">${line}</div></div>
       ${queued ? `<div class="banner" style="margin:0"><span>Starts at the next engine run (≤5 min)</span><button class="btn" data-cancel="${fam}">Undo</button></div>`
@@ -708,6 +710,7 @@ function renderEngine(panel, pend) {
       <article class="card"><div class="quote" style="background:none;padding:0;max-height:none">${esc(e.digest.text)}</div></article>` : ""}
 
     <h2 class="section">LinkedIn posts this week · post 2 by hand</h2>
+    <p class="small muted" style="margin:-4px 0 10px">Drafts by AI from your proof points. Read every claim before posting and cut anything that isn't exactly true.</p>
     ${e.posts && e.posts.posts && e.posts.posts.length ? e.posts.posts.map((p, i) => `<article class="card">
         <div class="small muted">Draft ${i + 1} · based on ${esc(p.proof_id)}</div><div class="quote" style="max-height:none">${esc(p.text)}</div>
         <div class="actions"><button class="btn" data-copytext="${esc(p.text)}">Copy post</button></div></article>`).join("")

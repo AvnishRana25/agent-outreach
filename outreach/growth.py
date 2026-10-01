@@ -117,12 +117,15 @@ def linkedin_posts() -> str:
         "that business owners and founders who see his profile trust he can deliver.\n\nWHO HE IS\n" +
         "\n".join(f"- {x}" for x in p["identity"]) +
         "\n\nRULES\n- One post per proof point given, built only on that proof point's facts; quote numbers exactly.\n"
+        "- Never add a number, amount of money, percentage, time saved, outcome or detail of how it was done that the "
+        "proof point doesn't state. If you'd need one to make a point, make the point without it. Opinions and general "
+        "lessons are fine; invented specifics are not.\n"
         "- Structure: a concrete first line (a problem or a surprising fact, no clickbait), what was going wrong, what "
-        "he did, the result, one takeaway the reader can use.\n- No client names unless the proof point names them. "
-        "Never describe the NDA employer's work.\n- No 'I'm thrilled', no 'humbled', no emojis, no engagement bait, at "
-        "most 3 hashtags at the end.")
+        "he did, the result, one takeaway the reader can use. 4-6 short paragraphs separated by a blank line.\n"
+        "- First person ('I built...'). No client names unless the proof point names them. Never describe the NDA "
+        "employer's work.\n- No 'I'm thrilled', no 'humbled', no emojis, no engagement bait, at most 3 hashtags at the end.")
     prompt = "Write one post for each of these proof points:\n" + "\n".join(f"- [{x['id']}] {x['text']}" for x in proofs)
-    out = llm.generate(system, prompt, Posts, kind="draft", temperature=0.7)
+    out = llm.generate(system, prompt, Posts, kind="reply", temperature=0.7)
     if not out or not out.posts:
         return "error: Gemini returned nothing usable"
     with db.connect() as conn:

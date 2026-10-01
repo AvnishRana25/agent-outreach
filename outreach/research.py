@@ -101,8 +101,8 @@ def run(limit: int, use_mock: bool = False) -> dict:
         try:
             brief = mock_brief(row) if use_mock else llm.generate(
                 _system(), _prompt(row, news(row["company"])), Brief, kind="research", temperature=0.2)
-        except llm.QuotaExhausted:
-            print("  Gemini daily quota reached; the rest waits for tomorrow")
+        except llm.QuotaExhausted as e:
+            print(f"  stopped researching: {e}")
             break
         if brief is None:
             counts["failed"] += 1

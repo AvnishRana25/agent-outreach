@@ -131,3 +131,27 @@ def test_monday_runs_posts_and_digest(monkeypatch):
     fake_clock(monkeypatch, 2026, 10, 6, 3, 45)          # Tuesday: neither
     engine.tick()
     assert "content" not in calls and "digest" not in calls
+
+
+def test_prepare_retries_itself_after_gemini_stops(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from outreach import db, engine, replies, sender
+    calls = []
+    monkeypatch.setattr(engine, "spawn", lambda job: calls.append(job) or "started")
+    monkeypatch.setattr(sender, "tick", lambda n: 0)
+    monkeypatch.setattr(replies, "sync", lambda d: 0)
+    fake_clock(monkeypatch, 2026, 10, 6, 6, 0)            # Tuesday 11:30 IST, after the daily run
+    with db.connect() as conn:
+        db.set_state(conn, "tick:prepare", "2026-10-06")
+    at = engine.schedule_retry("prepare", "busy")
+    assert at.utcoffset() == timedelta(hours=5, minutes=30)
+    engine.tick()
+    assert "prepare" not in calls                           # not yet: 45 minutes to go
+    fake_clock(monkeypatch, 2026, 10, 6, 6, 50)
+    engine.tick()
+    assert calls.count("prepare") == 1
+    engine.tick()
+    assert calls.count("prepare") == 1                      # the retry is used once
+    with db.connect() as conn:
+        assert db.get_state(conn, "retry:prepare") == ""
+    _ = datetime, timezone
