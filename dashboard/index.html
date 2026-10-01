@@ -203,6 +203,15 @@ svg.chart text { fill: var(--muted); font-size: 11px; }
 .badge.review { background: rgba(250, 178, 25, 0.20); color: var(--warning-ink); }
 .badge.unverified, .badge.invalid, .badge.low { background: rgba(111, 109, 104, 0.15); color: var(--muted); }
 .badge.catchall { background: rgba(235, 104, 52, 0.15); color: #d95926; }
+.linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent-ink); cursor: pointer; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px; }
+.linkbtn:hover, .linkbtn:focus-visible { text-decoration-color: currentColor; }
+table.leads td { vertical-align: top; }
+.prospect-top { display: grid; grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr); gap: 12px; margin-top: 4px; align-items: start; }
+.quick-find input { min-width: 0; width: 100%; box-sizing: border-box; }
+.prospect-side { display: flex; flex-direction: column; gap: 12px; }
+.quick-find { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 8px; }
+.credit-row { margin: 8px 0; }
+@media (max-width: 760px) { .prospect-top { grid-template-columns: 1fr; } .quick-find { grid-template-columns: 1fr 1fr; } }
 </style>
 </head>
 <body>
@@ -225,7 +234,10 @@ const SOURCE_LABEL = { yc: "YC directory", hn_hiring: "HN Who is hiring", hn_fre
   apify_maps: "Google Maps (Apify)", adlibrary: "Meta Ad Library", csv: "CSV import" };
 const srcName = (s) => SOURCE_LABEL[s] || (s && s.startsWith("jobs_") ? "Job board · " + s.slice(5) : s || "—");
 const CATEGORY_LABEL = { interested: "Interested", meeting_request: "Wants a call", question: "Question", referral: "Referral",
-  other: "Other reply", unclassified: "Not read by AI yet" };
+  other: "Other reply", unclassified: "Not read by AI yet", not_now: "Not now", not_interested: "Not interested",
+  unsubscribe: "Asked to stop", out_of_office: "Out of office" };
+// Replies that need an answer from you; the rest are shown too, so nothing is missed, but don't count as waiting.
+const NEEDS_YOU = new Set(["interested", "meeting_request", "question", "referral", "other", "unclassified"]);
 
 const state = { data: null, tab: localGet("tab") || "review", segment: "all", edits: {}, drafts: {}, loading: false };
 
@@ -293,7 +305,8 @@ async function load(quiet) {
 const FAMILY_OF = { approve: "review", reject: "review", regenerate: "review", reply_send: "reply", reply_done: "reply",
   post_done: "post", run_prepare: "run", run_community: "community", pause_sending: "sending", resume_sending: "sending", add_lead: "lead",
   set_stage: "deal", make_plan: "plan", run_content: "content", sync: "sync",
-  send_anyway: "held", mark_sent: "held", retry_send: "held", promote_prospect: "prospect", find_prospects: "find" };
+  send_anyway: "held", mark_sent: "held", retry_send: "held", promote_prospect: "prospect", find_prospects: "find",
+  approve_many: "bulk", run_all: "runall", draft_lead: "draftlead" };
 const POST_KIND = { news: "Take on this week's AI news", industry: "Opinion on the AI industry", build: "Lesson from building" };
 const STAGE_LABEL = { "": "No stage", call_booked: "Call booked", proposal_sent: "Proposal sent", won: "Won", lost: "Lost" };
 
@@ -349,8 +362,8 @@ function render() {
   const pend = pendingMap();
   const review = d.review || [], reply = d.reply || [], post = d.post || [];
   const openReview = review.filter((x) => !pend["review:" + x.id]).length;
-  const openRespond = reply.filter((x) => !pend["reply:" + x.id]).length + post.filter((x) => !pend["post:" + x.id]).length;
-  const tabs = [["review", "Review", openReview], ["respond", "Respond", openRespond], ["prospects", "Prospecting", null], ["engine", "Engine", null], ["results", "Results", null], ["activity", "Activity", null]];
+  const openRespond = reply.filter((x) => !pend["reply:" + x.id] && NEEDS_YOU.has(x.category)).length + post.filter((x) => !pend["post:" + x.id]).length;
+  const tabs = [["review", "Review", openReview], ["respond", "Respond", openRespond], ["leads", "Leads", (d.lead || []).length], ["prospects", "Prospecting", null], ["engine", "Engine", null], ["results", "Results", null], ["activity", "Activity", null]];
   $("#app").innerHTML = `
     <header class="bar"><div class="wrap">
       <div class="brand">${LOGO}<span>Outreach Desk</span></div>
@@ -376,6 +389,7 @@ function render() {
   if (state.tab === "review") renderReview(panel, pend);
   else if (state.tab === "respond") renderRespond(panel, pend);
   else if (state.tab === "prospects") renderProspects(panel);
+  else if (state.tab === "leads") renderLeads(panel, pend);
   else if (state.tab === "results") renderResults(panel);
   else if (state.tab === "engine") renderEngine(panel, pend);
   else renderActivity(panel);
@@ -423,12 +437,22 @@ function renderReview(panel, pend) {
         ${segs.map((s) => `<option value="${esc(s)}" ${state.segment === s ? "selected" : ""}>${esc(segName(s))} (${all.filter((x) => x.segment === s).length})</option>`).join("")}
       </select>
       <span class="spacer"></span>
-      <span class="small muted">Approved emails send on schedule in each market's business hours.</span>
+      ${list.filter((x) => !pend["review:" + x.id]).length ? `<button class="btn primary" id="approve-all">Approve all ${list.filter((x) => !pend["review:" + x.id]).length}${state.segment === "all" ? "" : " in " + esc(segName(state.segment))}</button>` : ""}
     </div>
+    <p class="small muted" style="margin:-4px 0 10px">Approved emails send on schedule in each market's business hours. Every one still passes the safety checks first; anything stopped shows under Held with the reason.</p>
     ${heldSection(pend)}
     ${list.length ? list.map((x) => reviewCard(x, pend["review:" + x.id])).join("")
       : `<div class="empty"><strong>Nothing to review</strong>New drafts appear after the morning run on your laptop.</div>`}`;
   $("#seg").onchange = (e) => { state.segment = e.target.value; render(); };
+  const approveAll = $("#approve-all");
+  if (approveAll) approveAll.onclick = () => {
+    const ids = list.filter((x) => !pend["review:" + x.id]).map((x) => x.id);
+    const edited = ids.filter((id) => state.edits[id]).length;
+    if (!confirm(`Approve all ${ids.length} drafts${state.segment === "all" ? "" : " in " + segName(state.segment)}?` +
+      (edited ? `\n\n${edited} have unsaved edits; approve those one by one to keep your edits.` : "") +
+      "\n\nEach still passes the safety checks before sending.")) return;
+    act("approve_many", Date.now() % 2e9, { ids: ids.slice(0, 300) }, `Approving ${ids.length} drafts. They go into the send queue within a minute.`);
+  };
   panel.querySelectorAll("[data-held-act]").forEach((b) => (b.onclick = () => {
     const [kind, id] = b.dataset.heldAct.split(":");
     const msg = { send_anyway: "Will send at the next run in business hours.", mark_sent: "Marked as sent; follow-ups scheduled.",
@@ -544,8 +568,10 @@ function renderRespond(panel, pend) {
       ${deals.map((d) => dealRow(d, pend["deal:" + d.id], today)).join("")}</tbody></table></div>`
       : `<div class="empty"><strong>No conversations yet</strong>Leads appear here when they reply positively. Track each one through call, proposal and won.</div>`}
     <h2 class="section">Email replies <span class="count num">${reply.length}</span></h2>
-    ${reply.length ? reply.map((r) => replyCard(r, pend["reply:" + r.id], pend["plan:" + r.id])).join("")
-      : `<div class="empty"><strong>No replies waiting</strong>Positive replies appear here within 20 minutes of arriving.</div>`}
+    <p class="small muted" style="margin:-4px 0 10px">Every reply to your emails shows here (bounces excluded), newest answers needed first. "Not interested", "Asked to stop" and out-of-office replies are listed too: their sequence has already stopped, so just mark them done.</p>
+    ${reply.length ? [...reply].sort((a, b) => (NEEDS_YOU.has(b.category) - NEEDS_YOU.has(a.category)) || (a.received_at < b.received_at ? -1 : 1))
+        .map((r) => replyCard(r, pend["reply:" + r.id], pend["plan:" + r.id])).join("")
+      : `<div class="empty"><strong>No replies yet</strong>Replies appear here within 10 minutes of arriving.</div>`}
     <h2 class="section">Community posts <span class="count num">${post.length}</span></h2>
     ${post.length ? post.map((p) => postCard(p, pend["post:" + p.id])).join("")
       : `<div class="empty"><strong>No open posts</strong>New [Hiring] posts from the n8n forum and Reddit land here.</div>`}`;
@@ -593,7 +619,7 @@ function replyCard(r, pending, planPending) {
     <div class="card-head"><div class="meta">
       <h3>${esc(r.first_name || r.from)}${r.company ? " · " + esc(r.company) : ""}</h3>
       <div class="small muted">${esc(r.from)} · ${esc(ago(r.received_at))}</div>
-      <div class="chips"><span class="chip strong">${esc(CATEGORY_LABEL[r.category] || r.category)}</span><span class="chip">${esc(segName(r.segment))}</span></div>
+      <div class="chips"><span class="chip ${NEEDS_YOU.has(r.category) ? "strong" : ""}">${esc(CATEGORY_LABEL[r.category] || r.category)}</span><span class="chip">${esc(segName(r.segment))}</span></div>
     </div></div>
     <dl class="kv"><dt>Summary</dt><dd>${esc(r.summary)}</dd></dl>
     <details open><summary>Their message</summary><div class="quote">${esc(r.body)}</div></details>
@@ -653,6 +679,87 @@ async function copy(text) {
 }
 
 /* ------------------------------------------------------------------ results */
+/* ------------------------------------------------------------------ leads */
+const LEAD_GROUPS = [["all", "All"], ["finding", "Being found"], ["ready", "Ready to draft"], ["review", "In review"],
+  ["queued", "Queued to send"], ["sent", "Sent"], ["replied", "Replied"], ["skipped", "Skipped"]];
+state.leadFilter = { groups: null, segment: "all", source: "", status: "", q: "", limit: 100 };
+
+function leadMatches(x, f) {
+  if (f.groups && !f.groups.includes(x.group)) return false;
+  if (f.status && x.status !== f.status) return false;
+  if (f.segment !== "all" && x.segment !== f.segment) return false;
+  if (f.source && x.source !== f.source) return false;
+  if (f.q) {
+    const q = f.q.toLowerCase();
+    if (![x.company, x.email, x.name, x.website].some((v) => (v || "").toLowerCase().includes(q))) return false;
+  }
+  return true;
+}
+
+function renderLeads(panel, pend) {
+  const all = state.data.lead || [];
+  const f = state.leadFilter;
+  const base = all.filter((x) => leadMatches(x, { ...f, groups: null, status: "" }));
+  const list = all.filter((x) => leadMatches(x, f));
+  const count = (g) => g === "all" ? base.length : base.filter((x) => x.group === g).length;
+  const active = (g) => g === "all" ? !f.groups && !f.status : f.groups && f.groups.length === 1 && f.groups[0] === g;
+  const segs = [...new Set(all.map((x) => x.segment))].sort();
+  const chk = (x) => x.check == null ? "" : x.check === "ok"
+    ? `<span class="status good"><span class="dot"></span>Passes checks</span>`
+    : `<span class="status warning" title="${esc(x.check)}"><span class="dot"></span>Would be held</span><div class="small muted">${esc(x.check)}</div>`;
+  const actionFor = (x) => {
+    if (pend["draftlead:" + x.id]) return `<span class="small muted">Drafting…</span>`;
+    if (x.group === "review") return `<button class="btn small" data-goreview>Open in Review</button>`;
+    if (x.can_draft) return `<button class="btn small ${x.group === "ready" ? "primary" : ""}" data-draftlead="${x.id}" title="${x.status === "unfit" ? "Research said poor fit; draft anyway" : "Research (if needed) and draft now"}">${x.status === "unfit" ? "Draft anyway" : "Draft email"}</button>`;
+    return "";
+  };
+  panel.innerHTML = `
+    <div class="card" style="margin-top:4px"><h3 style="margin:0">Every lead, in one place</h3>
+      <p class="small muted" style="margin:6px 0 0">These are all the companies the engine has found, from every source. They're stored on your Mac in <code>data/outreach.db</code>, table <code>leads</code> (one row per company; its emails are in <code>messages</code>, replies in <code>replies</code>). This tab shows a copy your Mac syncs every few minutes.
+      Draft a lead here and it goes to <strong>Review</strong>; when you approve it, it passes the safety checks and sends to that lead's address in business hours.</p></div>
+    <div class="chips" style="margin:12px 0 8px;gap:6px">${LEAD_GROUPS.map(([g, name]) =>
+      `<button class="btn small ${active(g) ? "primary" : ""}" data-group="${g}">${name} <span class="num">${count(g)}</span></button>`).join("")}</div>
+    <div class="toolbar">
+      <select id="lead-seg" aria-label="Segment"><option value="all">All segments</option>${segs.map((sg) => `<option value="${esc(sg)}" ${f.segment === sg ? "selected" : ""}>${esc(segName(sg))}</option>`).join("")}</select>
+      <input type="search" id="lead-q" placeholder="Search company, email, name…" value="${esc(f.q)}" aria-label="Search leads" style="min-width:220px">
+      ${f.source || f.status ? `<span class="chip">${esc(f.source ? "Source: " + srcName(f.source) : "Status: " + f.status)}</span><button class="btn ghost small" id="lead-clear">Clear</button>` : ""}
+      <span class="spacer"></span><span class="small muted num">${list.length} of ${all.length}</span>
+    </div>
+    ${list.length ? `<div class="table-wrap"><table class="leads"><thead><tr><th>Company</th><th>Contact</th><th>Segment · source</th><th>Where it is</th><th>Safety check</th><th></th></tr></thead><tbody>
+      ${list.slice(0, f.limit).map((x) => `<tr>
+        <td><strong>${esc(x.company)}</strong>${x.website ? `<div><a class="small muted" href="${esc(safeUrl(x.website))}" target="_blank" rel="noopener noreferrer">${esc(x.website.replace(/^https?:\/\//, ""))} ↗</a></div>` : ""}</td>
+        <td>${x.name ? esc(x.name) + "<br>" : ""}<span class="small ${x.email ? "" : "muted"}">${esc(x.email || "no email")}</span>${x.email && x.email_status !== "valid" ? ` <span class="badge ${x.email_status === "risky" ? "review" : "unverified"}">${esc(x.email_status)}</span>` : ""}</td>
+        <td class="small">${esc(segName(x.segment))}<div class="muted">${esc(srcName(x.source))}</div></td>
+        <td style="white-space:normal;text-align:left"><span class="badge ${x.group === "skipped" ? "unverified" : x.group === "replied" || x.group === "sent" ? "verified" : x.group === "review" || x.group === "queued" ? "high" : "review"}">${esc(x.label)}</span>
+          ${x.reply ? ` <span class="chip">${esc(CATEGORY_LABEL[x.reply] || x.reply)}</span>` : ""}
+          ${x.why ? `<div class="small muted" style="margin-top:3px">${esc(x.why)}</div>` : ""}
+          ${x.subject ? `<div class="small" style="margin-top:3px">Subject: ${esc(x.subject)}</div>` : ""}</td>
+        <td style="white-space:normal;text-align:left">${chk(x)}</td>
+        <td style="text-align:right">${actionFor(x)}</td></tr>`).join("")}
+      </tbody></table></div>
+      ${list.length > f.limit ? `<div style="text-align:center;margin:12px"><button class="btn" id="lead-more">Show ${Math.min(100, list.length - f.limit)} more</button></div>` : ""}`
+      : `<div class="empty"><strong>No leads match</strong>${all.length ? "Change the filters above." : "Leads appear after the first 'Find & draft' run."}</div>`}`;
+  panel.querySelectorAll("[data-group]").forEach((b) => (b.onclick = () => {
+    f.groups = b.dataset.group === "all" ? null : [b.dataset.group]; f.status = ""; f.limit = 100; render();
+  }));
+  $("#lead-seg").onchange = (e) => { f.segment = e.target.value; f.limit = 100; render(); };
+  let t;
+  $("#lead-q").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { f.q = e.target.value.trim(); f.limit = 100; render(); const q = $("#lead-q"); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }, 250); };
+  const clear = $("#lead-clear");
+  if (clear) clear.onclick = () => { f.source = ""; f.status = ""; render(); };
+  const more = $("#lead-more");
+  if (more) more.onclick = () => { f.limit += 100; render(); };
+  panel.querySelectorAll("[data-draftlead]").forEach((b) => (b.onclick = () =>
+    act("draft_lead", Number(b.dataset.draftlead), {}, "Drafting. It appears in Review in 1-3 minutes.")));
+  panel.querySelectorAll("[data-goreview]").forEach((b) => (b.onclick = () => { state.tab = "review"; render(); }));
+}
+
+/* Results -> Leads: show the leads behind any number. */
+function showLeads(filter) {
+  state.leadFilter = { groups: null, segment: "all", source: "", status: "", q: "", limit: 100, ...filter };
+  state.tab = "leads"; localSet("tab", "leads"); render(); scrollTo(0, 0);
+}
+
 function renderResults(panel) {
   const st = state.data.stats || { segments: [], sources: [] };
   const h = state.data.health || {};
@@ -661,7 +768,8 @@ function renderResults(panel) {
   const contractRows = st.contract && st.contract.length ? st.contract : [];
   const internRows = st.internship && st.internship.length ? st.internship : [];
   panel.innerHTML = `
-    <h2 class="section" style="margin-top:4px">Emails sent per day · last 30 days</h2>
+    <p class="small muted" style="margin:4px 0 0">Click any segment, source or number to see exactly which leads it counts, where each one stopped, and why.</p>
+    <h2 class="section" style="margin-top:8px">Emails sent per day · last 30 days</h2>
     <div class="chart-card">${sendsChart(h.daily_sends || [])}</div>
     <h2 class="section">Contract funnel</h2>${funnelTable(contractRows.length ? contractRows : st.segments, "Segment", segName)}
     ${internRows.length ? `<h2 class="section">Internship funnel</h2>${funnelTable(internRows, "Segment", segName)}` : ""}
@@ -669,11 +777,22 @@ function renderResults(panel) {
     <h2 class="section">By lead source</h2>${funnelTable(st.sources, "Source", srcName)}
     <h2 class="section">Pipeline</h2>
     <div class="table-wrap"><table><thead><tr><th>Stage</th><th>Leads</th></tr></thead><tbody>
-      ${order.filter((k) => status[k]).map((k) => `<tr><td>${esc(k)}</td><td class="num">${status[k]}</td></tr>`).join("") || `<tr><td class="muted">No leads yet</td><td></td></tr>`}
+      ${order.filter((k) => status[k]).map((k) => `<tr><td><button class="linkbtn" data-status="${esc(k)}">${esc(k)}</button></td><td class="num"><button class="linkbtn" data-status="${esc(k)}">${status[k]}</button></td></tr>`).join("") || `<tr><td class="muted">No leads yet</td><td></td></tr>`}
     </tbody></table></div>
     <p class="small muted">Rule of thumb from the playbook: after about 60 first emails in a segment, under 3% replies means change the angle, and over 3% bounces means clean the list.</p>`;
   bindChartTips(panel);
+  panel.querySelectorAll("[data-cell]").forEach((b) => (b.onclick = () => {
+    const filter = { groups: CELL_GROUPS[b.dataset.cell] || null };
+    if (b.dataset.key === "segment") filter.segment = b.dataset.val;
+    if (b.dataset.key === "source") filter.source = b.dataset.val;
+    showLeads(filter);
+  }));
+  panel.querySelectorAll("[data-status]").forEach((b) => (b.onclick = () => showLeads({ status: b.dataset.status })));
 }
+
+// Which leads a funnel cell counts (see report.funnel): clicking it opens them in the Leads tab.
+const CELL_GROUPS = { leads: null, queued: ["review", "queued"], sent: ["sent", "replied"], replied: ["replied"],
+  positive: ["replied"], calls: ["replied"], won: ["replied"], bounced: ["skipped"] };
 
 function funnelTable(rows, label, name) {
   if (!rows || !rows.length) return `<div class="empty"><strong>No data yet</strong>Numbers appear after the first sends.</div>`;
@@ -682,11 +801,14 @@ function funnelTable(rows, label, name) {
     : `<span class="rate">${bar ? `<span class="bar" aria-hidden="true"><i style="width:${(100 * v) / maxRate}%"></i></span>` : ""}<span class="num">${v.toFixed(1)}%</span></span>`;
   return `<div class="table-wrap"><table>
     <thead><tr><th>${label}</th><th>Leads</th><th>Queued</th><th>Sent</th><th>Replied</th><th>Positive</th><th>Calls</th><th>Won</th><th>Bounced</th><th>Reply rate</th><th>Positive rate</th></tr></thead>
-    <tbody>${rows.map((r) => `<tr class="${r.name === "ALL" ? "total" : ""}">
-      <td>${esc(r.name === "ALL" ? "All" : name(r.name))}</td><td class="num">${r.leads}</td><td class="num">${r.queued}</td>
-      <td class="num">${r.sent}</td><td class="num">${r.replied}</td><td class="num">${r.positive}</td><td class="num">${r.calls ?? 0}</td>
+    <tbody>${rows.map((r) => {
+      const key = r.name === "ALL" ? "" : `data-key="${esc(label === "Source" ? "source" : "segment")}" data-val="${esc(r.name)}"`;
+      const cell = (k, v) => `<td class="num"><button class="linkbtn" ${key} data-cell="${k}" title="Show these leads">${v}</button></td>`;
+      return `<tr class="${r.name === "ALL" ? "total" : ""}">
+      <td><button class="linkbtn" ${key} data-cell="leads" title="Show all leads here">${esc(r.name === "ALL" ? "All" : name(r.name))}</button></td>${cell("leads", r.leads)}${cell("queued", r.queued)}
+      ${cell("sent", r.sent)}${cell("replied", r.replied)}<td class="num">${r.positive}</td><td class="num">${r.calls ?? 0}</td>
       <td class="num">${r.won ?? 0}${Object.keys(r.won_values || {}).length ? ` <span class="muted small">(${Object.entries(r.won_values).map(([c, v]) => `${esc(c)} ${v}`).join(", ")})</span>` : ""}</td><td class="num">${r.bounced}</td>
-      <td>${rate(r.reply_rate, r.name !== "ALL")}</td><td>${rate(r.positive_rate, false)}</td></tr>`).join("")}</tbody></table></div>`;
+      <td>${rate(r.reply_rate, r.name !== "ALL")}</td><td>${rate(r.positive_rate, false)}</td></tr>`; }).join("")}</tbody></table></div>`;
 }
 
 function angleTable(rows) {
@@ -838,6 +960,11 @@ function renderEngine(panel, pend) {
       ${sendPending ? `<div class="banner" style="margin:0"><span>${sendPending.kind === "pause_sending" ? "Pausing" : "Resuming"} within a minute</span><button class="btn" data-cancel="sending">Undo</button></div>`
         : e.sending_paused ? `<button class="btn primary" data-run="resume_sending">Resume sending</button>` : `<button class="btn danger" data-run="pause_sending">Pause sending</button>`}
     </div></article>
+    <article class="card"><div class="card-head"><div class="meta"><h3>Run everything now</h3>
+      <div class="small muted" style="margin-top:4px">Starts all three jobs below at once: new leads, community boards and LinkedIn posts. Each runs on its own, so one being slow doesn't hold up the others.</div></div>
+      ${pend["runall:1"] ? `<div class="banner" style="margin:0"><span>Starting within a minute…</span><button class="btn" data-cancel="runall">Undo</button></div>`
+        : `<button class="btn primary" id="run-all" ${Object.keys(JOB_INFO).every((j) => (jobs[j] || {}).running) ? "disabled" : ""}>Run all three</button>`}
+    </div></article>
     ${Object.keys(JOB_INFO).map((j) => jobCard(j, jobs[j] || {}, pend)).join("")}
 
     ${e.digest ? `<h2 class="section">Weekly summary <span class="small muted">· ${esc(ago(e.digest.at))}</span></h2>
@@ -878,7 +1005,9 @@ function renderEngine(panel, pend) {
         <div class="email"><label>Message after they accept</label><div class="quote">${esc(l.linkedin_dm)}</div><button class="btn" data-copytext="${esc(l.linkedin_dm)}" style="margin-top:6px">Copy message</button></div></article>`;
     }).join("") : `<div class="empty"><strong>Nothing for LinkedIn today</strong>Approved leads with a LinkedIn note appear here.</div>`}`;
 
-  panel.querySelectorAll("[data-run]").forEach((b) => (b.onclick = () => act(b.dataset.run, 1, {}, "Queued. The engine picks it up within 5 minutes.")));
+  panel.querySelectorAll("[data-run]").forEach((b) => (b.onclick = () => act(b.dataset.run, 1, {}, "Queued. Your Mac starts it within a minute.")));
+  const runAll = $("#run-all");
+  if (runAll) runAll.onclick = () => act("run_all", 1, {}, "Starting new leads, community boards and LinkedIn posts within a minute.");
   panel.querySelectorAll("[data-cancel]").forEach((b) => (b.onclick = () => act("cancel", 1, { family: b.dataset.cancel }, "Undone.")));
   panel.querySelectorAll("[data-copytext]").forEach((b) => (b.onclick = () => copy(b.dataset.copytext)));
   $("#addlead").onsubmit = (ev) => {
@@ -974,194 +1103,112 @@ async function loadProspectingData() {
   }
 }
 
-async function renderProspects(panel) {
-  panel.innerHTML = `<div class="empty"><strong>Loading prospects...</strong>Fetching verified B2B contacts.</div>`;
-  await loadProspectingData();
+const PROSPECT_FILTERS = [["all", "All"], ["verified", "Verified"], ["high_confidence", "High confidence"],
+  ["uncertain", "Needs a check"], ["not_found", "Not found"]];
 
+function confBadge(p) {
+  const c = p.confidence_score || 0;
+  const [cls, label] = c >= 90 ? ["verified", "Verified"] : c >= 75 ? ["high", "High"] : c >= 55 ? ["review", "Check"] : ["unverified", p.final_email ? "Low" : "None"];
+  return `<span class="badge ${cls}" title="Confidence ${c}%">${label} · ${c}%</span>`;
+}
+
+function howFound(p) {
+  if (p.verification_provider) return `Confirmed by ${esc(p.verification_provider)}`;
+  return { public_match: "Published on the web", company_pattern: "Company's address pattern", pattern_inference: "Best guess from name" }[p.source] || "—";
+}
+
+function creditsPanel(stats) {
+  const b = stats.budget || {};
+  const rows = ["prospeo", "hunter", "skrapp"].filter((n) => b[n]).map((n) => {
+    const x = b[n], pct = x.usable_monthly ? Math.min(100, (100 * x.used_month) / x.usable_monthly) : 0;
+    return `<div class="credit-row"><div class="small"><strong>${esc(n[0].toUpperCase() + n.slice(1))}</strong>
+        <span class="muted">${x.used_month}/${x.usable_monthly} this month · ${x.used_today}/${x.daily_cap} today${x.balance != null ? " · account balance " + x.balance : ""}</span></div>
+      <div class="meter" role="img" aria-label="${x.used_month} of ${x.usable_monthly} used"><i style="width:${pct}%"></i></div>
+      ${x.paused ? `<div class="small" style="color:var(--critical-ink)">Paused: ${esc(x.paused)}</div>` : ""}</div>`;
+  }).join("");
+  return `<article class="card"><h3 style="margin:0">Paid lookups (free plans)</h3>
+    <p class="small muted" style="margin:4px 0 10px">Used only when free sources can't confirm an email. 20% of each plan is never touched, and the same person is never looked up twice.</p>
+    ${rows || `<div class="small muted">No provider keys set. Free sources still work.</div>`}</article>`;
+}
+
+async function renderProspects(panel) {
+  if (!state.prospects) panel.innerHTML = `<div class="empty"><strong>Loading…</strong></div>`;
+  await loadProspectingData();
   const stats = state.prospects_stats || {};
   const list = state.prospects || [];
-  const targetDaily = stats.target_daily || 38;
-  const verifiedToday = stats.verified_today || 0;
-  const total = stats.total || list.length;
   const counts = stats.counts_by_status || {};
-  const credits = stats.credits_used || {};
-
-  const pct = (a, b) => (b ? Math.min(100, Math.round((100 * a) / b)) : 0);
+  const f = state.prospects_filter;
+  const total = Object.values(counts).reduce((a, b) => a + b, 0) || stats.total || 0;
+  const countFor = (k) => k === "all" ? total : counts[k] || 0;
+  const target = stats.target_daily || 38, today = stats.verified_today || 0;
 
   panel.innerHTML = `
-    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
-      <div>
-        <h2 style="margin:0; font-size:18px; font-weight:650;">B2B Email Prospecting Engine</h2>
-        <div class="small muted" style="margin-top:2px;">Free-source discovery, pattern deduction, and confidence-scored email verification</div>
-      </div>
-      <div style="display:flex; gap:8px;">
-        <button class="btn primary" id="btn-add-prospect">+ Enrich Prospect</button>
-        <button class="btn" id="btn-bulk-import">📁 Bulk CSV Import</button>
-        <a class="btn" href="/api/prospects/export" target="_blank" download="prospects.csv">⬇ Export CSV</a>
-      </div>
-    </div>
-
-    <!-- KPI Tiles -->
-    <div class="tiles" style="margin-top:0;">
-      <div class="tile">
-        <div class="label">Daily Verified Target</div>
-        <div class="value num">${verifiedToday}<small> / ${targetDaily}</small></div>
-        <div class="meter" role="img" aria-label="${verifiedToday} of ${targetDaily} verified today"><i style="width:${pct(verifiedToday, targetDaily)}%"></i></div>
-        <div class="sub">${pct(verifiedToday, targetDaily)}% of daily goal reached</div>
-      </div>
-      <div class="tile">
-        <div class="label">Total Prospects</div>
-        <div class="value num">${total}</div>
-        <div class="sub">${counts.verified || 0} verified · ${counts.high_confidence || 0} high conf</div>
-      </div>
-      <div class="tile">
-        <div class="label">Needs Review</div>
-        <div class="value num">${counts.uncertain || 0}</div>
-        <div class="sub">55-74% confidence · review before send</div>
-      </div>
-      <div class="tile">
-        <div class="label">Provider credits (free plans)</div>
-        <div class="small" style="margin-top:4px; display:flex; flex-direction:column; gap:3px;">
-          ${["prospeo", "hunter", "skrapp"].map((name) => {
-            const b = (stats.budget || {})[name];
-            if (!b) return `<div>${esc(name)}: <strong class="num">${credits[name] || 0}</strong></div>`;
-            const label = name[0].toUpperCase() + name.slice(1);
-            return `<div title="Plan ${b.plan_monthly}/month; the engine uses at most ${b.usable_monthly} and spreads them over the month${b.balance != null ? ". Account balance: " + b.balance : ""}">
-              ${esc(label)}: <strong class="num">${b.used_month}</strong>/${b.usable_monthly} this month · today ${b.used_today}/${b.daily_cap}
-              ${b.paused ? `<div class="small" style="color:var(--critical-ink)">Paused: ${esc(b.paused)}</div>` : ""}</div>`;
-          }).join("")}
-        </div>
-        <div class="sub" style="margin-top:4px;">Used only when free sources can't confirm an email; 20% of each plan is never touched.</div>
+    <div class="prospect-top">
+      <article class="card" style="margin:0">
+        <h3 style="margin:0">Find a person's work email</h3>
+        <p class="small muted" style="margin:4px 0 10px">Enter a name and their company (or website). It checks the company's site, public pages and its email pattern first, and only then a paid lookup.</p>
+        <form id="quick-find" class="quick-find">
+          <input name="first_name" placeholder="First name" required aria-label="First name">
+          <input name="last_name" placeholder="Last name" aria-label="Last name">
+          <input name="company" placeholder="Company or website" required aria-label="Company or website">
+          <button class="btn primary" type="submit" id="quick-find-go">Find email</button>
+        </form>
+        <div class="small muted" style="margin-top:8px">Have a list? <button class="linkbtn" id="btn-bulk-import">Import a CSV</button> · <a class="linkbtn" href="/api/prospects/export" download="prospects.csv">Export all as CSV</a> · <button class="linkbtn" id="btn-add-prospect">More fields (title, LinkedIn)</button></div>
+      </article>
+      <div class="prospect-side">
+        <article class="card" style="margin:0"><div class="small muted">Found today</div>
+          <div class="value num" style="font-size:24px;font-weight:650">${today}<small class="muted" style="font-size:14px"> / ${target} goal</small></div>
+          <div class="meter"><i style="width:${Math.min(100, (100 * today) / target)}%"></i></div></article>
+        ${creditsPanel(stats)}
       </div>
     </div>
 
-    <!-- Filters -->
-    <div class="toolbar" style="margin-top:16px;">
-      <input type="text" id="prospect-search" placeholder="Search name, company, email..." value="${esc(state.prospects_filter.search)}" style="min-width:240px;">
-      <select id="prospect-status">
-        <option value="all" ${state.prospects_filter.status === "all" ? "selected" : ""}>All Statuses</option>
-        <option value="verified" ${state.prospects_filter.status === "verified" ? "selected" : ""}>Verified (90%+)</option>
-        <option value="high_confidence" ${state.prospects_filter.status === "high_confidence" ? "selected" : ""}>High Confidence (75-89%)</option>
-        <option value="uncertain" ${state.prospects_filter.status === "uncertain" ? "selected" : ""}>Needs Review (55-74%)</option>
-        <option value="not_found" ${state.prospects_filter.status === "not_found" ? "selected" : ""}>Not found (&lt;55%)</option>
-      </select>
-      <button class="btn" id="prospect-filter-apply">Filter</button>
-      ${state.prospects_filter.search || state.prospects_filter.status !== "all" ? `<button class="btn ghost small" id="prospect-filter-clear">Clear</button>` : ""}
+    <div class="toolbar" style="margin-top:16px;flex-wrap:wrap;gap:6px">
+      ${PROSPECT_FILTERS.map(([k, label]) => `<button class="btn small ${f.status === k ? "primary" : ""}" data-pfilter="${k}">${label} <span class="num">${countFor(k)}</span></button>`).join("")}
       <span class="spacer"></span>
-      <span class="small muted num">${list.length} results</span>
+      <input type="search" id="prospect-search" placeholder="Search name, company, email…" value="${esc(f.search)}" aria-label="Search prospects" style="min-width:220px">
     </div>
 
-    <!-- Prospects Table -->
-    ${list.length ? `
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Contact & Title</th>
-              <th>Company & Domain</th>
-              <th>Discovered Email</th>
-              <th>Confidence</th>
-              <th>Pattern</th>
-              <th>Source / Provider</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${list.map((p) => {
-              const name = p.full_name || [p.first_name, p.last_name].filter(Boolean).join(" ") || "Unknown";
-              const conf = p.confidence_score != null ? p.confidence_score : 0;
-              let badgeCls = "unverified";
-              let badgeLabel = "Unverified";
-              if (conf >= 90 || p.email_status === "verified") {
-                badgeCls = "verified"; badgeLabel = "Verified";
-              } else if (conf >= 75 || p.confidence_level === "high_confidence") {
-                badgeCls = "high"; badgeLabel = "High";
-              } else if (conf >= 55 || p.email_status === "review") {
-                badgeCls = "review"; badgeLabel = "Review";
-              }
-              const hasEmail = Boolean(p.final_email);
-              return `<tr>
-                <td>
-                  <strong>${esc(name)}</strong>
-                  ${p.title ? `<div class="small muted">${esc(p.title)}</div>` : ""}
-                  ${p.linkedin_url ? `<a href="${esc(safeUrl(p.linkedin_url))}" target="_blank" rel="noopener noreferrer" class="small" style="font-size:11px;">LinkedIn ↗</a>` : ""}
-                </td>
-                <td>
-                  <strong>${esc(p.company || p.domain || "—")}</strong>
-                  ${p.domain ? `<div><a href="${esc(safeUrl('https://' + p.domain))}" target="_blank" rel="noopener noreferrer" class="small muted">${esc(p.domain)} ↗</a></div>` : ""}
-                </td>
-                <td>
-                  ${hasEmail ? `<div style="display:flex; align-items:center; gap:6px;">
-                    <span class="num font-bold">${esc(p.final_email)}</span>
-                    <button class="btn ghost icon-btn small" data-copy-email="${esc(p.final_email)}" title="Copy email">📋</button>
-                  </div>` : `<span class="muted small">None found</span>`}
-                </td>
-                <td>
-                  <span class="badge ${badgeCls}">${badgeLabel} ${conf}%</span>
-                  ${p.catch_all ? `<div style="margin-top:3px;"><span class="badge catchall" title="Catch-all domain">Catch-all</span></div>` : ""}
-                </td>
-                <td>
-                  ${p.email_pattern ? `<code class="small">${esc(p.email_pattern)}</code>` : `<span class="muted small">—</span>`}
-                </td>
-                <td>
-                  <div class="small">${esc(p.verification_provider ? 'Provider: ' + p.verification_provider : p.source || 'local')}</div>
-                  ${p.mx_valid ? `<div class="small muted" style="color:var(--good-ink);">✓ MX Valid</div>` : `<div class="small muted">MX: ?</div>`}
-                </td>
-                <td>
-                  <div style="display:flex; gap:4px; justify-content:flex-end;">
-                    <button class="btn small" data-inspect-prospect="${p.id}">Inspect</button>
-                    <button class="btn small ghost" data-reenrich-prospect="${p.id}" title="Re-enrich prospect">↻</button>
-                    ${p.final_email && ["verified", "high_confidence"].includes(p.confidence_level) ? `<button class="btn small" data-promote-prospect="${p.id}" title="Research, draft and queue for your review">Send to engine</button>` : ""}
-                  </div>
-                </td>
-              </tr>`;
-            }).join("")}
-          </tbody>
-        </table>
-      </div>
-    ` : `
-      <div class="empty">
-        <strong>No prospects found</strong>
-        ${state.prospects_filter.search || state.prospects_filter.status !== "all" ? "Try adjusting your search filters or clear them." : "Click '+ Enrich Prospect' to add your first target, or 'Bulk CSV Import' to enrich a list."}
-      </div>
-    `}
-  `;
+    ${list.length ? `<div class="table-wrap"><table class="prospects"><thead><tr><th>Person</th><th>Company</th><th>Email</th><th>How it was found</th><th></th></tr></thead><tbody>
+      ${list.map((p) => {
+        const name = p.full_name || [p.first_name, p.last_name].filter(Boolean).join(" ") || "Unknown";
+        const promotable = p.final_email && ["verified", "high_confidence"].includes(p.confidence_level);
+        return `<tr>
+          <td><strong>${esc(name)}</strong>${p.title ? `<div class="small muted">${esc(p.title)}</div>` : ""}${p.linkedin_url ? `<a href="${esc(safeUrl(p.linkedin_url))}" target="_blank" rel="noopener noreferrer" class="small">LinkedIn ↗</a>` : ""}</td>
+          <td>${esc(p.company || p.domain || "—")}${p.domain ? `<div><a href="${esc(safeUrl("https://" + p.domain))}" target="_blank" rel="noopener noreferrer" class="small muted">${esc(p.domain)} ↗</a></div>` : ""}</td>
+          <td>${p.final_email ? `<button class="linkbtn num" data-copy-email="${esc(p.final_email)}" title="Copy">${esc(p.final_email)}</button>` : `<span class="muted small">Not found</span>`}
+            <div style="margin-top:3px">${confBadge(p)}${p.catch_all ? ` <span class="badge catchall" title="This domain accepts any address, so nobody can fully verify it">Accepts any address</span>` : ""}${p.role_email ? ` <span class="badge review">Generic address</span>` : ""}</div></td>
+          <td class="small">${howFound(p)}${p.email_pattern ? `<div class="muted">Pattern: <code>${esc(p.email_pattern)}</code></div>` : ""}</td>
+          <td style="text-align:right;white-space:nowrap">
+            ${promotable ? `<button class="btn small primary" data-promote-prospect="${p.id}" title="Research, draft and queue for your review">Send to engine</button>` : ""}
+            <button class="btn small" data-inspect-prospect="${p.id}">Why?</button>
+            <button class="btn small ghost" data-reenrich-prospect="${p.id}" title="Check again">↻</button></td></tr>`;
+      }).join("")}</tbody></table></div>`
+      : `<div class="empty"><strong>${f.search || f.status !== "all" ? "Nothing matches" : "No one searched yet"}</strong>${f.search || f.status !== "all" ? "Try another filter or search." : "Use the form above to find someone's email."}</div>`}`;
 
-  // Bind events
+  $("#quick-find").onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    if (/[.]/.test(data.company) && !/\s/.test(data.company.trim())) { data.domain = data.company.replace(/^https?:\/\//, "").split("/")[0]; }
+    const btn = $("#quick-find-go"); btn.disabled = true; btn.textContent = "Searching…";
+    try {
+      const res = await api("prospects/enrich", data);
+      toast(res.queued ? "Queued: your Mac searches in the next minute or two." : res.final_email ? `Found ${res.final_email} (${res.confidence_score}%)` : "No reliable email found.");
+      renderProspects(panel);
+    } catch (err) { toast("Error: " + err.message); btn.disabled = false; btn.textContent = "Find email"; }
+  };
   $("#btn-add-prospect").onclick = () => showSingleProspectModal();
   $("#btn-bulk-import").onclick = () => showBulkImportModal();
-  $("#prospect-filter-apply").onclick = () => {
-    state.prospects_filter.search = $("#prospect-search").value.trim();
-    state.prospects_filter.status = $("#prospect-status").value;
-    renderProspects(panel);
-  };
-  $("#prospect-search").onkeydown = (e) => {
-    if (e.key === "Enter") {
-      state.prospects_filter.search = e.target.value.trim();
-      renderProspects(panel);
-    }
-  };
-  const clearBtn = $("#prospect-filter-clear");
-  if (clearBtn) {
-    clearBtn.onclick = () => {
-      state.prospects_filter = { status: "all", confidence: "all", search: "" };
-      renderProspects(panel);
-    };
-  }
-
-  panel.querySelectorAll("[data-copy-email]").forEach((b) => {
-    b.onclick = () => copy(b.dataset.copyEmail);
-  });
-
-  // Wire the buttons; nothing may run until it's clicked (these used to fire on every render, re-checking
-  // every prospect in a loop and spending provider credits).
+  panel.querySelectorAll("[data-pfilter]").forEach((b) => (b.onclick = () => { f.status = b.dataset.pfilter; renderProspects(panel); }));
+  let t;
+  $("#prospect-search").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { f.search = e.target.value.trim(); renderProspects(panel).then(() => { const q = $("#prospect-search"); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }); }, 350); };
+  panel.querySelectorAll("[data-copy-email]").forEach((b) => (b.onclick = () => copy(b.dataset.copyEmail)));
+  // Buttons act only when clicked (they once ran on every render, re-checking everyone and spending credits).
   panel.querySelectorAll("[data-inspect-prospect]").forEach((b) => (b.onclick = () => {
     const p = (state.prospects || []).find((x) => x.id === Number(b.dataset.inspectProspect));
     if (p) showEvidenceModal(p);
   }));
-
   panel.querySelectorAll("[data-promote-prospect]").forEach((b) => (b.onclick = () => promoteProspect(Number(b.dataset.promoteProspect))));
-
   panel.querySelectorAll("[data-reenrich-prospect]").forEach((b) => (b.onclick = () => {
     const p = (state.prospects || []).find((x) => x.id === Number(b.dataset.reenrichProspect));
     if (p) reEnrichProspect(p, b);
@@ -1402,8 +1449,11 @@ function renderActivity(panel) {
   const label = { approve: "Approve", reject: "Reject", regenerate: "Regenerate", reply_send: "Send reply", reply_done: "Reply done", post_done: "Post answered",
     run_prepare: "Find & draft", run_community: "Check boards", pause_sending: "Pause sending", resume_sending: "Resume sending", add_lead: "Add company",
     set_stage: "Deal stage", make_plan: "Make plan", run_content: "Draft posts", sync: "Sync now",
-    find_prospects: "Find emails", promote_prospect: "Send to engine", send_anyway: "Send anyway", mark_sent: "Marked sent", retry_send: "Retry send" };
-  panel.innerHTML = acts.length ? `<div class="table-wrap"><table>
+    find_prospects: "Find emails", promote_prospect: "Send to engine", send_anyway: "Send anyway", mark_sent: "Marked sent", retry_send: "Retry send",
+    approve_many: "Approve all", run_all: "Run all three", draft_lead: "Draft email" };
+  const finished = acts.filter((a) => a.status !== "pending").length;
+  panel.innerHTML = (acts.length ? `<div class="toolbar"><span class="small muted">The last ${acts.length} things you did and what happened. Items still waiting for your Mac are kept when you clear.</span><span class="spacer"></span>
+      <button class="btn" id="clear-activity" ${finished ? "" : "disabled"}>Clear activity</button></div>` : "") + (acts.length ? `<div class="table-wrap"><table>
     <thead><tr><th>When</th><th>Action</th><th>Item</th><th>Status</th><th>Result</th></tr></thead>
     <tbody>${acts.map((a) => {
       const cls = a.status === "applied" ? "good" : a.status === "error" ? "critical" : "warning";
@@ -1411,7 +1461,13 @@ function renderActivity(panel) {
       return `<tr><td>${esc(ago(a.created_at))}</td><td>${esc(label[a.kind] || a.kind)}</td><td class="num">${a.kind === "add_lead" || a.target === 1 && FAMILY_OF[a.kind] !== "review" ? "" : "#" + a.target}</td>
         <td><span class="status ${cls}"><span class="dot"></span>${st}</span></td><td style="text-align:left;white-space:normal">${esc(a.result || "")}</td></tr>`;
     }).join("")}</tbody></table></div>`
-    : `<div class="empty"><strong>No activity yet</strong>Everything you approve, send or mark done is listed here with its result.</div>`;
+    : `<div class="empty"><strong>No activity yet</strong>Everything you approve, send or mark done is listed here with its result.</div>`);
+  const clear = $("#clear-activity");
+  if (clear) clear.onclick = async () => {
+    if (!confirm(`Clear ${finished} finished entries from Activity? This only removes the log; nothing is undone.`)) return;
+    try { await api("activity/clear", {}); toast("Activity cleared."); await load(true); }
+    catch (e) { if (e.message !== "login required") toast("Couldn't clear: " + e.message); }
+  };
 }
 
 let resizeT;

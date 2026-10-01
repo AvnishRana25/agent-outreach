@@ -113,3 +113,31 @@ def run() -> dict:
                             score=score(seg, db.signals(row), status))
             counts[status] = counts.get(status, 0) + 1
     return counts
+
+
+def confirm_guesses(limit: int = 15) -> dict:
+    """Leads whose address is only a guess from the founder's name (e.g. YC startups) never get researched.
+    Run them through the email finder (free sources first, then the budgeted providers) and keep the ones
+    it confirms. A guess it can't confirm stays parked."""
+    from .prospecting.pipeline.processor import enrich_prospect
+    from .prospecting.providers import budget
+    budget.new_run()
+    counts = {"confirmed": 0, "unconfirmed": 0}
+    with db.connect() as conn:
+        rows = conn.execute("SELECT * FROM leads WHERE status='verified' AND email_status='guessed' "
+                            "AND first_name != '' AND domain != '' ORDER BY score DESC, id LIMIT ?", (limit,)).fetchall()
+    for row in rows:
+        res = enrich_prospect({"first_name": row["first_name"], "last_name": row["last_name"] or "",
+                               "company": row["company"] or row["domain"], "domain": row["domain"]})
+        with db.connect() as conn:
+            if res.final_email and res.confidence_level in ("verified", "high_confidence"):
+                source = ("website" if res.source == "public_match"
+                          else "provider_verified" if res.confidence_level == "verified" and res.verification_provider
+                          else f"prospecting:{res.source}")
+                if not conn.execute("SELECT 1 FROM leads WHERE email=? AND id!=?", (res.final_email, row["id"])).fetchone():
+                    db.set_lead(conn, row["id"], email=res.final_email, email_status="valid", email_source=source)
+                    counts["confirmed"] += 1
+                    continue
+            db.set_lead(conn, row["id"], email_status="unconfirmed")   # don't pay to look again next run
+            counts["unconfirmed"] += 1
+    return counts

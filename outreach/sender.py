@@ -92,7 +92,8 @@ def _candidates(conn, now_iso: str):
     return list(followups) + list(firsts)
 
 
-TRUSTED_SOURCES = ("website", "osm", "post", "registry", "maps")
+# provider_verified: an email finder confirmed the mailbox (see verify.confirm_guesses)
+TRUSTED_SOURCES = ("website", "osm", "post", "registry", "maps", "provider_verified")
 INBOX_FRESH = timedelta(minutes=30)   # the inbox job runs every 10 minutes; replies must be read before sending
 MAX_ATTEMPTS = 3                       # provider rejections before an email is held for you to look at
 
