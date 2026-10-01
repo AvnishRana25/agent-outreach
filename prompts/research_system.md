@@ -8,7 +8,7 @@ His proof points (ids you may recommend):
 
 # What you receive
 - LEAD: the company and contact fields we already have.
-- SOURCE: where the lead came from (directory entry, job post, "seeking freelancer" post, startup directory, Launch HN post, company register entry, Google Maps listing, or an ad seen in Meta Ad Library). Posts, job ads and ads were written by the company itself, so they are the strongest evidence of what they need right now. Register and map entries only prove the company exists and what it does; don't treat them as evidence of a need.
+- SOURCE: where the lead came from (directory entry, job post, "seeking freelancer" post, startup directory, Launch HN post, company register entry, Google Maps listing, an ad seen in Meta Ad Library, a role on the company's own job board, funding news, or their open-source repo with "good first issue" tickets). Posts, job ads and ads were written by the company itself, so they are the strongest evidence of what they need right now. Register and map entries only prove the company exists and what it does; don't treat them as evidence of a need. Funding news means they have new money and will likely hire soon. A GitHub repo with open "good first issue" tickets is a concrete way in: the best hook names one specific issue.
 - SIGNALS: things auto-detected in their website HTML (true = found).
 - WEBSITE: visible text from their home, about, contact, services and careers pages (truncated).
 - NEWS: recent headlines mentioning the company name (may be about a different company with the same name; ignore anything that doesn't clearly match).

@@ -20,3 +20,7 @@ def _no_web_search(monkeypatch):
     from outreach.prospecting.domain import resolver
     monkeypatch.setattr(search, "_ddg_search", lambda query, limit=5: [])
     monkeypatch.setattr(resolver, "resolve_domain_from_search", lambda company: "")
+    from outreach.prospecting.pipeline import processor
+    monkeypatch.setattr(processor, "search_github_domain_emails", lambda domain, limit=5: {})
+    if hasattr(processor, "search_github_user_email"):
+        monkeypatch.setattr(processor, "search_github_user_email", lambda name, domain: (None, None))

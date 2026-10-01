@@ -32,32 +32,18 @@ Send on WhatsApp, edited to sound like you:
 
 If they say yes to the name, replace "a real-estate brokerage in Delhi NCR" on the case-study page and in `profile.yaml` with the name, and add the quote under the stats.
 
-### 4. Upwork and Contra profiles (60 min)
-Buyers there expect your price range, and the first contract often comes faster than from cold email.
-
-**Title:** WhatsApp, CRM & AI automation · lead-handling systems that answer and track every lead
-
-**Overview (paste, then adjust):**
-> I build lead-handling systems on WhatsApp, CRM and AI, so every enquiry gets an instant reply, the right person calls back within 30 minutes, and you can see which ads actually produce deals.
->
-> Recent work, in production for a real-estate brokerage:
-> - Every lead from portals, Facebook/Instagram ads, the website and WhatsApp auto-creates a deal, is assigned to an agent, and puts a "call within 30 minutes" reminder on their Google Calendar.
-> - Click-to-WhatsApp ad leads tracked to the campaign, after finding why Meta conversion tracking had silently failed for 2.5 months.
-> - An LLM classifier recovered the requirements of 722 of 746 blank portal leads (97%).
-> - Production errors cut from about 818 a day to near zero.
->
-> How I work: a one-page plan with a fixed price within 24 hours, a working demo in the first week, and a short daily update.
->
-> Stack: WhatsApp Cloud API, Meta Graph and Ads APIs, n8n/Zapier, TypeScript/Node, Python, PostgreSQL, React/Next.js, LLM APIs.
-
-**Portfolio:** the case-study page plus the Loom. **Rate:** USD 15/hour on the profile, with fixed-price bids. Platform fees take about 10–20%, so this nets roughly your $10–12.
-
-**Daily (20 min):** search "WhatsApp automation", "n8n", "Zapier", "CRM integration", "lead routing" and "AI chatbot". Send 3–5 proposals on jobs posted in the last 24 hours with fewer than 10 proposals. Open with their problem in one sentence and how you'd solve it in two, then one proof line.
+### 4. Write your AI opinions into `profile.yaml` (15 min)
+The weekly LinkedIn drafts argue from them. Add a `linkedin:` section (copy it from `config/profile.example.yaml`) and write 5-10 views you'd defend in a conversation, in your own words: on AI agents, evaluation, open vs closed models, AI in real businesses, what research teaches you about products. Never anything about Caudal AI's work.
 
 ## Every week
 
 ### LinkedIn (30 min a week)
-The engine drafts three posts every Monday from your proof points (Engine tab → "LinkedIn posts this week"). Post two of them, Tuesday and Thursday mornings IST, editing so they sound like you. Reply to every comment the same day. Prospects check your profile after your email, and this is what they'll see.
+Every Monday the engine drafts three posts about AI and automation (Engine tab → "LinkedIn posts this week"):
+1. **A take on this week's AI news**: one story from Hacker News or Google News, with the link, and your view on what it means for people building with AI.
+2. **An opinion on the AI industry**, argued from the opinions in your `profile.yaml`, from the point of view of someone who works in AI research.
+3. **A lesson from building** AI or automation systems, sometimes using one of your proof points as the example.
+
+They're general AI posts, not real-estate posts: at most one in three mentions real estate, and only as an example. Open the news link, read every claim, and fix anything flagged "Check before posting" (usually an opinion the AI proposed that isn't in your list). Post two a week, Tuesday and Thursday mornings IST, and reply to every comment the same day.
 
 ### The Monday summary
 It arrives on Telegram at 09:00 with last week's numbers and specific changes, for example "angle X beats Y in Gulf real estate". Apply the change in `config/settings.yaml` (edit `angles`, `offer` or `daily_new`). The engine uses it from the next run.
@@ -71,13 +57,24 @@ Keep the **Deals** table in the Respond tab current: set the opportunity type (`
 3. **On the call,** confirm the problem, the deadline and who decides. Send the plan with a fixed price the same day.
 4. **Start small:** the pilot and its price exactly as in the plan. Get the testimonial and an introduction as soon as it's live.
 
-## Internships: where they actually come from
-Cold email to foreign startups rarely leads to an internship, because hiring someone in India adds payroll and paperwork for them. The engine now sends more to Indian startups and offers a paid trial project. Alongside it:
-- **Wellfound and Instahyre:** set your profile to "AI / product engineering intern or contract". Apply to 5 roles a day at seed–Series A startups, with a two-line note that links the case study.
-- **Referrals:** message 10 people you've worked with (Klimashift, Go4Database, Draftss, HackCBS teammates) asking for one introduction each to a founder or engineering lead who's hiring.
+## Where the leads come from (all free, all fresh)
+The engine only takes recent postings: forum and Reddit posts from the last 24 hours, job posts from the last 7 days, funding news from the last 14 days (the caps are under `freshness:` in `settings.yaml`). Anything undated is skipped.
+
+**Internships**
+- **Startups' own job boards** (Greenhouse, Lever, Ashby): every startup in your leads is checked for fresh intern, junior and AI-engineer roles. The posting becomes the email's hook ("saw your AI Engineer Intern role"). Apply on their board too.
+- **Funding news** (Inc42, Entrackr, YourStory, TechCrunch): startups that raised in the last two weeks are about to hire.
+- **GitHub "good first issue" repos**: startups with open beginner tickets. Fix one *before* the email goes out, then mention the PR. Add a free `GITHUB_TOKEN` to `.env` for higher limits.
+- **YC directory, Launch HN, HN "Who is hiring"**, and the remote boards (Remotive, Himalayas, RemoteOK, Jobicy, We Work Remotely, Working Nomads).
+- **Wellfound and Instahyre** (by hand): set your profile to "AI / product engineering intern or contract" and apply to a few fresh roles a day.
 - **Caudal AI:** a recommendation from your current lead carries weight. Mention only your title, never the work under the NDA.
 
-Track applications, platform proposals, and referrals directly in the dashboard alongside email leads: use "Add company" in the Engine tab with source (e.g. `referral`, `upwork`, `wellfound`) and opportunity type (`contract` or `internship`). Keep next-action dates current so overdue follow-ups stay highlighted.
+**Contract work**
+- **Community boards** (answered by hand, within the hour): the n8n, Bubble and Make forums, and r/forhire, r/n8n, r/automation, r/zapier, r/nocode, r/AI_Agents, r/SaaS, r/hiring. Each new [Hiring] post pings Telegram with a drafted reply.
+- **Contract roles** on startups' job boards and the remote boards, plus HN "Seeking freelancer".
+- **Agencies that need a builder** (white-label): HubSpot and Webflow partner directories, found with Firecrawl search.
+- **Real estate:** the Dubai Land Department broker register, Bayut and Property Finder agency pages, and the Meta Ad Library list in the Engine tab.
+
+Check that every source answers from your Mac with `python -m outreach sources-check` (it fetches each one once and saves nothing). Leads you find yourself go in with "Add company" in the Engine tab, and people found on the Prospects desk with **Send to engine**.
 
 ## Your config after this update
 New keys (`angles`, `price`, and the new sections) reach your existing `config/settings.yaml` automatically. Your own values always win, so **the new fixed-price offers only apply if you replace your `segments:` block** with the one in `config/settings.example.yaml`. Keep your own `inboxes`. Check the prices first: they're defaults set here, not quotes you've already agreed to.

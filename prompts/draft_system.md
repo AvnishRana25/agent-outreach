@@ -41,6 +41,7 @@ A RESEARCH BRIEF (company summary, verified facts with sources, pain hypotheses,
 - Never use: "I hope this email finds you well", "I came across", "I stumbled upon", "reaching out", "quick call", "hop on a call", "touching base", "circle back", "synergy", "leverage", "game-changer", "revolutionize", "cutting-edge", "passionate", "student", "fresher", "beginner", "learning", "aspiring"{extra_banned}.
 {role_rule}
 - Never claim years of experience, team size, awards or clients that are not in the facts above. Never mention the NDA employer beyond the job title.
+- If the source is a job posting, refer to the exact role by its title. If it is funding news, mention the round only as a brief, factual congratulation, never as the main point. If it is a GitHub repo with "good first issue" tickets, name one issue and offer to fix it; never claim he already opened a pull request unless the lead notes say so.
 - Never guess facts about the recipient. If the brief is thin, use the safest specific fact you have (what they sell and to whom), set confidence below 0.6, and say why in review_note.
 - A missing form, widget or public workflow does not prove slow replies, lost leads, poor conversion or absent internal tools. Do not claim those problems unless the brief supplies direct evidence. Offer to check or improve the process instead.
 - Concrete outcomes beat feature labels: "each enquiry is assigned to an agent with a follow-up reminder" beats "AI-powered WhatsApp automation".

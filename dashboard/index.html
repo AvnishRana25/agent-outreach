@@ -294,6 +294,7 @@ const FAMILY_OF = { approve: "review", reject: "review", regenerate: "review", r
   post_done: "post", run_prepare: "run", run_community: "community", pause_sending: "sending", resume_sending: "sending", add_lead: "lead",
   set_stage: "deal", make_plan: "plan", run_content: "content", sync: "sync",
   send_anyway: "held", mark_sent: "held", retry_send: "held", promote_prospect: "prospect" };
+const POST_KIND = { news: "Take on this week's AI news", industry: "Opinion on the AI industry", build: "Lesson from building" };
 const STAGE_LABEL = { "": "No stage", call_booked: "Call booked", proposal_sent: "Proposal sent", won: "Won", lost: "Lost" };
 
 function pendingMap() {
@@ -774,8 +775,8 @@ function engineStatus(short) {
 
 const JOB_INFO = {
   prepare: ["Find & draft new leads", "Finds companies, reads their sites, researches them and writes drafts. Runs by itself every morning at 07:30 (Mon-Sat); takes 10-30 minutes.", "run_prepare", "run"],
-  community: ["Check community boards", "Looks for new [Hiring] posts on the n8n forum and Reddit and drafts replies. Runs by itself every 30 minutes.", "run_community", "community"],
-  content: ["Draft LinkedIn posts", "Writes three posts from your proof points. Runs by itself every Monday at 08:00. You post them by hand.", "run_content", "content"],
+  community: ["Check community boards", "Looks for [Hiring] posts from the last 24 hours on the n8n, Bubble and Make forums and 8 subreddits, and drafts replies. Runs by itself every 30 minutes.", "run_community", "community"],
+  content: ["Draft LinkedIn posts", "Writes three posts about AI and automation: this week's AI news, the AI industry, and a lesson from building. Runs by itself every Monday at 08:00. You post them by hand.", "run_content", "content"],
 };
 
 function jobCard(name, job, pend) {
@@ -843,9 +844,12 @@ function renderEngine(panel, pend) {
       <article class="card"><div class="quote" style="background:none;padding:0;max-height:none">${esc(e.digest.text)}</div></article>` : ""}
 
     <h2 class="section">LinkedIn posts this week · post 2 by hand</h2>
-    <p class="small muted" style="margin:-4px 0 10px">Drafts by AI from your proof points. Read every claim before posting and cut anything that isn't exactly true.</p>
+    <p class="small muted" style="margin:-4px 0 10px">AI and automation posts: a take on this week's AI news, an opinion on the industry, and a lesson from building. They argue from the opinions in your <code>profile.yaml</code>; open the news link and read every claim before posting. Never add anything about Caudal AI's work.</p>
     ${e.posts && e.posts.posts && e.posts.posts.length ? e.posts.posts.map((p, i) => `<article class="card">
-        <div class="small muted">Draft ${i + 1} · based on ${esc(p.proof_id)}</div><div class="quote" style="max-height:none">${esc(p.text)}</div>
+        <div class="small muted">Draft ${i + 1} · ${esc(POST_KIND[p.kind] || "Post")}${p.proof_id ? " · example: " + esc(p.proof_id) : ""}</div>
+        ${(p.news || []).map((n) => `<div class="small" style="margin-top:4px">News: <a href="${esc(safeUrl(n.url))}" target="_blank" rel="noopener noreferrer">${esc(n.title)} ↗</a> <span class="muted">${esc(n.source)} · ${esc(n.date)}</span></div>`).join("")}
+        <div class="quote" style="max-height:none">${esc(p.text)}</div>
+        ${p.check ? `<div class="small" style="margin:6px 0 0"><span class="status warning"><span class="dot"></span>Check before posting</span> ${esc(p.check)}</div>` : ""}
         <div class="actions"><button class="btn" data-copytext="${esc(p.text)}">Copy post</button></div></article>`).join("")
       : `<div class="empty"><strong>No drafts yet</strong>Click Run now on "Draft LinkedIn posts" above, or wait for Monday.</div>`}
 

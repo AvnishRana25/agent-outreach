@@ -91,22 +91,39 @@ def test_make_plan_uses_offer_price(monkeypatch):
     assert lid
 
 
-def test_linkedin_posts_rotate_proof_points(monkeypatch):
-    from outreach import config, db, growth, llm
-    calls = []
+def test_linkedin_posts_are_about_ai_news_industry_and_building(monkeypatch):
+    from outreach import db, growth, llm
+    news = [{"title": "Lab ships open-weight agent model", "url": "https://news.example/agents", "source": "HN",
+             "date": "2026-10-01"}]
+    monkeypatch.setattr(growth, "ai_news", lambda: news)
+    seen = {}
 
     def fake(system, prompt, schema, **kw):
-        ids = [line.split("]")[0].split("[")[1] for line in prompt.splitlines() if line.startswith("- [")]
-        calls.append(ids)
-        return growth.Posts(posts=[growth.Post(proof_id=i, text=f"post about {i}") for i in ids])
+        seen.update(system=system, prompt=prompt)
+        return growth.Posts(posts=[
+            growth.Post(kind="news", text="take", sources=["https://news.example/agents", "https://made.up/x"],
+                        proof_id="", check=""),
+            growth.Post(kind="industry", text="opinion", sources=[], proof_id="", check="'evals beat models' is new"),
+            growth.Post(kind="build", text="lesson", sources=[], proof_id="re_llm_backfill", check="")])
     monkeypatch.setattr(llm, "generate", fake)
-    growth.linkedin_posts()
-    growth.linkedin_posts()
-    assert len(calls[0]) == 3 and not set(calls[0]) & set(calls[1])   # next week uses different proofs
+    assert growth.linkedin_posts().startswith("3 LinkedIn post drafts")
+    assert "Lab ships open-weight agent model" in seen["prompt"]
+    assert "At most ONE of the three may mention real estate" in seen["system"]
+    assert "NEVER describe Caudal AI's projects" in seen["system"]
     with db.connect() as conn:
         posts = json.loads(db.get_state(conn, "content:linkedin_posts"))["posts"]
-    assert [p["proof_id"] for p in posts] == calls[1]
-    assert len(config.profile()["proof_points"]) >= 6
+    assert [p["kind"] for p in posts] == ["news", "industry", "build"]
+    assert posts[0]["sources"] == ["https://news.example/agents"]          # links it didn't get are dropped
+    assert posts[0]["news"][0]["title"] == "Lab ships open-weight agent model"
+
+
+def test_linkedin_posts_use_your_opinions(monkeypatch):
+    from outreach import config, growth
+    profile = config.profile()
+    monkeypatch.setattr(config, "profile", lambda: {**profile, "linkedin": {"opinions": ["Evaluation is the moat."]}})
+    assert "- Evaluation is the moat." in growth._posts_system(config.profile())
+    monkeypatch.setattr(config, "profile", lambda: {**profile, "linkedin": {}})
+    assert "flag every opinion sentence" in growth._posts_system(config.profile())
 
 
 def test_weekly_digest_suggests_changes(monkeypatch):
