@@ -26,7 +26,9 @@ from urllib.parse import parse_qs, urlparse
 SESSION_SECONDS = 14 * 24 * 3600
 FAMILIES = {"review": {"approve", "reject", "regenerate"}, "reply": {"reply_send", "reply_done"},
             "post": {"post_done"}, "run": {"run_prepare"}, "community": {"run_community"},
-            "sending": {"pause_sending", "resume_sending"}, "lead": {"add_lead"}}
+            "sending": {"pause_sending", "resume_sending"}, "lead": {"add_lead"},
+            "deal": {"set_stage"}, "plan": {"make_plan"}, "content": {"run_content"}}
+STAGES = {"", "call_booked", "proposal_sent", "won", "lost"}
 KIND_FAMILY = {k: fam for fam, kinds in FAMILIES.items() for k in kinds}
 MAX_BODY = 100_000
 
@@ -119,6 +121,16 @@ def clean_action(body: dict) -> tuple[str, int, dict]:
             raise ValueError("company plus a website or email are required")
         if not payload["segment"].replace("_", "").isalnum():
             raise ValueError("bad segment")
+    elif kind == "set_stage":
+        stage = str(payload.get("stage", ""))
+        if stage not in STAGES:
+            raise ValueError("bad stage")
+        value = payload.get("value")
+        if value not in (None, ""):
+            value = float(value)
+            if not 0 <= value < 10_000_000:
+                raise ValueError("bad value")
+        payload = {"stage": stage, "value": value if value != "" else None, "note": str(payload.get("note", ""))[:500]}
     elif kind == "cancel":
         fam = payload.get("family")
         if fam not in FAMILIES:
@@ -145,7 +157,8 @@ def load_data() -> dict:
     items, meta, actions = turso([
         ("SELECT kind, id, data FROM dash_items ORDER BY kind, sort DESC", ()),
         ("SELECT key, value FROM dash_meta", ()),
-        ("SELECT id, kind, target, status, result, created_at, applied_at FROM actions ORDER BY id DESC LIMIT 80", ()),
+        ("SELECT id, kind, target, payload, status, result, created_at, applied_at FROM actions "
+         "ORDER BY id DESC LIMIT 80", ()),
     ])
     out = {"review": [], "reply": [], "post": []}
     for row in items:

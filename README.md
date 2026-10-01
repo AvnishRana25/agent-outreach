@@ -3,6 +3,7 @@
 A zero-budget, automated cold-outreach engine. It finds companies from free public sources (startup directories, remote job boards, UK and Dubai business registers, Hacker News, OpenStreetMap), researches each one with Gemini, writes a personalised email plus follow-ups and LinkedIn texts, sends from Gmail or Zoho within each market's business hours, and triages the replies.
 
 Strategy, market research and the 30-day plan are in **[PLAYBOOK.md](PLAYBOOK.md)**.
+What turns replies into contracts, and the channels beyond cold email (case-study page, Loom, referrals, Upwork, LinkedIn, internships), is in **[GROWTH.md](GROWTH.md)**.
 
 ## Pipeline
 
@@ -100,6 +101,12 @@ Setup, about 10 minutes:
 3. Run `python -m outreach install`. The engine's tick syncs the dashboard every 5 minutes.
 
 To use it without Vercel: `python -m outreach dashboard` serves the same page at http://127.0.0.1:7347 (it needs the four variables above in `.env`).
+
+## Offers, A/B angles, deals and the weekly summary
+- Each segment in `config/settings.example.yaml` has a fixed-price `offer` and `price` (defaults to check, not agreed quotes) and two `angles`. Every lead gets the angle used least so far in its segment, and **Results → A/B test** shows which one gets replies.
+- **Respond → Deals:** move each conversation through call booked → proposal sent → won (with value) or lost. **Make 1-page plan** on a reply writes a priced plan from that lead's research and their reply.
+- Mondays: three LinkedIn post drafts at 08:00 (Engine tab) and a summary on Telegram at 09:00 with last week's numbers and the changes to make. Run them any time with `python -m outreach content` and `python -m outreach digest`.
+- `site/index.html` is your case-study page; deploy it free (see GROWTH.md).
 
 ## Firecrawl
 Set `FIRECRAWL_API_KEY` (or `FIRECRAWL_API_URL` for a self-hosted copy). It is used only when the free path fails:

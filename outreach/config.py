@@ -27,9 +27,29 @@ def _load_yaml(name: str) -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _fill_missing(user: dict, default: dict) -> dict:
+    """Your values always win; keys you don't have yet (new features) come from the example."""
+    for k, v in default.items():
+        if k not in user:
+            user[k] = v
+        elif isinstance(v, dict) and isinstance(user[k], dict):
+            _fill_missing(user[k], v)
+    return user
+
+
 @lru_cache
 def settings() -> dict:
-    return _load_yaml("settings.yaml")
+    user = _load_yaml("settings.yaml")
+    example = CONFIG_DIR / "settings.example.yaml"
+    if (CONFIG_DIR / "settings.yaml").exists() and example.exists():
+        with example.open() as f:
+            default = yaml.safe_load(f) or {}
+        # Only fill segments you have; don't resurrect ones you deleted.
+        default_segments = default.pop("segments", {})
+        for name, seg in (user.get("segments") or {}).items():
+            _fill_missing(seg, default_segments.get(name, {}))
+        _fill_missing(user, default)
+    return user
 
 
 @lru_cache

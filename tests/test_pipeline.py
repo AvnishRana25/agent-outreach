@@ -91,7 +91,8 @@ def test_india_share_cap():
             db.add_lead(conn, email=f"g{i}@gulf{i}.ae", domain=f"gulf{i}.ae", segment="gulf_realestate", status="researched", fit=7)
         picked = personalize.pick_leads(conn, 38)
     india = sum(r["segment"] == "india_realestate" for r in picked)
-    assert india <= int(38 * 0.25)
+    from outreach import config
+    assert india <= int(38 * config.settings()["targeting"]["india_share_max"])
     assert len(picked) > 30
 
 
