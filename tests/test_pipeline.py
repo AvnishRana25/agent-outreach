@@ -74,6 +74,7 @@ def test_llm_wrapper_parses_and_detects_daily_quota(monkeypatch):
     fake = mock.MagicMock()
     fake.models.generate_content.return_value = mock.MagicMock(parsed=brief, text=brief.model_dump_json())
     monkeypatch.setattr(llm, "_client", fake)
+    monkeypatch.setattr(llm, "_skip", set())
     assert llm.generate("sys", "prompt", research.Brief).fit_score == 8
     fake.models.generate_content.side_effect = errors.ClientError(
         429, {"error": {"code": 429, "message": "Quota exceeded", "status": "RESOURCE_EXHAUSTED",
@@ -200,3 +201,43 @@ def test_pause_switch(monkeypatch):
     with db.connect() as conn:
         db.set_state(conn, "sending_paused", "1")
     assert sender.tick(5) == 0
+
+
+def test_llm_falls_back_through_model_chain(monkeypatch):
+    from google.genai import errors
+    from outreach import llm, research
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    monkeypatch.setenv("GEMINI_RPM", "100000")
+    monkeypatch.setenv("GEMINI_RESEARCH_MODELS", "m-retired,m-small,m-big")
+    monkeypatch.setattr(llm, "_skip", set())
+    brief = research.Brief(company_summary="s", facts=[], pains=[], best_hook="h", proof_id="re_pipeline",
+                           angle="a", contact_first_name="", contact_role="Founder", fit_score=8, fit_reason="r")
+    tried = []
+    quota = {"error": {"code": 429, "message": "Quota exceeded ... limit: 20, model: m-small",
+                       "status": "RESOURCE_EXHAUSTED", "details": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}}
+
+    def gen(model, contents, config):
+        tried.append(model)
+        if model == "m-retired":
+            raise errors.ClientError(404, {"error": {"code": 404, "message": "no longer available", "status": "NOT_FOUND"}})
+        if model == "m-small":
+            raise errors.ClientError(429, quota)
+        return mock.MagicMock(parsed=brief)
+    fake = mock.MagicMock()
+    fake.models.generate_content.side_effect = gen
+    monkeypatch.setattr(llm, "_client", fake)
+
+    assert llm.generate("sys", "p", research.Brief, kind="research").fit_score == 8
+    assert tried == ["m-retired", "m-small", "m-big"]
+    tried.clear()
+    llm.generate("sys", "p", research.Brief, kind="research")
+    assert tried == ["m-big"]                                  # used-up models are skipped for the day
+    st = llm.status()
+    assert st["out"] == {"m-retired": "unavailable (404)", "m-small": "quota"}
+    assert st["limits"] == {"m-small": 20} and st["calls"] == {"m-big": 2}
+
+    monkeypatch.setattr(llm, "_skip", set())                  # a fresh process reads the shared state
+    fake.models.generate_content.side_effect = lambda **k: (_ for _ in ()).throw(errors.ClientError(429, quota))
+    with pytest.raises(llm.QuotaExhausted):
+        llm.generate("sys", "p", research.Brief, kind="research")
+    assert llm.status()["exhausted"]["research"] is True

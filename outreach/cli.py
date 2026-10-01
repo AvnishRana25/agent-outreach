@@ -142,7 +142,15 @@ def main() -> None:
             drafted = personalize.run(args.limit, args.mock)
             print(f"drafted {drafted} sequences. Next: review them in the dashboard (or python -m outreach review)")
             new = sum(v for v in found.values() if isinstance(v, int))
-            return f"{new} new companies, {researched.get('researched', 0)} researched, {drafted} drafted"
+            summary = f"{new} new companies, {researched.get('researched', 0)} researched, {drafted} drafted"
+            from . import llm
+            st = llm.status()
+            if st["exhausted"]["research"] or st["exhausted"]["draft"]:
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                at = datetime.fromisoformat(st["reset_at"]).astimezone(ZoneInfo("Asia/Kolkata"))
+                summary += f". Gemini's free quota ran out; the rest continues after {at:%H:%M} IST"
+            return summary
         prepare() if args.mock else engine.run_job("prepare", prepare)
     elif args.cmd == "review":
         review.interactive()

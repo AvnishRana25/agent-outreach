@@ -254,7 +254,8 @@ def _engine(conn) -> dict:
             return json.loads(db.get_state(conn, key) or "null")
         except json.JSONDecodeError:
             return None
-    return {"heartbeat": db.get_state(conn, "engine:heartbeat") or None,
+    from . import llm
+    return {"heartbeat": db.get_state(conn, "engine:heartbeat") or None, "gemini": llm.status(),
             "digest": state_json("digest:last"), "posts": state_json("content:linkedin_posts"),
             "sending_paused": db.get_state(conn, "sending_paused") == "1",
             "jobs": {j: {**engine.job_state(conn, j), "running": engine.is_running(j), "log": _tail(f"{j}.log")}

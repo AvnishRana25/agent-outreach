@@ -1,13 +1,15 @@
 """Gemini wrapper: JSON output validated against a Pydantic schema, paced for the free tier.
 
-Free-tier limits change without notice (check yours in AI Studio -> Rate limits). Each lead
-uses 2 calls (research + draft), so 38 leads/day is ~80-100 calls plus reply triage.
+Free-tier limits change without notice (check yours in AI Studio -> Rate limits) and are small per
+model. Each lead uses 2 calls (research + draft), so 38 leads/day is ~80-100 calls plus reply
+triage: that's why each kind of call walks a chain of models (see CHAINS).
 Google retires model names for new keys (the 2.5 models already return 404 for them), so the
 defaults are the 3.5 family; override with GEMINI_MODEL / GEMINI_RESEARCH_MODEL / GEMINI_REPLY_MODEL.
 """
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import TypeVar
 
@@ -37,12 +39,84 @@ def client() -> genai.Client:
     return _client
 
 
+# Each model has its own free daily quota, so each kind of call walks a chain: when one model is
+# used up for the day (or isn't available to this key) the next one takes over. Quotas reset at
+# midnight Pacific time. Override a chain with GEMINI_RESEARCH_MODELS / GEMINI_DRAFT_MODELS /
+# GEMINI_REPLY_MODELS (comma-separated); GEMINI_MODEL etc. still put one model first.
+CHAINS = {
+    "research": ["gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-3.5-flash-lite",
+                 "gemini-3.6-flash", "gemini-3.7-flash"],
+    "draft": ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-flash-latest", "gemini-3.7-flash", "gemini-3.6-flash"],
+    "reply": ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite"],
+}
+_FIRST = {"research": "GEMINI_RESEARCH_MODEL", "draft": "GEMINI_MODEL", "reply": "GEMINI_REPLY_MODEL"}
+_skip: set[str] = set()          # models known to be out for today in this process
+
+
+def chain(kind: str = "draft") -> list[str]:
+    kind = kind if kind in CHAINS else "draft"
+    custom = os.getenv(f"GEMINI_{kind.upper()}_MODELS", "")
+    models = [m.strip() for m in custom.split(",") if m.strip()] or list(CHAINS[kind])
+    first = os.getenv(_FIRST[kind]) or (os.getenv("GEMINI_MODEL") if kind == "research" else None)
+    if first:
+        models = [first] + [m for m in models if m != first]
+    return models
+
+
 def model(kind: str = "draft") -> str:
-    if kind == "research":
-        return os.getenv("GEMINI_RESEARCH_MODEL", os.getenv("GEMINI_MODEL", "gemini-3.5-flash"))
-    if kind == "reply":
-        return os.getenv("GEMINI_REPLY_MODEL", "gemini-3.5-flash-lite")
-    return os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+    return chain(kind)[0]
+
+
+def quota_day() -> str:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+
+
+def _state(update=None) -> dict:
+    """Today's per-model usage and exhausted models, shared by every engine process via the database."""
+    import json
+    from . import db
+    key = f"gemini:{quota_day()}"
+    try:
+        with db.connect() as conn:
+            st = json.loads(db.get_state(conn, key, "{}"))
+            if update:
+                update(st)
+                db.set_state(conn, key, json.dumps(st))
+            return st
+    except Exception:  # the database is optional here (tests, first run); never block a call on it
+        return {}
+
+
+def _mark(model_id: str, why: str, detail: str = "") -> None:
+    _skip.add(model_id)
+
+    def upd(st):
+        st.setdefault("out", {})[model_id] = why
+        limit = re.search(r"limit:\s*(\d+)", detail)
+        if limit:
+            st.setdefault("limits", {})[model_id] = int(limit.group(1))
+    _state(upd)
+
+
+def _count(model_id: str) -> None:
+    def upd(st):
+        st.setdefault("calls", {})[model_id] = st.get("calls", {}).get(model_id, 0) + 1
+    _state(upd)
+
+
+def status() -> dict:
+    """For the dashboard: today's calls per model, which are used up, and when quotas reset."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    st = _state()
+    pt = ZoneInfo("America/Los_Angeles")
+    reset = (datetime.now(pt) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    chains = {k: chain(k) for k in CHAINS}
+    return {"day": quota_day(), "calls": st.get("calls", {}), "out": st.get("out", {}),
+            "limits": st.get("limits", {}), "chains": chains, "reset_at": reset.isoformat(),
+            "exhausted": {k: all(m in st.get("out", {}) for m in v) for k, v in chains.items()}}
 
 
 def _pace() -> None:
@@ -54,9 +128,15 @@ def _pace() -> None:
     _last_call = time.monotonic()
 
 
+def _daily(e: errors.ClientError) -> bool:
+    msg = str(e).lower()
+    return "per day" in msg or "perday" in msg or "daily" in msg or "requestsperday" in msg
+
+
 def generate(system: str, prompt: str, schema: type[T], kind: str = "draft",
              temperature: float = 0.7) -> T | None:
-    """Returns a validated instance of `schema`, or None if the model gave nothing usable."""
+    """Returns a validated instance of `schema`, or None if no model gave anything usable.
+    Raises QuotaExhausted only when every model in this kind's chain is used up for today."""
     cfg = types.GenerateContentConfig(
         system_instruction=system,
         temperature=temperature,
@@ -64,31 +144,42 @@ def generate(system: str, prompt: str, schema: type[T], kind: str = "draft",
         response_schema=schema,
         max_output_tokens=8192,
     )
-    for attempt in range(4):
-        _pace()
-        try:
-            resp = client().models.generate_content(model=model(kind), contents=prompt, config=cfg)
-        except errors.ClientError as e:
-            if e.code == 404:
-                raise SystemExit(f"Gemini model '{model(kind)}' is not available to this key: {e.message}\n"
-                                 "Set GEMINI_MODEL / GEMINI_RESEARCH_MODEL / GEMINI_REPLY_MODEL in .env to a "
-                                 "model listed in AI Studio.") from e
-            if e.code == 429:
-                msg = str(e).lower()
-                if "per day" in msg or "perday" in msg or "daily" in msg:
-                    raise QuotaExhausted(str(e)) from e
-                time.sleep(30 * (attempt + 1))  # per-minute limit: back off and retry
-                continue
-            raise
-        except errors.ServerError:
-            time.sleep(10 * (attempt + 1))
+    out_today = _state().get("out", {})
+    quota_hit = False
+    for model_id in chain(kind):
+        if model_id in _skip or model_id in out_today:
+            quota_hit = quota_hit or out_today.get(model_id) == "quota"
             continue
-        if isinstance(resp.parsed, schema):
-            return resp.parsed
-        try:  # some responses arrive as text only
-            return schema.model_validate_json(resp.text or "")
-        except ValidationError:
-            return None
+        for attempt in range(4):
+            _pace()
+            try:
+                resp = client().models.generate_content(model=model_id, contents=prompt, config=cfg)
+            except errors.ClientError as e:
+                if e.code == 429 and _daily(e):
+                    _mark(model_id, "quota", str(e))
+                    quota_hit = True
+                    break                                   # next model
+                if e.code == 429:
+                    time.sleep(30 * (attempt + 1))          # per-minute limit: back off and retry
+                    continue
+                if e.code in (400, 403, 404):               # retired, not on this key, or no JSON mode
+                    _mark(model_id, f"unavailable ({e.code})")
+                    break
+                raise
+            except errors.ServerError:
+                if attempt == 1:
+                    break                                   # overloaded twice: try the next model now
+                time.sleep(5 * (attempt + 1))
+                continue
+            _count(model_id)
+            if isinstance(resp.parsed, schema):
+                return resp.parsed
+            try:  # some responses arrive as text only
+                return schema.model_validate_json(resp.text or "")
+            except ValidationError:
+                return None
+    if quota_hit:
+        raise QuotaExhausted(f"every {kind} model is out of free quota for today ({quota_day()} Pacific)")
     return None
 
 
