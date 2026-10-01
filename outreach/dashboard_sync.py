@@ -13,7 +13,8 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from . import community, config, db, engine, firecrawl, importer, personalize, replies, report, review, sender, sources, turso
+from . import (community, config, db, engine, firecrawl, growth, importer, personalize, replies, report, review, sender,
+               sources, turso)
 
 REMOTE_SCHEMA = [
     """CREATE TABLE IF NOT EXISTS dash_items (
@@ -136,7 +137,17 @@ def _add_lead(target: int, payload: dict) -> str:
 APPLY = {"approve": _approve, "reject": _reject, "regenerate": _regenerate,
          "reply_send": _reply_send, "reply_done": _reply_done, "post_done": _post_done,
          "run_prepare": _run("prepare"), "run_community": _run("community"),
-         "pause_sending": _pause, "resume_sending": _resume, "add_lead": _add_lead}
+         "pause_sending": _pause, "resume_sending": _resume, "add_lead": _add_lead,
+         "run_content": _run("content"),
+         "set_stage": lambda t, p: growth.set_stage(t, str(p.get("stage", "")), _num(p.get("value")), str(p.get("note", ""))),
+         "make_plan": lambda t, p: growth.make_plan(t)}
+
+
+def _num(v) -> float | None:
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
 
 
 def pull_safe() -> int:
@@ -191,7 +202,7 @@ def _reply_items(conn) -> list[dict]:
     return [{"id": r["id"], "received_at": r["received_at"], "from": r["from_addr"], "company": r["company"],
              "first_name": r["first_name"], "segment": r["segment"], "category": r["category"],
              "summary": r["summary"], "subject": r["subject"], "body": (r["body"] or "")[:4000],
-             "suggested_reply": r["suggested_reply"]} for r in rows]
+             "suggested_reply": r["suggested_reply"], "plan": r["plan"] or "", "lead_id": r["lead_id"]} for r in rows]
 
 
 def _post_items(conn) -> list[dict]:
@@ -238,7 +249,13 @@ def _tail(name: str, lines: int = 25) -> str:
 
 
 def _engine(conn) -> dict:
+    def state_json(key):
+        try:
+            return json.loads(db.get_state(conn, key) or "null")
+        except json.JSONDecodeError:
+            return None
     return {"heartbeat": db.get_state(conn, "engine:heartbeat") or None,
+            "digest": state_json("digest:last"), "posts": state_json("content:linkedin_posts"),
             "sending_paused": db.get_state(conn, "sending_paused") == "1",
             "jobs": {j: {**engine.job_state(conn, j), "running": engine.is_running(j), "log": _tail(f"{j}.log")}
                      for j in engine.JOBS},
@@ -256,7 +273,9 @@ def snapshot() -> dict:
     with db.connect() as conn:
         db.purge_mock(conn)
         return {"review": _review_items(conn), "reply": _reply_items(conn), "post": _post_items(conn),
-                "stats": {"segments": report.funnel(conn, "segment"), "sources": report.funnel(conn, "source")},
+                "stats": {"segments": report.funnel(conn, "segment"), "sources": report.funnel(conn, "source"),
+                          "angles": report.angles(conn)},
+                "pipeline": growth.pipeline_items(conn),
                 "health": _health(conn),
                 "engine": {**_engine(conn), "adlib": sources.adlibrary_searches(), "linkedin": _linkedin_items(conn)}}
 
@@ -264,7 +283,7 @@ def snapshot() -> dict:
 def push(snap: dict | None = None) -> dict:
     snap = snap or snapshot()
     stmts: list = ["BEGIN", "DELETE FROM dash_items"]
-    for kind in ("review", "reply", "post"):
+    for kind in ("review", "reply", "post", "pipeline"):
         for item in snap[kind]:
             sort = str(item.get("received_at") or item.get("posted_at") or item.get("confidence") or "")
             stmts.append(("INSERT INTO dash_items (kind, id, sort, data) VALUES (?,?,?,?)",

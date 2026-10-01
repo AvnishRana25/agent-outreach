@@ -141,6 +141,9 @@ th { font-weight: 600; color: var(--ink-2); font-size: 12.5px; background: var(-
 th:first-child, td:first-child { text-align: left; }
 tr:last-child td { border-bottom: 0; }
 tr.total td { font-weight: 650; border-top: 1px solid var(--axis); }
+table.deals td { vertical-align: top; }
+table.deals th, table.deals td, table.ab th:nth-child(2), table.ab td:nth-child(2) { text-align: left; }
+table.deals input, table.deals select { background: var(--page); border: 1px solid var(--border-strong); border-radius: 6px; padding: 5px 8px; }
 .rate { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .rate .bar { width: 80px; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
 .rate .bar i { display: block; height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }
@@ -266,7 +269,9 @@ async function load(quiet) {
 }
 
 const FAMILY_OF = { approve: "review", reject: "review", regenerate: "review", reply_send: "reply", reply_done: "reply",
-  post_done: "post", run_prepare: "run", run_community: "community", pause_sending: "sending", resume_sending: "sending", add_lead: "lead" };
+  post_done: "post", run_prepare: "run", run_community: "community", pause_sending: "sending", resume_sending: "sending", add_lead: "lead",
+  set_stage: "deal", make_plan: "plan", run_content: "content" };
+const STAGE_LABEL = { "": "No stage", call_booked: "Call booked", proposal_sent: "Proposal sent", won: "Won", lost: "Lost" };
 
 function pendingMap() {
   const m = {};
@@ -442,15 +447,27 @@ function bindReview(card) {
 
 /* ------------------------------------------------------------------ respond */
 function renderRespond(panel, pend) {
-  const reply = state.data.reply || [], post = state.data.post || [];
+  const reply = state.data.reply || [], post = state.data.post || [], deals = state.data.pipeline || [];
   panel.innerHTML = `
+    <h2 class="section" style="margin-top:4px">Deals <span class="count num">${deals.filter((d) => !["won", "lost"].includes(d.deal_stage)).length}</span></h2>
+    ${deals.length ? `<div class="table-wrap"><table class="deals"><thead><tr><th>Company</th><th>Latest reply</th><th>Stage</th><th>Value</th><th>Note</th><th></th></tr></thead><tbody>
+      ${deals.map((d) => dealRow(d, pend["deal:" + d.id])).join("")}</tbody></table></div>`
+      : `<div class="empty"><strong>No conversations yet</strong>Leads appear here when they reply positively. Track each one through call, proposal and won.</div>`}
     <h2 class="section">Email replies <span class="count num">${reply.length}</span></h2>
-    ${reply.length ? reply.map((r) => replyCard(r, pend["reply:" + r.id])).join("")
+    ${reply.length ? reply.map((r) => replyCard(r, pend["reply:" + r.id], pend["plan:" + r.id])).join("")
       : `<div class="empty"><strong>No replies waiting</strong>Positive replies appear here within 20 minutes of arriving.</div>`}
     <h2 class="section">Community posts <span class="count num">${post.length}</span></h2>
     ${post.length ? post.map((p) => postCard(p, pend["post:" + p.id])).join("")
       : `<div class="empty"><strong>No open posts</strong>New [Hiring] posts from the n8n forum and Reddit land here.</div>`}`;
   panel.querySelectorAll("[data-draft]").forEach((t) => (t.oninput = () => (state.drafts[t.dataset.draft] = t.value)));
+  panel.querySelectorAll("[data-deal]").forEach((row) => {
+    const id = Number(row.dataset.deal);
+    const save = row.querySelector("[data-save]");
+    if (save) save.onclick = () => act("set_stage", id, { stage: row.querySelector("select").value,
+      value: row.querySelector("[name=value]").value, note: row.querySelector("[name=note]").value }, "Saved. It updates at the next sync.");
+    const undo = row.querySelector("[data-undo]");
+    if (undo) undo.onclick = () => act("cancel", id, { family: "deal" }, "Undone.");
+  });
   panel.querySelectorAll("[data-reply]").forEach((card) => {
     const id = Number(card.dataset.reply);
     const on = (sel, fn) => { const b = card.querySelector(sel); if (b) b.onclick = fn; };
@@ -461,6 +478,12 @@ function renderRespond(panel, pend) {
     });
     on("[data-done]", () => act("reply_done", id, {}, "Marked done."));
     on("[data-copy]", () => copy(card.querySelector("textarea").value));
+    on("[data-plan]", () => act("make_plan", id, {}, "Writing the plan. It appears here after the next sync (≤5 min)."));
+    on("[data-copyplan]", () => copy(state.data.reply.find((r) => r.id === id).plan));
+    on("[data-insertplan]", () => {
+      const t = card.querySelector("textarea"), plan = state.data.reply.find((r) => r.id === id).plan;
+      t.value = t.value.trim() + "\n\n" + plan; state.drafts["reply:" + id] = t.value; toast("Plan added to your reply.");
+    });
     on("[data-undo]", () => act("cancel", id, { family: "reply" }, "Undone."));
   });
   panel.querySelectorAll("[data-post]").forEach((card) => {
@@ -472,7 +495,7 @@ function renderRespond(panel, pend) {
   });
 }
 
-function replyCard(r, pending) {
+function replyCard(r, pending, planPending) {
   return `<article class="card ${pending ? "queued" : ""}" data-reply="${r.id}">
     <div class="card-head"><div class="meta">
       <h3>${esc(r.first_name || r.from)}${r.company ? " · " + esc(r.company) : ""}</h3>
@@ -482,9 +505,25 @@ function replyCard(r, pending) {
     <dl class="kv"><dt>Summary</dt><dd>${esc(r.summary)}</dd></dl>
     <details open><summary>Their message</summary><div class="quote">${esc(r.body)}</div></details>
     <div class="email"><label>Your reply</label><textarea rows="6" data-draft="reply:${r.id}" ${pending ? "disabled" : ""}>${esc(state.drafts["reply:" + r.id] ?? r.suggested_reply)}</textarea></div>
+    ${r.plan ? `<details open><summary>One-page plan</summary><div class="quote">${esc(r.plan)}</div>
+      <div class="actions" style="margin-top:8px"><button class="btn" data-insertplan>Add plan to reply</button><button class="btn" data-copyplan>Copy plan</button></div></details>` : ""}
     ${pending ? `<div class="banner"><span><strong>${pending.kind === "reply_send" ? "Sending" : "Marked done"}</strong> · applies at the next sync</span><span class="spacer"></span><button class="btn" data-undo>Undo</button></div>`
-      : `<div class="actions"><button class="btn primary" data-send>Send reply</button><button class="btn" data-copy>Copy</button><span class="spacer"></span><button class="btn" data-done>Mark done</button></div>`}
+      : `<div class="actions"><button class="btn primary" data-send>Send reply</button><button class="btn" data-copy>Copy</button>
+         ${planPending ? `<span class="small muted">Writing plan…</span>` : `<button class="btn" data-plan>${r.plan ? "Rewrite plan" : "Make 1-page plan"}</button>`}
+         <span class="spacer"></span><button class="btn" data-done>Mark done</button></div>`}
   </article>`;
+}
+
+function dealRow(d, pending) {
+  const who = [d.first_name, d.last_name].filter(Boolean).join(" ");
+  const stage = pending ? (JSON.parse(pending.payload || "{}").stage ?? d.deal_stage) : d.deal_stage;
+  return `<tr data-deal="${d.id}">
+    <td><strong>${esc(d.company)}</strong><div class="small muted">${esc(who || d.email || "")} · ${esc(segName(d.segment))}</div></td>
+    <td style="white-space:normal;min-width:180px;text-align:left" class="small">${esc(d.last_reply || "—")}<div class="muted">${esc(d.replied_at ? ago(d.replied_at) : "")}</div></td>
+    <td><select aria-label="Stage" ${pending ? "disabled" : ""}>${Object.entries(STAGE_LABEL).map(([k, v]) => `<option value="${k}" ${k === (stage || "") ? "selected" : ""}>${v}</option>`).join("")}</select></td>
+    <td><input name="value" type="number" min="0" step="1" placeholder="USD" value="${d.deal_value ?? ""}" style="width:90px" aria-label="Deal value" ${pending ? "disabled" : ""}></td>
+    <td><input name="note" type="text" placeholder="Next step…" value="${esc(d.deal_note || "")}" aria-label="Note" ${pending ? "disabled" : ""}></td>
+    <td>${pending ? `<button class="btn" data-undo>Undo</button>` : `<button class="btn" data-save>Save</button>`}</td></tr>`;
 }
 
 function postCard(p, pending) {
@@ -516,6 +555,7 @@ function renderResults(panel) {
     <h2 class="section" style="margin-top:4px">Emails sent per day · last 30 days</h2>
     <div class="chart-card">${sendsChart(h.daily_sends || [])}</div>
     <h2 class="section">By segment</h2>${funnelTable(st.segments, "Segment", segName)}
+    <h2 class="section">A/B test: which angle gets replies</h2>${angleTable(st.angles || [])}
     <h2 class="section">By lead source</h2>${funnelTable(st.sources, "Source", srcName)}
     <h2 class="section">Pipeline</h2>
     <div class="table-wrap"><table><thead><tr><th>Stage</th><th>Leads</th></tr></thead><tbody>
@@ -531,11 +571,23 @@ function funnelTable(rows, label, name) {
   const rate = (v, bar) => v == null ? `<span class="muted">—</span>`
     : `<span class="rate">${bar ? `<span class="bar" aria-hidden="true"><i style="width:${(100 * v) / maxRate}%"></i></span>` : ""}<span class="num">${v.toFixed(1)}%</span></span>`;
   return `<div class="table-wrap"><table>
-    <thead><tr><th>${label}</th><th>Leads</th><th>Queued</th><th>Sent</th><th>Replied</th><th>Positive</th><th>Bounced</th><th>Reply rate</th><th>Positive rate</th></tr></thead>
+    <thead><tr><th>${label}</th><th>Leads</th><th>Queued</th><th>Sent</th><th>Replied</th><th>Positive</th><th>Calls</th><th>Won</th><th>Bounced</th><th>Reply rate</th><th>Positive rate</th></tr></thead>
     <tbody>${rows.map((r) => `<tr class="${r.name === "ALL" ? "total" : ""}">
       <td>${esc(r.name === "ALL" ? "All" : name(r.name))}</td><td class="num">${r.leads}</td><td class="num">${r.queued}</td>
-      <td class="num">${r.sent}</td><td class="num">${r.replied}</td><td class="num">${r.positive}</td><td class="num">${r.bounced}</td>
+      <td class="num">${r.sent}</td><td class="num">${r.replied}</td><td class="num">${r.positive}</td><td class="num">${r.calls ?? 0}</td>
+      <td class="num">${r.won ?? 0}${r.won_value ? ` <span class="muted small">(${r.won_value})</span>` : ""}</td><td class="num">${r.bounced}</td>
       <td>${rate(r.reply_rate, r.name !== "ALL")}</td><td>${rate(r.positive_rate, false)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function angleTable(rows) {
+  if (!rows.length) return `<div class="empty"><strong>No A/B data yet</strong>Each segment alternates two angles; results show after the first sends.</div>`;
+  const best = {};
+  rows.forEach((r) => { if (r.sent >= 25 && (best[r.segment] == null || (r.reply_rate || 0) > best[r.segment])) best[r.segment] = r.reply_rate || 0; });
+  return `<div class="table-wrap"><table class="ab"><thead><tr><th>Segment</th><th>Angle</th><th>Sent</th><th>Replied</th><th>Positive</th><th>Reply rate</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td>${esc(segName(r.segment))}</td><td>${esc(r.angle)}${best[r.segment] != null && (r.reply_rate || 0) === best[r.segment] && r.sent >= 25 ? ` <span class="chip strong">leading</span>` : ""}</td>
+      <td class="num">${r.sent}</td><td class="num">${r.replied}</td><td class="num">${r.positive}</td>
+      <td class="num">${r.reply_rate == null ? "—" : r.reply_rate.toFixed(1) + "%"}</td></tr>`).join("")}</tbody></table></div>
+    <p class="small muted">Treat a difference as real only once both angles have about 25 sends each. The Monday summary tells you when to drop the weaker one.</p>`;
 }
 
 function sendsChart(days) {
@@ -596,6 +648,7 @@ function engineStatus(short) {
 const JOB_INFO = {
   prepare: ["Find & draft new leads", "Finds companies, reads their sites, researches them and writes drafts. Runs by itself every morning at 07:30 (Mon-Sat); takes 10-30 minutes.", "run_prepare", "run"],
   community: ["Check community boards", "Looks for new [Hiring] posts on the n8n forum and Reddit and drafts replies. Runs by itself every 30 minutes.", "run_community", "community"],
+  content: ["Draft LinkedIn posts", "Writes three posts from your proof points. Runs by itself every Monday at 08:00. You post them by hand.", "run_content", "content"],
 };
 
 function jobCard(name, job, pend) {
@@ -629,6 +682,15 @@ function renderEngine(panel, pend) {
         : e.sending_paused ? `<button class="btn primary" data-run="resume_sending">Resume sending</button>` : `<button class="btn danger" data-run="pause_sending">Pause sending</button>`}
     </div></article>
     ${Object.keys(JOB_INFO).map((j) => jobCard(j, jobs[j] || {}, pend)).join("")}
+
+    ${e.digest ? `<h2 class="section">Weekly summary <span class="small muted">· ${esc(ago(e.digest.at))}</span></h2>
+      <article class="card"><div class="quote" style="background:none;padding:0;max-height:none">${esc(e.digest.text)}</div></article>` : ""}
+
+    <h2 class="section">LinkedIn posts this week · post 2 by hand</h2>
+    ${e.posts && e.posts.posts && e.posts.posts.length ? e.posts.posts.map((p, i) => `<article class="card">
+        <div class="small muted">Draft ${i + 1} · based on ${esc(p.proof_id)}</div><div class="quote" style="max-height:none">${esc(p.text)}</div>
+        <div class="actions"><button class="btn" data-copytext="${esc(p.text)}">Copy post</button></div></article>`).join("")
+      : `<div class="empty"><strong>No drafts yet</strong>Click Run now on "Draft LinkedIn posts" above, or wait for Monday.</div>`}
 
     <h2 class="section">Meta Ad Library · 15 minutes a day</h2>
     <article class="card">
@@ -669,7 +731,8 @@ function renderEngine(panel, pend) {
 function renderActivity(panel) {
   const acts = state.data.actions || [];
   const label = { approve: "Approve", reject: "Reject", regenerate: "Regenerate", reply_send: "Send reply", reply_done: "Reply done", post_done: "Post answered",
-    run_prepare: "Find & draft", run_community: "Check boards", pause_sending: "Pause sending", resume_sending: "Resume sending", add_lead: "Add company" };
+    run_prepare: "Find & draft", run_community: "Check boards", pause_sending: "Pause sending", resume_sending: "Resume sending", add_lead: "Add company",
+    set_stage: "Deal stage", make_plan: "Make plan", run_content: "Draft posts" };
   panel.innerHTML = acts.length ? `<div class="table-wrap"><table>
     <thead><tr><th>When</th><th>Action</th><th>Item</th><th>Status</th><th>Result</th></tr></thead>
     <tbody>${acts.map((a) => {

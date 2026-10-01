@@ -97,8 +97,11 @@ def init() -> None:
         for table, cols in {
             "leads": ["source_text TEXT DEFAULT ''", "email_source TEXT DEFAULT ''",
                       "research TEXT DEFAULT ''", "fit INTEGER",
-                      "linkedin_note TEXT DEFAULT ''", "linkedin_dm TEXT DEFAULT ''"],
+                      "linkedin_note TEXT DEFAULT ''", "linkedin_dm TEXT DEFAULT ''",
+                      "angle TEXT DEFAULT ''", "deal_stage TEXT DEFAULT ''", "deal_value REAL",
+                      "deal_note TEXT DEFAULT ''", "deal_updated TEXT"],
             "messages": ["provider_id TEXT"],
+            "replies": ["plan TEXT DEFAULT ''"],
         }.items():
             have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
             for col in cols:

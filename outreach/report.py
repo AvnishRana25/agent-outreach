@@ -21,11 +21,35 @@ def funnel(conn, by: str = "segment") -> list[dict]:
         sent = q("m.step=0 AND m.status='sent'")
         replied = q("r.category NOT IN ('bounce','out_of_office')")
         positive = q(f"r.category IN {POSITIVE_SQL}")
+        won_value = conn.execute(
+            f"SELECT COALESCE(SUM(deal_value), 0) FROM leads l {where} {'AND' if where else 'WHERE'} "
+            "l.deal_stage='won'", args).fetchone()[0]
         rows.append({"name": g, "leads": q("1=1"), "queued": q("l.status IN ('drafted','approved')"),
                      "sent": sent, "replied": replied, "positive": positive, "bounced": q("r.category='bounce'"),
+                     "calls": q("l.deal_stage IN ('call_booked','proposal_sent','won')"),
+                     "proposals": q("l.deal_stage IN ('proposal_sent','won')"), "won": q("l.deal_stage='won'"),
+                     "won_value": round(won_value or 0, 2),
                      "reply_rate": round(100 * replied / sent, 1) if sent else None,
                      "positive_rate": round(100 * positive / sent, 1) if sent else None})
     return rows
+
+
+def angles(conn) -> list[dict]:
+    """A/B results: for each segment and angle, first emails sent and how many replied."""
+    rows = conn.execute(f"""
+        SELECT l.segment, l.angle,
+               COUNT(DISTINCT CASE WHEN m.step=0 AND m.status='sent' THEN l.id END) AS sent,
+               COUNT(DISTINCT CASE WHEN r.category NOT IN ('bounce','out_of_office') THEN l.id END) AS replied,
+               COUNT(DISTINCT CASE WHEN r.category IN {POSITIVE_SQL} THEN l.id END) AS positive
+        FROM leads l LEFT JOIN messages m ON m.lead_id=l.id LEFT JOIN replies r ON r.lead_id=l.id
+        WHERE l.angle != '' GROUP BY l.segment, l.angle ORDER BY l.segment, l.angle""").fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["reply_rate"] = round(100 * d["replied"] / d["sent"], 1) if d["sent"] else None
+        d["positive_rate"] = round(100 * d["positive"] / d["sent"], 1) if d["sent"] else None
+        out.append(d)
+    return out
 
 
 def run() -> None:

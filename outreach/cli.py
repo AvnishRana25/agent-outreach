@@ -74,6 +74,9 @@ def main() -> None:
     p = sub.add_parser("suppress", help="never email this address, or a whole @domain")
     p.add_argument("email")
 
+    sub.add_parser("content", help="draft this week's three LinkedIn posts from your proof points")
+    sub.add_parser("digest", help="send the weekly summary to Telegram now")
+
     sub.add_parser("tick", help="the background engine's 5-minute step (installed by `install`)")
     p = sub.add_parser("install", help="run the engine (and dashboard) in the background, no terminal needed")
     p.add_argument("--force", action="store_true", help="install even inside Desktop/Documents/Downloads")
@@ -176,6 +179,12 @@ def main() -> None:
         with db.connect() as conn:
             db.suppress(conn, args.email, "manual")
         print(f"suppressed {args.email}")
+    elif args.cmd == "content":
+        from . import growth
+        engine.run_job("content", growth.linkedin_posts)
+    elif args.cmd == "digest":
+        from . import growth
+        print(growth.weekly_digest())
     elif args.cmd == "tick":
         engine.tick()
     elif args.cmd == "install":

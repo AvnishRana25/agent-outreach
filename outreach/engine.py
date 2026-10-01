@@ -5,6 +5,7 @@
   every 30 min    community [Hiring] posts
   daily 07:30     prepare: find companies -> research -> draft (Mon-Sat, your time zone)
   daily 09:45     Ad Library searches and LinkedIn tasks for the dashboard
+  Mondays         08:00 three LinkedIn post drafts, 09:00 the weekly summary on Telegram
 
 Long jobs (prepare, community) run as separate background processes, so sending and syncing
 keep going while they work. `install` registers the tick with macOS launchd (Linux: prints a
@@ -26,7 +27,7 @@ from zoneinfo import ZoneInfo
 
 from . import config, db
 
-JOBS = ("prepare", "community")
+JOBS = ("prepare", "community", "content")
 LABEL = "com.agent-outreach"
 
 
@@ -138,7 +139,7 @@ def _step(name: str, fn) -> None:
 
 
 def tick() -> None:
-    from . import dashboard_sync, replies, review, sender, sources
+    from . import dashboard_sync, growth, replies, review, sender, sources
     with lock("tick") as held:
         if not held:
             print("previous tick still running; skipping")
@@ -150,6 +151,8 @@ def tick() -> None:
             need_community = _due(conn, "tick:community", timedelta(minutes=30))
             need_prepare = _daily_due(conn, "tick:prepare", 7, 30, weekdays=range(6))
             need_daily = _daily_due(conn, "tick:daily_tasks", 9, 45)
+            need_posts = _daily_due(conn, "tick:posts", 8, 0, weekdays=[0])
+            need_digest = _daily_due(conn, "tick:digest", 9, 0, weekdays=[0])
         dashboard_on = bool(os.getenv("TURSO_DATABASE_URL"))
         if dashboard_on:
             _step("dashboard actions", lambda: dashboard_sync.pull_safe())
@@ -157,6 +160,10 @@ def tick() -> None:
             _step("prepare", lambda: spawn("prepare"))
         if need_community and config.settings().get("community"):
             _step("community", lambda: spawn("community"))
+        if need_posts:
+            _step("linkedin posts", lambda: spawn("content"))
+        if need_digest:
+            _step("weekly digest", growth.weekly_digest)
         _step("send", lambda: sender.tick(2))
         if need_sync:
             _step("replies", lambda: replies.sync(4))

@@ -27,7 +27,7 @@ def test_tick_schedules(monkeypatch):
     monkeypatch.setattr(replies, "sync", lambda d: calls.append("replies") or 0)
     fake_clock(monkeypatch, 2026, 10, 5, 2, 30)          # Mon 08:00 IST: after 07:30
     engine.tick()
-    assert calls == ["prepare", "community", "send", "replies"]
+    assert calls == ["prepare", "community", "content", "send", "replies"]   # Monday 08:00 also drafts posts
     calls.clear()
     fake_clock(monkeypatch, 2026, 10, 5, 2, 35)          # 5 minutes later: only sending is due
     engine.tick()
@@ -115,3 +115,19 @@ def test_install_writes_dashboard_port(monkeypatch, tmp_path, capsys):
     assert plistlib.loads(agent.read_bytes())["ProgramArguments"][-1] == "9123"
     engine.install(port=9200)
     assert plistlib.loads(agent.read_bytes())["ProgramArguments"][-1] == "9200"
+
+
+def test_monday_runs_posts_and_digest(monkeypatch):
+    from outreach import engine, growth, replies, sender
+    calls = []
+    monkeypatch.setattr(engine, "spawn", lambda job: calls.append(job) or "started")
+    monkeypatch.setattr(growth, "weekly_digest", lambda: calls.append("digest") or "digest sent")
+    monkeypatch.setattr(sender, "tick", lambda n: 0)
+    monkeypatch.setattr(replies, "sync", lambda d: 0)
+    fake_clock(monkeypatch, 2026, 10, 5, 3, 45)          # Monday 09:15 IST
+    engine.tick()
+    assert "content" in calls and "digest" in calls
+    calls.clear()
+    fake_clock(monkeypatch, 2026, 10, 6, 3, 45)          # Tuesday: neither
+    engine.tick()
+    assert "content" not in calls and "digest" not in calls

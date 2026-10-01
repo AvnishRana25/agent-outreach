@@ -31,12 +31,28 @@ def _followup_days() -> list[int]:
     return config.settings()["sequence"]["followup_days"]
 
 
-def system_prompt(segment: str) -> str:
+def pick_angle(conn, segment: str) -> dict | None:
+    """A/B test: give each lead the segment's angle that has been used least so far."""
+    angles = config.segment(segment).get("angles") or []
+    if not angles:
+        return None
+    used = {r["angle"]: r["n"] for r in conn.execute(
+        "SELECT angle, COUNT(*) n FROM leads WHERE segment=? AND angle != '' GROUP BY angle", (segment,))}
+    return min(angles, key=lambda a: (used.get(a["id"], 0), angles.index(a)))
+
+
+def system_prompt(segment: str, angle: dict | None = None) -> str:
     p = config.profile()
     seg = config.segment(segment)
     days = _followup_days() + [None] * 3
     playbook = (f"Segment: {segment}\nAudience: {seg['audience'].strip()}\nTheir pain: {seg['pain'].strip()}\n"
                 f"Offer: {seg['offer'].strip()}\nCTA: {seg['cta'].strip()}\nTone: {seg.get('tone', '')}")
+    if seg.get("price"):
+        playbook += (f"\nPrice and terms: {seg['price']}. Mention the fixed price or the trial terms once, in the "
+                     "offer sentence of email 1 or in follow-up 1, so it reads as a small, safe first step.")
+    if angle:
+        playbook += (f"\nAngle for this email (an A/B test, so stick to it): {angle['focus']} "
+                     "Build the hook and follow-up 1 around this angle.")
     return llm.load_prompt("draft_system.md").format(
         name=p["name"],
         identity="\n".join(f"- {x}" for x in p["identity"]),
@@ -56,8 +72,10 @@ def lead_prompt(row) -> str:
             f"RESEARCH BRIEF\n{row['research']}\n\nLEAD\n{json.dumps(lead, indent=2)}")
 
 
-def generate(row) -> Sequence | None:
-    seq = llm.generate(system_prompt(row["segment"]), lead_prompt(row), Sequence, kind="draft", temperature=0.8)
+def generate(row, angle: dict | None = None) -> Sequence | None:
+    if angle is None and row["angle"]:
+        angle = next((a for a in config.segment(row["segment"]).get("angles") or [] if a["id"] == row["angle"]), None)
+    seq = llm.generate(system_prompt(row["segment"], angle), lead_prompt(row), Sequence, kind="draft", temperature=0.8)
     if seq and len(seq.followups) >= len(_followup_days()):
         seq.linkedin_note = seq.linkedin_note[:200]
         seq.linkedin_dm = seq.linkedin_dm[:450]
@@ -111,8 +129,12 @@ def run(limit: int, use_mock: bool = False) -> int:
         rows = pick_leads(conn, limit)
     made = 0
     for row in rows:
+        with db.connect() as conn:
+            angle = pick_angle(conn, row["segment"]) if not row["angle"] else None
+            if angle:
+                db.set_lead(conn, row["id"], angle=angle["id"])
         try:
-            seq = mock(row) if use_mock else generate(row)
+            seq = mock(row) if use_mock else generate(row, angle)
         except llm.QuotaExhausted:
             print("  Gemini daily quota reached; remaining drafts wait for tomorrow")
             break

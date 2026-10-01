@@ -245,3 +245,27 @@ def test_engine_controls_round_trip(env, monkeypatch):
     acts = {a["kind"] + str(a["target"]): a for a in call(port, "GET", "/api/data", cookie=cookie)[1]["actions"]}
     assert acts["add_lead78"]["status"] == "error" and "unknown segment" in acts["add_lead78"]["result"]
     assert call(port, "GET", "/api/data", cookie=cookie)[1]["engine"]["sending_paused"] is True
+
+
+def test_deal_stage_and_plan_from_dashboard(env, monkeypatch):
+    port = env
+    from outreach import dashboard_sync, db, growth
+    seed()
+    monkeypatch.setattr(growth, "make_plan", lambda rid: "plan ready")
+    dashboard_sync.sync()
+    cookie = call(port, "POST", "/api/login", {"password": "correct horse battery"})[2].split(";")[0]
+    data = call(port, "GET", "/api/data", cookie=cookie)[1]
+    [deal] = data["pipeline"]                               # Sam's positive reply
+    reply = data["reply"][0]
+    assert call(port, "POST", "/api/action", {"kind": "set_stage", "target": deal["id"],
+                                              "payload": {"stage": "nope"}}, cookie=cookie)[0] == 400
+    for body in ({"kind": "set_stage", "target": deal["id"], "payload": {"stage": "proposal_sent", "value": "350",
+                                                                           "note": "sent Tue"}},
+                 {"kind": "make_plan", "target": reply["id"]}):
+        assert call(port, "POST", "/api/action", body, cookie=cookie)[0] == 200
+    dashboard_sync.sync()
+    with db.connect() as conn:
+        row = conn.execute("SELECT deal_stage, deal_value, deal_note FROM leads WHERE id=?", (deal["id"],)).fetchone()
+    assert tuple(row) == ("proposal_sent", 350.0, "sent Tue")
+    acts = call(port, "GET", "/api/data", cookie=cookie)[1]["actions"]
+    assert {a["kind"]: a["result"] for a in acts}["make_plan"] == "plan ready"

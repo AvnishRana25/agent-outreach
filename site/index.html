@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avnish Rana · Lead-handling systems</title>
+<meta name="description" content="Avnish Rana builds lead-handling systems: WhatsApp, CRM and AI automations that answer, assign and track every lead. Case study and fixed-price pilots.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Ctext x='16' y='22' font-family='Arial' font-size='15' font-weight='700' fill='white' text-anchor='middle'%3EAR%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f2f1ed; --ink: #0b0b0b; --ink-2: #52514e; --muted: #6f6d68;
+  --border: rgba(11,11,11,0.10); --accent: #2a78d6; --accent-ink: #1d5fae; --accent-wash: rgba(42,120,214,0.09);
+  --good: #006300;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #9a988f;
+    --border: rgba(255,255,255,0.10); --accent: #3987e5; --accent-ink: #7fb2f0; --accent-wash: rgba(57,135,229,0.14);
+    --good: #0ca30c;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #9a988f;
+  --border: rgba(255,255,255,0.10); --accent: #3987e5; --accent-ink: #7fb2f0; --accent-wash: rgba(57,135,229,0.14);
+  --good: #0ca30c;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--ink); font: 17px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent-ink); }
+.wrap { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+header { padding: 56px 0 28px; }
+.eyebrow { font-size: 14px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--accent-ink); }
+h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.15; letter-spacing: -0.02em; margin: 10px 0 14px; }
+.lede { font-size: 19px; color: var(--ink-2); max-width: 680px; margin: 0; }
+.cta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
+.btn { display: inline-block; text-decoration: none; padding: 11px 18px; border-radius: 9px; font-weight: 600; font-size: 15px; border: 1px solid var(--border); color: var(--ink); background: var(--surface); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+section { padding: 28px 0; border-top: 1px solid var(--border); }
+h2 { font-size: 24px; letter-spacing: -0.01em; margin: 0 0 6px; }
+h3 { font-size: 18px; margin: 22px 0 6px; }
+.sub { color: var(--muted); margin: 0 0 18px; font-size: 15px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 18px 0 6px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.stat b { display: block; font-size: 28px; letter-spacing: -0.02em; line-height: 1.2; }
+.stat span { font-size: 14px; color: var(--ink-2); }
+ul.points { padding-left: 20px; margin: 8px 0; }
+ul.points li { margin: 8px 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 12px 0; }
+.card h3 { margin-top: 0; }
+.offers { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.price { font-weight: 700; color: var(--good); }
+figure { margin: 16px 0; }
+figure img { width: 100%; border-radius: 10px; border: 1px solid var(--border); display: block; }
+figcaption { font-size: 14px; color: var(--muted); margin-top: 6px; }
+.video { position: relative; padding-top: 56.25%; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+.video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.steps { counter-reset: s; list-style: none; padding: 0; }
+.steps li { counter-increment: s; position: relative; padding-left: 40px; margin: 12px 0; }
+.steps li::before { content: counter(s); position: absolute; left: 0; top: 1px; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-wash); color: var(--accent-ink); font-weight: 700; font-size: 14px; display: grid; place-items: center; }
+footer { padding: 32px 0 56px; border-top: 1px solid var(--border); color: var(--muted); font-size: 15px; }
+@media (max-width: 560px) { body { font-size: 16px; } header { padding-top: 36px; } .lede { font-size: 17px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Avnish Rana · AI automation engineer</div>
+    <h1>Every lead answered, assigned and tracked to the deal it became.</h1>
+    <p class="lede">I build lead-handling systems on WhatsApp, CRM and AI: instant replies to every enquiry, the right agent called in 30 minutes, and ad spend you can trace to closed deals. Fixed price, written scope in 24 hours, a working demo in the first week.</p>
+    <div class="cta">
+      <a class="btn primary" href="mailto:workwithavnish@zohomail.in?subject=Lead%20handling">Email me</a>
+      <a class="btn" href="#case-study">Read the case study</a>
+    </div>
+  </header>
+
+  <section id="case-study">
+    <h2>Case study: a real-estate brokerage in Delhi NCR</h2>
+    <p class="sub">I built and run their production CRM, WhatsApp bot and ad attribution. Their sales team uses it every day. Client name shared on request.</p>
+
+    <div class="stats">
+      <div class="stat"><b>30 min</b><span>call reminder on the assigned agent's calendar for every new lead</span></div>
+      <div class="stat"><b>97%</b><span>of blank portal leads (722 of 746) recovered with an LLM classifier</span></div>
+      <div class="stat"><b>818 → ~0</b><span>production errors a day, traced to one template-naming bug</span></div>
+      <div class="stat"><b>2.5 months</b><span>of silently failing Meta conversion tracking, found and fixed</span></div>
+    </div>
+
+    <h3>The problem</h3>
+    <p>Leads arrived from property portals, Facebook and Instagram ads, the website and WhatsApp. Leads from WhatsApp ads looked exactly like organic chats, so there was no way to see which campaign produced a deal, and Meta conversion tracking had quietly stopped working.</p>
+
+    <h3>What I built</h3>
+    <ul class="points">
+      <li>Every lead from portals, Facebook/Instagram ads, the website and WhatsApp now auto-creates a deal, is assigned to an agent, and puts a "call within 30 minutes" reminder with a one-tap link on that agent's Google Calendar.</li>
+      <li>A WhatsApp, Facebook and Instagram bot answers comments and DMs, sends property photos and details to buyers, and turns every "call me back" into a CRM task with a 15/30-minute SLA and escalation to the owner.</li>
+      <li>Click-to-WhatsApp ad leads are wired into the CRM with campaign-level attribution, so the owner sees which ads produce deals.</li>
+      <li>I found why Meta conversion tracking had silently failed for 2.5 months and fixed it.</li>
+      <li>An LLM classifier recovered the property requirements of 722 of 746 portal leads (97%) that had landed in the CRM blank, so they could be matched to listings again.</li>
+      <li>Delivered in phases, each one deployed and verified before the next.</li>
+    </ul>
+
+    <!-- Screenshots: put blurred PNGs in site/img/ with these names; a figure hides itself until its file exists. -->
+    <figure><img src="img/pipeline.png" alt="Deal pipeline with leads auto-assigned to agents (client data blurred)" loading="lazy" onerror="this.closest('figure').remove()"><figcaption>Deal pipeline: every lead becomes a deal with an owner (client data blurred).</figcaption></figure>
+    <figure><img src="img/whatsapp.png" alt="WhatsApp bot replying to a buyer with property details (client data blurred)" loading="lazy" onerror="this.closest('figure').remove()"><figcaption>The WhatsApp bot answering a buyer within seconds (client data blurred).</figcaption></figure>
+    <!-- Loom walkthrough: replace YOUR-LOOM-ID and remove the comment markers.
+    <div class="video"><iframe src="https://www.loom.com/embed/YOUR-LOOM-ID" allowfullscreen title="2-minute walkthrough"></iframe></div>
+    -->
+  </section>
+
+  <section>
+    <h2>Fixed-price ways to start</h2>
+    <p class="sub">Small, defined, low-risk. You pay once it's running.</p>
+    <div class="offers">
+      <div class="card"><h3>WhatsApp Lead Engine pilot</h3>
+        <p>For brokerages and sales teams that live on WhatsApp. Instant reply to every portal, website and ad lead; agent assignment with a 30-minute call reminder; every lead tagged with its source.</p>
+        <p class="price">USD 350 (about AED 1,300) · India Rs 25,000 · live in 7 working days</p></div>
+      <div class="card"><h3>White-label automation partner</h3>
+        <p>For agencies. Your client's CRM integration, WhatsApp/SMS follow-up flow, lead routing or AI feature, built under your brand with a written spec and daily updates.</p>
+        <p class="price">First task fixed from USD 250 / GBP 200 · about a week</p></div>
+    </div>
+    <h3>How it works</h3>
+    <ol class="steps">
+      <li>You describe the problem. Within 24 hours you get a one-page plan with a fixed price and a delivery date.</li>
+      <li>A working demo in the first week, with a short update every day.</li>
+      <li>Go-live on your existing number and tools. You pay when it's running.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Other work</h2>
+    <div class="card"><h3>Climate-tech energy analytics</h3>
+      <p>Built ROI models from 350+ commercial electricity bills that were used in live sales conversations (projected 2.1x ROI, about 6-month payback across 100 assets). Engineered 16 explainable fault diagnostics and 63 derived metrics from 1 Hz telemetry (PostgreSQL + VictoriaMetrics) that caught a live food-safety failure billing data had missed.</p></div>
+    <div class="card"><h3>Developer tools</h3><p>Cut setup time for a database tool from 15 minutes to 2 by re-scoping the MVP after interviewing 20+ beta users.</p></div>
+    <div class="card"><h3>Design and development agency</h3><p>Delivered 5+ simultaneous client web products 100% on time, including a WordPress-to-React migration.</p></div>
+    <div class="card"><h3>iOS and SaaS</h3><p>Fixed a 25% login drop-off in a production iOS app, cutting auth latency 30% and redundant API calls 50%. Built TaskForgeAI end to end: a freemium SaaS with auth, AI scoring and Stripe checkout.</p></div>
+    <p class="sub" style="margin-top:14px">Currently an AI Researcher at Caudal AI. Stack: TypeScript/Node, React/Next.js, Python, PostgreSQL, WhatsApp Cloud API, Meta Graph and Ads APIs, Google Calendar/Tasks APIs, n8n/Zapier, LLM APIs (Gemini, OpenAI, Claude).</p>
+  </section>
+
+  <footer>
+    <p><strong style="color:var(--ink)">Avnish Rana</strong> · New Delhi (IST, UTC+5:30) · overlaps Gulf hours fully, UK and US mornings</p>
+    <p><a href="mailto:workwithavnish@zohomail.in">workwithavnish@zohomail.in</a> · <a href="https://github.com/AvnishRana25">github.com/AvnishRana25</a></p>
+  </footer>
+</div>
+</body>
+</html>

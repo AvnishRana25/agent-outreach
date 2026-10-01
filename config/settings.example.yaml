@@ -1,7 +1,7 @@
 # Copy to config/settings.yaml (git-ignored) and fill in your inboxes.
 
 targeting:
-  india_share_max: 0.25       # at most 25% of each day's new emails go to India-market segments
+  india_share_max: 0.33       # at most a third of each day's new emails go to India-market segments
   min_fit: 6                  # research fit score (0-10) needed before a lead is drafted
 
 sending:
@@ -52,7 +52,7 @@ firecrawl:
   use_for: [scrape, map, search]
   daily_credit_cap: 60           # raise if you're on a paid plan or self-hosting
 
-# Segments. daily_new sums to 38; India-market segments = 9 (24%). With one inbox (35 sends/day including
+# Segments. daily_new sums to 38; India-market segments = 12 (32%), under india_share_max. With one inbox (35 sends/day including
 # follow-ups) the sender reaches ~35 new/day in week 1 and ~15-20 new/day once follow-ups start.
 segments:
   gulf_realestate:
@@ -70,10 +70,17 @@ segments:
       Portal leads cost a lot and are answered slowly; agents handle WhatsApp on personal phones; the
       owner can't see which portal or campaign produces deals, or which agent dropped a lead.
     offer: >
-      A fixed-price 2-week build: every portal, website and ad lead gets an instant WhatsApp reply,
+      "WhatsApp Lead Engine" pilot: every portal, website and ad lead gets an instant WhatsApp reply,
       is assigned to an agent with a call-within-30-minutes reminder, and is tagged with its source,
-      so the owner sees cost per deal by portal.
+      so the owner sees cost per deal by portal. Fixed USD 350 (about AED 1,300), live in 7 working
+      days on their existing number and tools; they pay only once it's running.
+    price: "USD 350 fixed (about AED 1,300), live in 7 working days, paid on go-live"
     cta: "Ask if they'd like a one-page plan for their brokerage, free, no call needed."
+    angles:
+      - id: speed
+        focus: "Speed to first reply: portal and ad leads that wait hours go to the next agency; lead with response time."
+      - id: attribution
+        focus: "Knowing which portal or ad produces deals: lead with spend that can't be traced to closed deals."
     tone: "Professional, concise, respectful."
     market_style: >
       Polite, slightly formal international English. Prices in AED or USD. Their week runs Monday to
@@ -94,9 +101,17 @@ segments:
       Clients ask for WhatsApp/SMS follow-ups, CRM routing and AI features; UK developers cost
       £50-90/hr, which kills the margin on small projects, so the agency says no or loses money.
     offer: >
-      White-label automation and AI integration developer at $10-12/hr or fixed price per task,
-      working UK mornings, with written specs and daily updates. The first task is fixed-price.
+      White-label automation partner: the first client task (a CRM integration, WhatsApp/SMS follow-up
+      flow, lead routing or an AI feature) as a fixed-price trial from GBP 200, written spec within 24
+      hours, delivered in about a week, working UK mornings. Then per-task quotes or a small monthly
+      retainer.
+    price: "first task fixed from GBP 200, spec in 24 hours, delivered in about a week"
     cta: "Ask if there's one small automation task in their backlog they'd trust to a fixed-price trial."
+    angles:
+      - id: margin
+        focus: "Margin: small automation jobs are unprofitable at UK developer rates; white-label keeps them profitable."
+      - id: capacity
+        focus: "Capacity: say yes to the automation and AI requests clients already make, without hiring."
     tone: "Understated partner-to-partner, no hype."
     market_style: British spelling, understated, no exclamation marks, money in GBP or USD.
     score_signals: {careers: 10, analytics: 5, cms_wordpress: 5}
@@ -114,9 +129,16 @@ segments:
       Automation and AI work is in demand, but US contractors at $75-150/hr make small client
       projects unprofitable.
     offer: >
-      White-label automation and AI developer at $10-12/hr or fixed price, overlapping the US morning,
-      with written specs and daily async updates. The first task is fixed-price.
+      White-label automation and AI developer: the first client task as a fixed-price trial from
+      USD 250, spec within 24 hours, delivered in about a week, overlapping the US morning with daily
+      async updates. Then per-task quotes or a small retainer.
+    price: "first task fixed from USD 250, spec in 24 hours, delivered in about a week"
     cta: "Ask if they have one automation task they'd trust to a small fixed-price trial."
+    angles:
+      - id: margin
+        focus: "Margin: US contractor rates make small automation projects unprofitable; fixed-price white-label fixes that."
+      - id: speed
+        focus: "Turnaround: a written spec in 24 hours and a working version within a week, so client requests don't stall."
     tone: "Direct, concise, value-first."
     market_style: American spelling, direct, money in USD.
     score_signals: {careers: 10, analytics: 5}
@@ -135,15 +157,21 @@ segments:
       remote job boards (the SOURCE text is their post).
     pain: They have a defined project or role and need someone reliable now.
     offer: >
-      Deliver the posted project at a fixed price or $10-12/hr, with a written plan within 24 hours
-      and a working demo in the first week.
+      Deliver the posted project at a fixed price (quoted after reading their spec, usually USD 150-600
+      for a first milestone), with a written plan within 24 hours and a working demo in the first week.
+    price: "fixed price per milestone, quoted from their spec; plan in 24 hours, demo within a week"
+    angles:
+      - id: plan
+        focus: "Lead with how he'd build exactly what they posted, step by step, in two sentences."
+      - id: proof
+        focus: "Lead with the closest thing he has already shipped to what they posted."
     cta: "Ask if they'd like a short written plan and a fixed quote for their project."
     tone: "Direct, specific to their post, businesslike."
     market_style: International English, match the post's tone, money in USD.
     score_signals: {}
 
   intl_startups_intern:
-    daily_new: 8
+    daily_new: 5                             # cut from 8: hiring abroad from India is often blocked by payroll/visa
     market: global
     country: ""
     timezone: America/New_York
@@ -158,8 +186,15 @@ segments:
       They need people who can ship end to end (spec, code, production, metrics) without
       hand-holding, and most applicants can't show that.
     offer: >
-      A remote product-engineering or AI-engineering internship (or a paid trial project), where
-      Avnish contributes from week one, with one concrete idea for their product in the email.
+      A paid two-week trial project (remote, contract basis, so no visa or payroll setup) on one
+      concrete problem from their product, with the option to continue as a product/AI-engineering
+      intern or contractor. Include one specific idea for their product in the email.
+    price: "paid two-week trial project, contract basis, then optionally an internship or contract"
+    angles:
+      - id: idea
+        focus: "Open with one specific, buildable idea for their product, then the trial project."
+      - id: shipped
+        focus: "Open with what he has shipped end to end in production, then the trial project."
     cta: "Ask if they're open to a 15-minute chat, or if someone else on the team is better to talk to."
     tone: "Confident, specific, respectful of their time."
     market_style: International English, founder-to-builder, no flattery.
@@ -180,15 +215,22 @@ segments:
       Portal and ad leads are answered hours late or never; leads live in Excel and personal
       WhatsApp; no one knows which source produced a deal.
     offer: >
-      A 2-week fixed-scope build: every lead goes into one CRM, gets an instant WhatsApp reply, is
-      auto-assigned with a call-in-30-minutes reminder, and is tied to its source.
+      "WhatsApp Lead Engine" pilot: every 99acres, MagicBricks, Housing and Facebook lead goes into one
+      place, gets an instant WhatsApp reply, is auto-assigned with a call-in-30-minutes reminder and is
+      tied to its source. Fixed Rs 25,000, live in 7 working days, paid on go-live.
+    price: "Rs 25,000 fixed, live in 7 working days, paid on go-live"
+    angles:
+      - id: speed
+        focus: "Speed: portal leads answered hours late go to the next broker; lead with response time."
+      - id: leakage
+        focus: "Leakage: leads living in Excel and personal WhatsApp get lost when an agent leaves or forgets."
     cta: "Ask if they'd like a 1-page plan for their team, free, no call needed."
     tone: "Direct and practical, owner to operator."
     market_style: Indian English is fine; money in rupees.
     score_signals: {whatsapp_link: 10, portals: 15, no_crm: 15, no_whatsapp_tool: 10}
 
   india_startups_intern:
-    daily_new: 3
+    daily_new: 6                             # raised from 3: Indian startups can hire you without visa friction
     market: india
     country: India
     timezone: Asia/Kolkata
@@ -197,8 +239,16 @@ segments:
     signature: internship
     audience: Founders/CTOs of funded Indian AI and SaaS startups that are hiring.
     pain: They need interns who ship to production from week one.
-    offer: A product/AI-engineering internship with a concrete product idea in the email.
-    cta: "Ask if they're open to a 15-minute chat."
+    offer: >
+      A product/AI-engineering internship that starts with a paid one-week trial task on a real problem
+      from their product, with one concrete idea for their product in the email.
+    price: "paid one-week trial task, then a stipended internship"
+    cta: "Ask if they're open to a 15-minute chat, or would rather send a trial task."
+    angles:
+      - id: idea
+        focus: "Open with one specific, buildable idea for their product."
+      - id: shipped
+        focus: "Open with the production system he runs for a paying client."
     tone: "Confident, specific."
     market_style: Indian English is fine.
     score_signals: {careers: 20, ai_mention: 10}
