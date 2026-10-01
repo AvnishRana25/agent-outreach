@@ -136,7 +136,7 @@ def check(post: dict, use_mock: bool) -> PostCheck:
     if use_mock:
         return PostCheck(relevant=True, reason="mock", reply=f"(mock reply to: {post['title']})")
     prompt = f"SOURCE: {post['source']}\nTITLE: {post['title']}\n\nPOST:\n{post['body'][:4000] or '(title only)'}"
-    return llm.generate(_system(), prompt, PostCheck, kind="reply", temperature=0.4) or \
+    return llm.generate(_system(), prompt, PostCheck, kind="community", temperature=0.4) or \
         PostCheck(relevant=False, reason="could not check", reply="")
 
 

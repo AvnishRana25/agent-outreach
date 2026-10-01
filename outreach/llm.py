@@ -52,8 +52,16 @@ CHAINS = {
 _FIRST = {"research": "GEMINI_RESEARCH_MODEL", "draft": "GEMINI_MODEL", "reply": "GEMINI_REPLY_MODEL"}
 _skip: set[str] = set()          # models known to be out for today in this process
 
+# Replies to your emails matter most, but other work shares their models (research uses the same lite
+# models; community checks and LinkedIn posts use the reply chain). Everything else stops this many
+# calls short of each reply model's daily limit, so a busy forum day can't leave a reply unread.
+REPLY_RESERVE = int(os.getenv("GEMINI_REPLY_RESERVE", "5"))
+DEFAULT_LIMIT = 20               # free-tier requests/day per model, until a 429 tells us the real number
+ALIASES = {"community": "reply"}  # same models as replies, but has to leave the reserve alone
+
 
 def chain(kind: str = "draft") -> list[str]:
+    kind = ALIASES.get(kind, kind)
     kind = kind if kind in CHAINS else "draft"
     custom = os.getenv(f"GEMINI_{kind.upper()}_MODELS", "")
     models = [m.strip() for m in custom.split(",") if m.strip()] or list(CHAINS[kind])
@@ -186,12 +194,18 @@ def generate(system: str, prompt: str, schema: type[T], kind: str = "draft",
         response_schema=schema,
         max_output_tokens=8192,
     )
-    out_today = _state().get("out", {})
+    st = _state()
+    out_today = st.get("out", {})
     reasons: dict[str, str] = {}
     busy: list[str] = []
+    reserved = set(chain("reply")) if kind != "reply" and REPLY_RESERVE > 0 else set()
     for model_id in chain(kind):
         if model_id in _skip or model_id in out_today:
             reasons[model_id] = out_today.get(model_id, "skipped")
+            continue
+        if model_id in reserved and st.get("calls", {}).get(model_id, 0) >= \
+                st.get("limits", {}).get(model_id, DEFAULT_LIMIT) - REPLY_RESERVE:
+            reasons[model_id] = "quota"                    # the rest of today's calls are kept for replies
             continue
         result = _try(model_id, prompt, cfg, schema)
         if result[0] == "ok":

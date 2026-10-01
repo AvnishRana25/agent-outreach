@@ -199,15 +199,38 @@ class Zoho:
         d = data.get("data") or {}
         return str(d.get("mailId") or d.get("messageId") or ""), str(d.get("messageId") or "")
 
-    def fetch(self, days: int) -> list[Incoming]:
+    def spam_folder(self) -> str:
+        """Replies to cold email sometimes land in Spam; read that folder too."""
+        if not hasattr(self, "_spam"):
+            self._spam = ""
+            try:
+                for f in self.call("GET", f"/accounts/{self.account_id()}/folders").get("data", []):
+                    if str(f.get("folderType", "")).lower() == "spam" or str(f.get("folderName", "")).lower() == "spam":
+                        self._spam = str(f["folderId"])
+                        break
+            except (ZohoError, KeyError):
+                pass
+        return self._spam
+
+    def fetch(self, days: int, known: set | None = None) -> list[Incoming]:
         acc = self.account_id()
         since_ms = (time.time() - days * 86400) * 1000
         rows = self.call("GET", f"/accounts/{acc}/messages/view", params={"limit": 200}).get("data", [])
+        if self.spam_folder():
+            try:
+                rows += self.call("GET", f"/accounts/{acc}/messages/view",
+                                  params={"limit": 50, "folderId": self.spam_folder()}).get("data", [])
+            except ZohoError:
+                pass
         out = []
         for m in rows:
             if float(m.get("receivedTime") or 0) < since_ms:
                 continue
             mid, fid = m.get("messageId"), m.get("folderId")
+            if known and str(mid) in known:   # already stored: skip the two content calls
+                continue
+            if self.box["email"].lower() in str(m.get("fromAddress", "")).lower():
+                continue
             try:
                 body = self.call("GET", f"/accounts/{acc}/folders/{fid}/messages/{mid}/content").get("data", {}).get("content", "")
                 head = self.call("GET", f"/accounts/{acc}/folders/{fid}/messages/{mid}/header").get("data", {}).get("headerContent", "")
@@ -246,9 +269,10 @@ def send(box: dict, to: str, subject: str, body: str, thread: dict | None) -> tu
     return smtp_send(box, to, subject, body, thread)
 
 
-def fetch(box: dict, days: int) -> list[Incoming]:
+def fetch(box: dict, days: int, known: set | None = None) -> list[Incoming]:
+    """`known`: provider ids already stored, so their bodies aren't downloaded again."""
     if box.get("transport") == "zoho_api":
-        return zoho(box).fetch(days)
+        return zoho(box).fetch(days, known)
     if not box.get("imap_host") or not box.get("password"):
         return []
     return imap_fetch(box, days)

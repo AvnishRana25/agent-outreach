@@ -5,6 +5,9 @@ from . import db
 
 
 POSITIVE_SQL = "('interested','meeting_request','question','referral')"
+# What the Respond tab shows: positive replies, plus any a person should read because Gemini either
+# couldn't classify them ("unclassified": quota or error) or called them "other".
+NEEDS_YOU_SQL = "('interested','meeting_request','question','referral','other','unclassified')"
 
 
 def funnel(conn, by: str = "segment") -> list[dict]:
@@ -68,7 +71,7 @@ def run() -> None:
 
         open_ = conn.execute(
             "SELECT r.*, l.company, l.first_name FROM replies r JOIN leads l ON l.id=r.lead_id "
-            "WHERE r.handled=0 AND r.category IN ('interested','meeting_request','question','referral') "
+            f"WHERE r.handled=0 AND r.category IN {NEEDS_YOU_SQL} "
             "ORDER BY r.received_at").fetchall()
         if open_:
             print("\nPositive replies waiting on you (mark done with `outreach done <id>`):")

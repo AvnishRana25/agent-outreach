@@ -190,7 +190,21 @@ def tick() -> None:
                 signal.alarm(0)
 
 
+def report_config_error(err: str) -> None:
+    """Show a broken settings file on the dashboard; without settings nothing else can run."""
+    print(f"  STOPPED: {err}")
+    if os.getenv("TURSO_DATABASE_URL"):
+        from . import turso
+        _step("dashboard notice", lambda: turso.run([("INSERT OR REPLACE INTO dash_meta (key, value) VALUES (?,?)",
+                                                      ("engine_error", json.dumps({"at": _now().isoformat(timespec="seconds"),
+                                                                                  "text": err})))]))
+
+
 def _tick(dashboard_sync, growth, review, sender, sources) -> None:
+    err = config.check()
+    if err:
+        report_config_error(err)
+        return
     with db.connect() as conn:
         db.set_state(conn, "engine:heartbeat", _now().isoformat(timespec="seconds"))
         db.purge_mock(conn)
@@ -299,6 +313,9 @@ def install(force: bool = False, port: int | None = None) -> None:
 
 def doctor() -> None:
     """Plain-English check of why the engine isn't running."""
+    err = config.check()
+    if err:
+        print(f"PROBLEM: {err}\nThe engine can't run until this is fixed.")
     with db.connect() as conn:
         beat = db.get_state(conn, "engine:heartbeat")
     age = (_now() - datetime.fromisoformat(beat)).total_seconds() / 60 if beat else None
@@ -323,7 +340,7 @@ def doctor() -> None:
     if log.exists():
         print("\nLast lines of data/engine.log:")
         print("\n".join(log.read_text(errors="replace").splitlines()[-15:]))
-    if age is not None and age > 15:
+    if age is not None and age > 15 and not err:
         print("\nIf both agents look fine, the Mac was probably asleep: background jobs pause during sleep. "
               "Starting one engine run now.")
         print(kick_tick())

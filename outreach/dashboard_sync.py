@@ -209,7 +209,7 @@ def _review_items(conn) -> list[dict]:
 def _reply_items(conn) -> list[dict]:
     rows = conn.execute(
         "SELECT r.*, l.company, l.first_name, l.segment FROM replies r JOIN leads l ON l.id=r.lead_id "
-        f"WHERE r.handled=0 AND r.category IN {report.POSITIVE_SQL} ORDER BY r.received_at LIMIT 60").fetchall()
+        f"WHERE r.handled=0 AND r.category IN {report.NEEDS_YOU_SQL} ORDER BY r.received_at LIMIT 60").fetchall()
     return [{"id": r["id"], "received_at": r["received_at"], "from": r["from_addr"], "company": r["company"],
              "first_name": r["first_name"], "segment": r["segment"], "category": r["category"],
              "summary": r["summary"], "subject": r["subject"], "body": (r["body"] or "")[:4000],
@@ -269,6 +269,7 @@ def _engine(conn) -> dict:
     return {"heartbeat": db.get_state(conn, "engine:heartbeat") or None, "gemini": llm.status(),
             "digest": state_json("digest:last"), "posts": state_json("content:linkedin_posts"),
             "retry_prepare": db.get_state(conn, "retry:prepare") or None,
+            "placeholders": config.placeholders(),
             "sending_paused": db.get_state(conn, "sending_paused") == "1",
             "jobs": {j: {**engine.job_state(conn, j), "running": engine.is_running(j), "log": _tail(f"{j}.log")}
                      for j in engine.JOBS},
@@ -303,6 +304,7 @@ def push(snap: dict | None = None) -> dict:
                           (kind, str(item["id"]), sort, json.dumps(item, default=str))))
     for key in ("stats", "health", "engine"):
         stmts.append(("INSERT OR REPLACE INTO dash_meta (key, value) VALUES (?,?)", (key, json.dumps(snap[key]))))
+    stmts.append("DELETE FROM dash_meta WHERE key='engine_error'")  # a run got this far, so settings are fine
     stmts.append(("INSERT OR REPLACE INTO dash_meta (key, value) VALUES (?,?)",
                   ("synced_at", json.dumps(datetime.now(timezone.utc).isoformat(timespec="seconds")))))
     # Keep the action log short.

@@ -61,7 +61,19 @@ def system_prompt(segment: str, angle: dict | None = None) -> str:
         segment_playbook=playbook,
         market_style=seg.get("market_style", "International English, concise and professional."),
         d1=days[0] or "-", d2=days[1] or "-", d3=days[2] or "-",
+        **_role_words(seg),
     )
+
+
+def _role_words(seg: dict) -> dict:
+    """Freelance emails must not sound junior. Internship emails have to say what he's asking for,
+    so there the word is allowed and he says it plainly, once."""
+    if seg.get("signature") == "internship":
+        return {"extra_banned": "", "role_rule": (
+            "- This email asks for an internship or contract role. Say so plainly, once, in the offer sentence "
+            "(e.g. 'a paid trial project, then an internship or contract role'), led by what he would build for "
+            "them. Never apologise for it or sound junior.")}
+    return {"extra_banned": ', "intern", "internship"', "role_rule": ""}
 
 
 def lead_prompt(row) -> str:

@@ -20,6 +20,7 @@ from . import config, db, llm, transport
 BOUNCE_FROM = re.compile(r"mailer-daemon|postmaster|mail delivery", re.I)
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 POSITIVE = {"interested", "meeting_request", "question", "referral"}
+UNCLASSIFIED = "unclassified"   # Gemini couldn't read it (quota, outage): shown to you as-is, retried later
 
 
 class ReplyClass(BaseModel):
@@ -33,7 +34,8 @@ def _system() -> str:
     p = config.profile()
     return llm.load_prompt("reply_system.md").format(
         name=p["name"], identity="; ".join(p["identity"]),
-        calendar=p.get("calendar_link", ""), rates=p.get("rates", ""))
+        calendar="" if config.PLACEHOLDER.search(str(p.get("calendar_link", ""))) else p.get("calendar_link", ""),
+        rates=p.get("rates", ""))
 
 
 def _strip_quoted(text: str) -> str:
@@ -68,11 +70,51 @@ def _match_lead(conn, msg: transport.Incoming, is_bounce: bool):
     return None
 
 
-def classify(lead, subject: str, body: str) -> ReplyClass:
+def classify(lead, subject: str, body: str) -> ReplyClass | None:
+    """None when Gemini's answer wasn't usable; raises QuotaExhausted when no model is left."""
     prompt = (f"Lead: {lead['first_name']} {lead['last_name']}, {lead['title']} at {lead['company']} "
               f"({lead['country']}), segment {lead['segment']}.\nSubject: {subject}\n\nReply:\n{body}")
-    result = llm.generate(_system(), prompt, ReplyClass, kind="reply", temperature=0.3)
-    return result or ReplyClass(category="other", summary="(could not classify)", suggested_reply="")
+    return llm.generate(_system(), prompt, ReplyClass, kind="reply", temperature=0.3)
+
+
+def unclassified(why: str) -> ReplyClass:
+    return ReplyClass.model_construct(category=UNCLASSIFIED, summary=f"Not read by AI yet ({why}); read it yourself",
+                                      suggested_reply="")
+
+
+def _alert(lead, result: ReplyClass, where: str = "") -> None:
+    if result.category in POSITIVE:
+        notify(f"🔥 {result.category.upper()} from {lead['first_name'] or ''} @ {lead['company']}\n"
+               f"{result.summary}\n\n{where or 'Answer it in the dashboard (Respond tab).'}")
+    elif result.category in (UNCLASSIFIED, "other"):
+        notify(f"📩 Reply from {lead['first_name'] or ''} @ {lead['company']}: {result.summary}\n\n"
+               "Read it in the dashboard (Respond tab); it could be a yes.")
+
+
+def reclassify(limit: int = 10) -> int:
+    """Retry replies Gemini couldn't read earlier, now that quota may be back."""
+    with db.connect() as conn:
+        rows = conn.execute("SELECT r.*, l.id AS lid FROM replies r JOIN leads l ON l.id=r.lead_id "
+                            "WHERE r.category=? AND r.handled=0 ORDER BY r.received_at LIMIT ?",
+                            (UNCLASSIFIED, limit)).fetchall()
+    done = 0
+    for r in rows:
+        with db.connect() as conn:
+            lead = conn.execute("SELECT * FROM leads WHERE id=?", (r["lid"],)).fetchone()
+        try:
+            result = classify(lead, r["subject"], r["body"] or "")
+        except llm.QuotaExhausted:
+            break
+        if not result:
+            continue
+        with db.connect() as conn:
+            conn.execute("UPDATE replies SET category=?, summary=?, suggested_reply=? WHERE id=?",
+                         (result.category, result.summary, result.suggested_reply, r["id"]))
+            _apply(conn, lead, result)
+        if result.category in POSITIVE:
+            _alert(lead, result)
+        done += 1
+    return done
 
 
 def notify(text: str) -> None:
@@ -112,9 +154,16 @@ def telegram_setup() -> None:
 
 def sync(days: int = 4, use_mock: bool = False) -> int:
     handled = 0
+    if not use_mock:
+        n = reclassify()
+        if n:
+            print(f"  read {n} earlier replies that were waiting for Gemini")
     for box in config.inboxes():
+        with db.connect() as conn:
+            known = {r[0] for r in conn.execute("SELECT imap_uid FROM replies WHERE inbox=? AND imap_uid != ''",
+                                                (box["email"],))}
         try:
-            incoming = transport.fetch(box, days)
+            incoming = transport.fetch(box, days, known)
         except (transport.ZohoError, OSError, requests.RequestException) as e:
             print(f"  ! could not read {box['email']}: {e}")
             continue
@@ -135,16 +184,14 @@ def sync(days: int = 4, use_mock: bool = False) -> int:
                     result = ReplyClass(category="other", summary="(mock)", suggested_reply="")
                 else:
                     try:
-                        result = classify(lead, msg.subject, body)
+                        result = classify(lead, msg.subject, body) or unclassified("its answer was unusable")
                     except llm.QuotaExhausted:
-                        result = ReplyClass(category="other", summary="(quota reached; read it yourself)",
-                                            suggested_reply="")
+                        result = unclassified("Gemini's quota is used up; retried automatically")
                 conn.execute(
                     """INSERT INTO replies (lead_id, inbox, imap_uid, message_id, from_addr, subject, body,
                        received_at, category, summary, suggested_reply) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                     (lead["id"], box["email"], msg.provider_id, msg.message_id, msg.from_addr, msg.subject,
                      body, msg.received_at, result.category, result.summary, result.suggested_reply))
-                reply_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                 _apply(conn, lead, result)
             handled += 1
             print(f"  {result.category:<16} {lead['email']:<38} {result.summary}")
@@ -156,9 +203,10 @@ def sync(days: int = 4, use_mock: bool = False) -> int:
                                                      result.suggested_reply + "\n\n" + config.profile()["signatures"]["short"])
                     except OSError:
                         saved = False
-                    where = f"draft saved in {box['email']}" if saved else f"send with: python -m outreach reply {reply_id}"
-                notify(f"🔥 {result.category.upper()} from {lead['first_name'] or ''} @ {lead['company']}\n"
-                       f"{result.summary}\n\n{where}")
+                    where = f"Draft saved in {box['email']}." if saved else ""
+                _alert(lead, result, where)
+            elif result.category in (UNCLASSIFIED, "other"):
+                _alert(lead, result)
     return handled
 
 

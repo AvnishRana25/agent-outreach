@@ -125,7 +125,7 @@ def linkedin_posts() -> str:
         "- First person ('I built...'). No client names unless the proof point names them. Never describe the NDA "
         "employer's work.\n- No 'I'm thrilled', no 'humbled', no emojis, no engagement bait, at most 3 hashtags at the end.")
     prompt = "Write one post for each of these proof points:\n" + "\n".join(f"- [{x['id']}] {x['text']}" for x in proofs)
-    out = llm.generate(system, prompt, Posts, kind="reply", temperature=0.7)
+    out = llm.generate(system, prompt, Posts, kind="community", temperature=0.7)
     if not out or not out.posts:
         return "error: Gemini returned nothing usable"
     with db.connect() as conn:
@@ -156,9 +156,9 @@ def suggestions(conn) -> list[str]:
             if (top["reply_rate"] or 0) - (low["reply_rate"] or 0) >= 1.5:
                 tips.append(f"{seg}: angle '{top['angle']}' gets {top['reply_rate']}% replies vs '{low['angle']}' "
                             f"{low['reply_rate']}%. Keep '{top['angle']}' and replace '{low['angle']}' in settings.yaml.")
-    waiting = conn.execute(f"SELECT COUNT(*) FROM replies WHERE handled=0 AND category IN {report.POSITIVE_SQL}").fetchone()[0]
+    waiting = conn.execute(f"SELECT COUNT(*) FROM replies WHERE handled=0 AND category IN {report.NEEDS_YOU_SQL}").fetchone()[0]
     if waiting:
-        tips.append(f"{waiting} positive repl{'y is' if waiting == 1 else 'ies are'} still waiting on you. Answer today.")
+        tips.append(f"{waiting} repl{'y is' if waiting == 1 else 'ies are'} still waiting on you. Answer today.")
     stale = conn.execute("SELECT company FROM leads WHERE deal_stage='proposal_sent' AND deal_updated < ?",
                          ((datetime.now(timezone.utc) - timedelta(days=5)).isoformat(),)).fetchall()
     if stale:

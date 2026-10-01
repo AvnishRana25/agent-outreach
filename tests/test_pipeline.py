@@ -116,6 +116,8 @@ def test_full_flow_with_zoho_transport(monkeypatch):
     monkeypatch.setattr(transport, "send", fake_send)
     boxes = [{"email": "me@zoho.in", "transport": "zoho_api", "max_per_day": 35, "password": ""}]
     monkeypatch.setattr(sender.config, "inboxes", lambda: boxes)
+    # the example profile still has github.com/YOUR-GITHUB, which the sender rightly refuses to send
+    monkeypatch.setattr(sender, "_signature", lambda seg: "Avnish Rana\nIf this isn't relevant, reply \"no\" and I won't email again.")
 
     def at(*a):
         class F(datetime):
@@ -132,7 +134,7 @@ def test_full_flow_with_zoho_transport(monkeypatch):
     assert "reply \"no\" and I won't email again" in sent[0][4]
 
     # an unsubscribe reply cancels the rest and suppresses the address
-    monkeypatch.setattr(transport, "fetch", lambda box, days: [transport.Incoming(
+    monkeypatch.setattr(transport, "fetch", lambda box, days, known=None: [transport.Incoming(
         message_id="<r1@x>", from_addr="omar@palmrealty.ae", from_header="Omar", subject="Re: x",
         body="please remove me", received_at="2026-10-19T08:00:00+00:00", refs="<m1@x>")])
     monkeypatch.setattr(replies, "classify", lambda lead, s, b: replies.ReplyClass(

@@ -352,3 +352,15 @@ def test_watchdog_restarts_a_stopped_engine(env, monkeypatch):
         db.set_state(conn, "engine:heartbeat", "2026-01-01T00:00:00+00:00")
     monkeypatch.setattr(engine, "kick_tick", lambda: "started")
     assert dashboard_local.watch_once({}) == "engine overdue: started"
+
+
+def test_settings_error_shows_until_a_good_run(env):
+    from outreach import dashboard_sync, engine
+    dashboard_sync.init_remote()
+    engine.report_config_error("config/settings.yaml has a formatting mistake near line 257")
+    cookie = _login(env)
+    _, data, _ = call(env, "GET", "/api/data", cookie=cookie)
+    assert "line 257" in data["engine_error"]["text"]
+    dashboard_sync.push()
+    _, data, _ = call(env, "GET", "/api/data", cookie=cookie)
+    assert "engine_error" not in data

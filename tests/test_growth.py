@@ -107,7 +107,7 @@ def test_weekly_digest_suggests_changes(monkeypatch):
     text = sent[0]
     assert "angle 'speed' gets 10.0% replies vs 'attribution' 0.0%" in text
     assert "uk_agencies: 45 sent, 0% replies" in text
-    assert "3 positive replies are still waiting on you" in text
+    assert "3 replies are still waiting on you" in text
 
 
 def test_settings_fill_missing_keys_but_keep_yours(tmp_path, monkeypatch):

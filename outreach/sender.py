@@ -26,6 +26,26 @@ def daily_cap(box: dict, today: date) -> int:
     return min(box.get("max_per_day", 30), ramp[min(week, len(ramp) - 1)])
 
 
+def draft_room(days: int = 2, now: datetime | None = None) -> dict:
+    """How many new first emails are worth drafting: what the inboxes can send over the next `days` days,
+    minus follow-ups falling due and first emails already waiting (drafted or approved). Drafting more
+    only grows the review queue, lets hooks go stale and spends Gemini quota on emails that wait a week."""
+    s = config.settings()["sending"]
+    now = now or datetime.now(timezone.utc)
+    today = now.astimezone(ZoneInfo(s.get("home_timezone", "Asia/Kolkata"))).date()
+    boxes = [b for b in config.inboxes() if b.get("enabled", True)]
+    with db.connect() as conn:
+        capacity = sum(daily_cap(b, date.fromordinal(today.toordinal() + i)) for b in boxes for i in range(days))
+        sent_today = sum(db.send_count(conn, today.isoformat(), b["email"]) for b in boxes)
+        horizon = datetime.fromordinal(today.toordinal() + days).replace(tzinfo=timezone.utc).isoformat()
+        followups = conn.execute("SELECT COUNT(*) FROM messages m JOIN leads l ON l.id=m.lead_id WHERE m.step>0 "
+                                 "AND m.status='approved' AND l.status='active' AND m.due_at LIKE '____-%' "
+                                 "AND m.due_at < ?", (horizon,)).fetchone()[0]
+        waiting = conn.execute("SELECT COUNT(*) FROM leads WHERE status IN ('drafted','approved')").fetchone()[0]
+    room = max(0, capacity - sent_today - followups - waiting)
+    return {"room": room, "capacity": capacity, "sent_today": sent_today, "followups": followups, "waiting": waiting}
+
+
 def in_window(seg: dict, now_utc: datetime) -> bool:
     tz = ZoneInfo(seg.get("timezone", "Asia/Kolkata"))
     local = now_utc.astimezone(tz)
@@ -113,6 +133,18 @@ def tick(max_sends: int = 2, dry_run: bool = False) -> int:
                                      (lead["id"],)).fetchone()
                 thread = dict(first) if first else None
             body = f"{msg['body'].strip()}\n\n{_signature(seg)}\n"
+            hole = config.PLACEHOLDER.search(f"{msg['subject']}\n{body}")
+            if hole:  # never send template text
+                in_draft = bool(config.PLACEHOLDER.search(f"{msg['subject']}\n{msg['body']}"))
+                if in_draft and msg["step"] == 0:  # Gemini wrote it: back to Review with a note
+                    conn.execute("UPDATE messages SET status='draft', review_note=? WHERE lead_id=? AND status='approved'",
+                                 (f"Contains placeholder text {hole.group(0)!r}: edit it before approving.", lead["id"]))
+                    db.set_lead(conn, lead["id"], status="drafted")
+                else:  # the signature: the dashboard shows a banner until profile.yaml is fixed
+                    conn.execute("UPDATE messages SET error=? WHERE id=?",
+                                 (f"held: placeholder text {hole.group(0)!r}", msg["id"]))
+                print(f"  ! held {lead['email']}: placeholder text {hole.group(0)!r}")
+                continue
 
             if dry_run:
                 print(f"  [dry-run] {box['email']} -> {lead['email']} step {msg['step']}: {msg['subject']}")
