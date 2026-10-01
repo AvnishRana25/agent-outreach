@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import errno
 import importlib.util
+import os
+import threading
+import time
+from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 
 from . import config
@@ -16,7 +20,6 @@ DEFAULT_PORT = 7347  # uncommon on purpose: 8787/8080/3000 are often taken by ot
 
 
 def default_port() -> int:
-    import os
     try:
         return int(os.getenv("DASHBOARD_PORT") or DEFAULT_PORT)
     except ValueError:
@@ -77,6 +80,45 @@ def server(port: int | None = None, host: str = "127.0.0.1") -> ThreadingHTTPSer
     return ReloadingServer((host, default_port() if port is None else port))
 
 
+# --------------------------------------------------------------------------- watchdog
+WATCH_EVERY = 20       # seconds between checks for dashboard actions
+STALE_AFTER = 7 * 60   # seconds without an engine run before the watchdog starts one itself
+
+
+def watch_once(state: dict) -> str:
+    """One check. Starts an engine run when you did something in the dashboard (so actions apply
+    within seconds, not at the next 5-minute run) or when the scheduled runs have stopped."""
+    from . import db, engine, turso
+    if engine.is_running("tick"):
+        return "busy"
+    now = time.time()
+    with db.connect() as conn:
+        beat = db.get_state(conn, "engine:heartbeat")
+    stale = not beat or (datetime.now(timezone.utc) - datetime.fromisoformat(beat)).total_seconds() > STALE_AFTER
+    waiting = False
+    if os.getenv("TURSO_DATABASE_URL"):
+        from .dashboard_sync import SLOW
+        marks = ",".join("?" * len(SLOW))
+        [rows] = turso.run([(f"SELECT COUNT(*) AS n FROM actions WHERE status='pending' AND kind NOT IN ({marks})", SLOW)])
+        waiting = bool(rows and int(rows[0]["n"]))
+    if (waiting or stale) and now - state.get("kicked", 0) > 45:
+        state["kicked"] = now
+        return f"{'dashboard action' if waiting else 'engine overdue'}: {engine.kick_tick()}"
+    return "idle"
+
+
+def watchdog() -> None:
+    state: dict = {}
+    while True:
+        try:
+            out = watch_once(state)
+            if out not in ("idle", "busy"):
+                print(f"watchdog: {out}", flush=True)
+        except Exception as e:  # network blips, Turso down: try again next round
+            print(f"watchdog: {e.__class__.__name__}: {e}", flush=True)
+        time.sleep(WATCH_EVERY)
+
+
 def serve(port: int | None = None) -> None:
     port = port or default_port()
     try:
@@ -89,6 +131,7 @@ def serve(port: int | None = None) -> None:
             f"  Already running? Open http://127.0.0.1:{port}\n"
             f"  Stop the old one: lsof -ti :{port} | xargs kill   (then run this again)\n"
             f"  Or use another port: python -m outreach dashboard --port {port + 1}") from None
+    threading.Thread(target=watchdog, daemon=True).start()
     print(f"Dashboard on http://127.0.0.1:{port}  (Ctrl+C to stop)")
     try:
         srv.serve_forever()

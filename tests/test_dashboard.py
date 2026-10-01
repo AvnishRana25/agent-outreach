@@ -296,3 +296,59 @@ def test_dashboard_reloads_api_after_pull(tmp_path, monkeypatch):
         assert call(srv.server_port, "GET", "/api/version")[1] == {"v": 2}
     finally:
         srv.shutdown()
+
+
+def _queue(port, cookie, kind, target, payload=None):
+    s, d, _ = call(port, "POST", "/api/action", {"kind": kind, "target": target, "payload": payload or {}}, cookie)
+    assert s == 200, d
+
+
+def _login(port):
+    s, _, set_cookie = call(port, "POST", "/api/login", {"password": "correct horse battery"})
+    assert s == 200
+    return set_cookie.split(";")[0]
+
+
+def test_gemini_actions_go_to_the_assist_job(env, monkeypatch):
+    from outreach import dashboard_sync, engine, growth, turso
+    dashboard_sync.init_remote()
+    cookie = _login(env)
+    _queue(env, cookie, "make_plan", 5)
+    _queue(env, cookie, "set_stage", 6, {"stage": "won"})
+    spawned, applied = [], []
+    monkeypatch.setattr(engine, "spawn", lambda job: spawned.append(job) or "started")
+    monkeypatch.setattr(growth, "make_plan", lambda rid: applied.append(("plan", rid)) or "plan ready")
+    monkeypatch.setattr(growth, "set_stage", lambda *a: applied.append(("stage", a[0])) or "stage: Won")
+    assert dashboard_sync.pull_safe() == 1                  # the tick: quick ones only
+    assert applied == [("stage", 6)] and spawned == ["assist"]
+    assert dashboard_sync.pull(slow=True) == 1              # the assist job
+    assert applied[-1] == ("plan", 5)
+    [rows] = turso.run(["SELECT COUNT(*) AS n FROM actions WHERE status='pending'"])
+    assert int(rows[0]["n"]) == 0
+
+
+def test_sync_now_starts_an_engine_run(env, monkeypatch):
+    from datetime import datetime, timezone
+    from outreach import dashboard_local, dashboard_sync, db, engine
+    dashboard_sync.init_remote()
+    with db.connect() as conn:
+        db.set_state(conn, "engine:heartbeat", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    kicks = []
+    monkeypatch.setattr(engine, "kick_tick", lambda: kicks.append(1) or "started")
+    state = {}
+    assert dashboard_local.watch_once(state) == "idle"      # nothing to do: no run
+    _queue(env, _login(env), "sync", 1)
+    assert dashboard_local.watch_once(state) == "dashboard action: started"
+    assert dashboard_local.watch_once(state) == "idle"      # don't start a run every 20 seconds
+    assert dashboard_sync.pull_safe() == 1                  # the run applies it
+    state.clear()
+    assert dashboard_local.watch_once(state) == "idle"
+
+
+def test_watchdog_restarts_a_stopped_engine(env, monkeypatch):
+    from outreach import dashboard_local, dashboard_sync, db, engine
+    dashboard_sync.init_remote()
+    with db.connect() as conn:
+        db.set_state(conn, "engine:heartbeat", "2026-01-01T00:00:00+00:00")
+    monkeypatch.setattr(engine, "kick_tick", lambda: "started")
+    assert dashboard_local.watch_once({}) == "engine overdue: started"

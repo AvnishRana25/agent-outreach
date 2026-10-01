@@ -24,6 +24,7 @@ REMOTE_SCHEMA = [
         id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, target INTEGER NOT NULL,
         payload TEXT DEFAULT '{}', status TEXT DEFAULT 'pending', result TEXT DEFAULT '',
         created_at TEXT, applied_at TEXT)""",
+    "CREATE INDEX IF NOT EXISTS actions_status ON actions (status)",
 ]
 MAX_TEXT = 20_000
 
@@ -140,7 +141,10 @@ APPLY = {"approve": _approve, "reject": _reject, "regenerate": _regenerate,
          "pause_sending": _pause, "resume_sending": _resume, "add_lead": _add_lead,
          "run_content": _run("content"),
          "set_stage": lambda t, p: growth.set_stage(t, str(p.get("stage", "")), _num(p.get("value")), str(p.get("note", ""))),
-         "make_plan": lambda t, p: growth.make_plan(t)}
+         "make_plan": lambda t, p: growth.make_plan(t), "sync": lambda t, p: "synced"}
+# These wait on Gemini (up to minutes when it's busy), so the engine run hands them to the background
+# "assist" job instead of doing them itself.
+SLOW = ("regenerate", "make_plan")
 
 
 def _num(v) -> float | None:
@@ -152,11 +156,18 @@ def _num(v) -> float | None:
 
 def pull_safe() -> int:
     init_remote()
-    return pull()
+    return pull(slow=False)
 
 
-def pull() -> int:
+def pull(slow: bool | None = None) -> int:
+    """Apply pending actions. slow=False: only the quick ones (and start the assist job for the rest);
+    slow=True: only the Gemini ones (the assist job); None: all of them."""
     [pending] = turso.run(["SELECT id, kind, target, payload FROM actions WHERE status='pending' ORDER BY id"])
+    if slow is not None:
+        later = [a for a in pending if (a["kind"] in SLOW) != slow]
+        pending = [a for a in pending if (a["kind"] in SLOW) == slow]
+        if slow is False and later:
+            print(f"  {len(later)} Gemini action(s) handed to the assist job: {engine.spawn('assist')}")
     for a in pending:
         try:
             fn = APPLY.get(a["kind"])

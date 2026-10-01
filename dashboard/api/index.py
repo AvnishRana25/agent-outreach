@@ -27,7 +27,8 @@ SESSION_SECONDS = 14 * 24 * 3600
 FAMILIES = {"review": {"approve", "reject", "regenerate"}, "reply": {"reply_send", "reply_done"},
             "post": {"post_done"}, "run": {"run_prepare"}, "community": {"run_community"},
             "sending": {"pause_sending", "resume_sending"}, "lead": {"add_lead"},
-            "deal": {"set_stage"}, "plan": {"make_plan"}, "content": {"run_content"}}
+            "deal": {"set_stage"}, "plan": {"make_plan"}, "content": {"run_content"},
+            "sync": {"sync"}}
 STAGES = {"", "call_booked", "proposal_sent", "won", "lost"}
 KIND_FAMILY = {k: fam for fam, kinds in FAMILIES.items() for k in kinds}
 MAX_BODY = 100_000
