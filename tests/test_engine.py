@@ -27,7 +27,7 @@ def test_tick_schedules(monkeypatch):
     monkeypatch.setattr(replies, "sync", lambda d: calls.append("replies") or 0)
     fake_clock(monkeypatch, 2026, 10, 5, 2, 30)          # Mon 08:00 IST: after 07:30
     engine.tick()
-    assert calls == ["prepare", "community", "content", "send", "replies"]   # Monday 08:00 also drafts posts
+    assert calls == ["prepare", "community", "content", "send", "inbox"]   # Monday 08:00 also drafts posts
     calls.clear()
     fake_clock(monkeypatch, 2026, 10, 5, 2, 35)          # 5 minutes later: only sending is due
     engine.tick()
@@ -57,7 +57,32 @@ def test_failing_step_does_not_stop_others(monkeypatch):
     monkeypatch.setattr(replies, "sync", lambda d: calls.append("replies") or 0)
     fake_clock(monkeypatch, 2026, 10, 5, 2, 30)
     engine.tick()
-    assert calls == ["send", "replies"]
+    assert calls == ["send"]
+
+
+def test_tick_never_runs_slow_work_itself(monkeypatch):
+    """Reading replies waits on Gemini, so it's a background job: the tick itself must stay quick."""
+    from outreach import engine, replies, sender
+    monkeypatch.setattr(engine, "spawn", lambda job: "started")
+    monkeypatch.setattr(sender, "tick", lambda n: 0)
+    monkeypatch.setattr(replies, "sync", lambda d: pytest.fail("the tick read the inbox itself"))
+    fake_clock(monkeypatch, 2026, 10, 5, 2, 30)
+    engine.tick()
+
+
+def test_hung_tick_is_stopped(monkeypatch, capsys):
+    import time
+    from outreach import db, engine, sender
+    monkeypatch.setattr(engine, "TICK_LIMIT", 1)
+    monkeypatch.setattr(engine, "spawn", lambda job: "started")
+    monkeypatch.setattr(sender, "tick", lambda n: time.sleep(5))
+    started = time.time()
+    engine.tick()
+    assert time.time() - started < 4
+    assert "took longer than" in capsys.readouterr().out
+    assert not engine.is_running("tick")
+    with db.connect() as conn:
+        assert not db.get_state(conn, "engine:last_done")
 
 
 def test_run_job_records_result_and_error():

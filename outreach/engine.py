@@ -17,6 +17,7 @@ import fcntl
 import json
 import os
 import plistlib
+import signal
 import subprocess
 import sys
 import traceback
@@ -27,7 +28,8 @@ from zoneinfo import ZoneInfo
 
 from . import config, db
 
-JOBS = ("prepare", "community", "content")
+JOBS = ("prepare", "community", "content", "inbox", "assist")
+TICK_LIMIT = 8 * 60  # seconds; a tick that runs longer is stopped so the next one can start
 LABEL = "com.agent-outreach"
 
 
@@ -121,6 +123,16 @@ def spawn(job: str) -> str:
     return "started"
 
 
+def kick_tick() -> str:
+    """Start one engine run now (used by the dashboard's Sync now and its watchdog)."""
+    if is_running("tick"):
+        return "busy"
+    log = open(config.DATA_DIR / "engine.log", "a")
+    subprocess.Popen([sys.executable, "-m", "outreach", "tick"], cwd=config.ROOT, stdout=log, stderr=subprocess.STDOUT,
+                     stdin=subprocess.DEVNULL, start_new_session=True)
+    return "started"
+
+
 # --------------------------------------------------------------------------- the tick
 def _due(conn, key: str, every: timedelta) -> bool:
     last = db.get_state(conn, key)
@@ -150,45 +162,70 @@ def _step(name: str, fn) -> None:
         print(f"  {name} failed: {e.__class__.__name__}: {e}")
 
 
+class TickTimeout(BaseException):
+    """BaseException so no step's `except Exception` swallows it."""
+
+
+def _timeout(signum, frame):
+    raise TickTimeout(f"engine run took longer than {TICK_LIMIT // 60} minutes; stopped so the next one can start")
+
+
 def tick() -> None:
-    from . import dashboard_sync, growth, replies, review, sender, sources
+    """One engine run. It only does quick work; anything that waits on Gemini or the inbox runs as a job,
+    so a run finishes in seconds and a slow model can't make the engine look stopped."""
+    from . import dashboard_sync, growth, review, sender, sources
     with lock("tick") as held:
         if not held:
             print("previous tick still running; skipping")
             return
-        with db.connect() as conn:
-            db.set_state(conn, "engine:heartbeat", _now().isoformat(timespec="seconds"))
-            db.purge_mock(conn)
-            need_sync = _due(conn, "tick:replies", timedelta(minutes=20))
-            need_community = _due(conn, "tick:community", timedelta(minutes=30))
-            need_prepare = _daily_due(conn, "tick:prepare", 7, 30, weekdays=range(6))
-            need_daily = _daily_due(conn, "tick:daily_tasks", 9, 45)
-            need_posts = _daily_due(conn, "tick:posts", 8, 0, weekdays=[0])
-            need_digest = _daily_due(conn, "tick:digest", 9, 0, weekdays=[0])
-        dashboard_on = bool(os.getenv("TURSO_DATABASE_URL"))
-        if dashboard_on:
-            _step("dashboard actions", lambda: dashboard_sync.pull_safe())
-        with db.connect() as conn:
-            retry_at = db.get_state(conn, "retry:prepare")
-            if retry_at and datetime.fromisoformat(retry_at) <= _now() and not is_running("prepare"):
-                db.set_state(conn, "retry:prepare", "")
-                need_prepare = True
-        if need_prepare:
-            _step("prepare", lambda: spawn("prepare"))
-        if need_community and config.settings().get("community"):
-            _step("community", lambda: spawn("community"))
-        if need_posts:
-            _step("linkedin posts", lambda: spawn("content"))
-        if need_digest:
-            _step("weekly digest", growth.weekly_digest)
-        _step("send", lambda: sender.tick(2))
-        if need_sync:
-            _step("replies", lambda: replies.sync(4))
-        if need_daily:
-            _step("ad library", lambda: sources.adlibrary_tasks(config.DATA_DIR / "adlibrary_today.md"))
-            _step("linkedin", lambda: review.linkedin_tasks(config.DATA_DIR / "linkedin_today.md"))
-        if dashboard_on:
-            _step("dashboard push", lambda: dashboard_sync.push())
+        if hasattr(signal, "SIGALRM"):
+            signal.signal(signal.SIGALRM, _timeout)
+            signal.alarm(TICK_LIMIT)
+        try:
+            _tick(dashboard_sync, growth, review, sender, sources)
+        except TickTimeout as e:
+            print(f"  {e}")
+        finally:
+            if hasattr(signal, "SIGALRM"):
+                signal.alarm(0)
+
+
+def _tick(dashboard_sync, growth, review, sender, sources) -> None:
+    with db.connect() as conn:
+        db.set_state(conn, "engine:heartbeat", _now().isoformat(timespec="seconds"))
+        db.purge_mock(conn)
+        need_sync = _due(conn, "tick:replies", timedelta(minutes=20))
+        need_community = _due(conn, "tick:community", timedelta(minutes=30))
+        need_prepare = _daily_due(conn, "tick:prepare", 7, 30, weekdays=range(6))
+        need_daily = _daily_due(conn, "tick:daily_tasks", 9, 45)
+        need_posts = _daily_due(conn, "tick:posts", 8, 0, weekdays=[0])
+        need_digest = _daily_due(conn, "tick:digest", 9, 0, weekdays=[0])
+    dashboard_on = bool(os.getenv("TURSO_DATABASE_URL"))
+    if dashboard_on:
+        _step("dashboard actions", lambda: dashboard_sync.pull_safe())
+    with db.connect() as conn:
+        retry_at = db.get_state(conn, "retry:prepare")
+        if retry_at and datetime.fromisoformat(retry_at) <= _now() and not is_running("prepare"):
+            db.set_state(conn, "retry:prepare", "")
+            need_prepare = True
+    if need_prepare:
+        _step("prepare", lambda: spawn("prepare"))
+    if need_community and config.settings().get("community"):
+        _step("community", lambda: spawn("community"))
+    if need_posts:
+        _step("linkedin posts", lambda: spawn("content"))
+    if need_digest:
+        _step("weekly digest", growth.weekly_digest)
+    _step("send", lambda: sender.tick(2))
+    if need_sync:
+        _step("replies", lambda: spawn("inbox"))
+    if need_daily:
+        _step("ad library", lambda: sources.adlibrary_tasks(config.DATA_DIR / "adlibrary_today.md"))
+        _step("linkedin", lambda: review.linkedin_tasks(config.DATA_DIR / "linkedin_today.md"))
+    if dashboard_on:
+        _step("dashboard push", lambda: dashboard_sync.push())
+    with db.connect() as conn:
+        db.set_state(conn, "engine:last_done", _now().isoformat(timespec="seconds"))
 
 
 # --------------------------------------------------------------------------- install
@@ -258,6 +295,38 @@ def install(force: bool = False, port: int | None = None) -> None:
         print("Dashboard not started: set TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, DASHBOARD_PASSWORD and SESSION_SECRET "
               "in .env, then run `python -m outreach install` again.")
     print("Logs: data/engine.log. Remove with: python -m outreach uninstall")
+
+
+def doctor() -> None:
+    """Plain-English check of why the engine isn't running."""
+    with db.connect() as conn:
+        beat = db.get_state(conn, "engine:heartbeat")
+    age = (_now() - datetime.fromisoformat(beat)).total_seconds() / 60 if beat else None
+    print(f"Last engine run: {f'{age:.0f} min ago' if age is not None else 'never'}")
+    print(f"An engine run is going right now: {'yes' if is_running('tick') else 'no'}")
+    for j in JOBS:
+        if is_running(j):
+            print(f"Background job running: {j}")
+    if _protected_folder():
+        print(f"PROBLEM: the project is inside ~/{_protected_folder()}; macOS blocks background jobs there.")
+    if sys.platform == "darwin":
+        out = subprocess.run(["launchctl", "list"], capture_output=True, text=True).stdout
+        for label in (f"{LABEL}.engine", f"{LABEL}.dashboard"):
+            row = next((ln.split() for ln in out.splitlines() if ln.endswith(label)), None)
+            if not row:
+                print(f"PROBLEM: {label} is not installed. Fix: python -m outreach install")
+            else:
+                pid, code = row[0], row[1]
+                note = "running" if pid != "-" else ("ok, waits for its next run" if code == "0" else f"last exit code {code}")
+                print(f"{label}: {note}")
+    log = config.DATA_DIR / "engine.log"
+    if log.exists():
+        print("\nLast lines of data/engine.log:")
+        print("\n".join(log.read_text(errors="replace").splitlines()[-15:]))
+    if age is not None and age > 15:
+        print("\nIf both agents look fine, the Mac was probably asleep: background jobs pause during sleep. "
+              "Starting one engine run now.")
+        print(kick_tick())
 
 
 def uninstall() -> None:

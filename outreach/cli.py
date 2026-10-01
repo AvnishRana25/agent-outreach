@@ -78,6 +78,9 @@ def main() -> None:
     sub.add_parser("digest", help="send the weekly summary to Telegram now")
 
     sub.add_parser("tick", help="the background engine's 5-minute step (installed by `install`)")
+    sub.add_parser("inbox", help="background job: read replies (what the engine runs every 20 minutes)")
+    sub.add_parser("assist", help="background job: dashboard actions that need Gemini (regenerate, 1-page plan)")
+    sub.add_parser("doctor", help="check why the engine isn't running")
     p = sub.add_parser("install", help="run the engine (and dashboard) in the background, no terminal needed")
     p.add_argument("--force", action="store_true", help="install even inside Desktop/Documents/Downloads")
     p.add_argument("--port", type=int, default=None, help="dashboard port (default: DASHBOARD_PORT from .env, else 7347)")
@@ -193,6 +196,14 @@ def main() -> None:
         print(growth.weekly_digest())
     elif args.cmd == "tick":
         engine.tick()
+    elif args.cmd == "inbox":
+        engine.run_job("inbox", lambda: f"{replies.sync(4)} new replies")
+    elif args.cmd == "assist":
+        dashboard_sync.init_remote()
+        engine.run_job("assist", lambda: f"{dashboard_sync.pull(slow=True)} actions applied")
+        engine.kick_tick()  # show the results in the dashboard now, not at the next 5-minute run
+    elif args.cmd == "doctor":
+        engine.doctor()
     elif args.cmd == "install":
         engine.install(args.force, args.port)
     elif args.cmd == "uninstall":

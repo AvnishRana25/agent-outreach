@@ -182,6 +182,9 @@ svg.chart text { fill: var(--muted); font-size: 11px; }
   .sync .label { display: none; }
   .sync + .sync { display: none; }
 }
+.icon-btn.spinning { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .icon-btn.spinning { animation: none; opacity: .6; } }
 </style>
 </head>
 <body>
@@ -270,7 +273,7 @@ async function load(quiet) {
 
 const FAMILY_OF = { approve: "review", reject: "review", regenerate: "review", reply_send: "reply", reply_done: "reply",
   post_done: "post", run_prepare: "run", run_community: "community", pause_sending: "sending", resume_sending: "sending", add_lead: "lead",
-  set_stage: "deal", make_plan: "plan", run_content: "content" };
+  set_stage: "deal", make_plan: "plan", run_content: "content", sync: "sync" };
 const STAGE_LABEL = { "": "No stage", call_booked: "Call booked", proposal_sent: "Proposal sent", won: "Won", lost: "Lost" };
 
 function pendingMap() {
@@ -287,9 +290,27 @@ function pendingMap() {
 async function act(kind, target, payload = {}, label) {
   try {
     await api("action", { kind, target, payload });
-    toast(label || "Queued. It applies at the next sync.");
+    toast(label || "Queued. Your Mac applies it within a minute.");
     await load(true);
   } catch (e) { if (e.message !== "login required") toast("Failed: " + e.message); }
+}
+
+/* Sync now: queue a "sync" action. The dashboard server on your Mac checks for actions every 20 seconds,
+   starts an engine run, and the run pushes fresh data. We poll until it lands. */
+async function syncNow() {
+  if (state.syncing) return;
+  const before = state.data.synced_at;
+  state.syncing = true; render();
+  try { await api("action", { kind: "sync", target: 1, payload: {} }); }
+  catch (e) { state.syncing = false; render(); if (e.message !== "login required") toast("Failed: " + e.message); return; }
+  toast("Asked your Mac to sync…");
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 6000));
+    await load(true);
+    if (state.data.synced_at && state.data.synced_at !== before) { state.syncing = false; render(); toast("Synced just now"); return; }
+  }
+  state.syncing = false; render();
+  toast("Your Mac didn't answer in 2 minutes. It's probably asleep or off; it syncs as soon as it wakes.");
 }
 
 /* ------------------------------------------------------------------ shell */
@@ -299,7 +320,7 @@ function syncStatus() {
   const cls = mins <= 20 ? "good" : mins <= 60 ? "warning" : "critical";
   const txt = at ? "Synced " + ago(at) : "Never synced";
   const hint = cls === "good" ? "" : " · laptop sync may be off";
-  return `<span class="status ${cls}" title="The laptop pushes new data every 10 minutes"><span class="dot"></span><span>${esc(txt)}<span class="label">${esc(hint)}</span></span></span>`;
+  return `<span class="status ${cls}" title="Your Mac sends fresh data every 5 minutes, and within a minute after you do something here"><span class="dot"></span><span>${esc(txt)}<span class="label">${esc(hint)}</span></span></span>`;
 }
 
 function render() {
@@ -315,7 +336,7 @@ function render() {
       <div class="spacer"></div>
       <span class="sync">${engineStatus(true)}</span>
       <span class="sync">${syncStatus()}</span>
-      <button class="btn icon-btn" id="refresh" title="Refresh" aria-label="Refresh">↻</button>
+      <button class="btn icon-btn${state.syncing ? " spinning" : ""}" id="refresh" title="Sync now: ask your Mac for fresh data" aria-label="Sync now" ${state.syncing ? "disabled" : ""}>↻</button>
       <button class="btn ghost" id="logout">Sign out</button>
     </div></header>
     <main class="wrap">
@@ -325,7 +346,7 @@ function render() {
       </nav>
       <section id="panel"></section>
     </main>`;
-  $("#refresh").onclick = () => load();
+  $("#refresh").onclick = syncNow;
   $("#logout").onclick = async () => { await api("logout", {}); renderLogin(); };
   document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => { state.tab = b.dataset.tab; localSet("tab", state.tab); render(); }));
   const panel = $("#panel");
@@ -416,7 +437,7 @@ function reviewCard(x, pending) {
     ${x.source_text ? `<details><summary>Where this lead came from</summary><div class="quote">${esc(x.source_text)}</div></details>` : ""}
     ${x.linkedin_note ? `<details><summary>LinkedIn texts (send by hand)</summary><div class="quote">Note: ${esc(x.linkedin_note)}\n\nDM after accept: ${esc(x.linkedin_dm)}</div></details>` : ""}
     ${msgs}
-    ${pending ? `<div class="banner"><span><strong>${esc(pending.kind === "approve" ? "Approved" : pending.kind === "reject" ? "Rejected" : "Regenerating")}</strong> · applies at the next sync</span><span class="spacer"></span><button class="btn" data-undo>Undo</button></div>`
+    ${pending ? `<div class="banner"><span><strong>${esc(pending.kind === "approve" ? "Approved" : pending.kind === "reject" ? "Rejected" : "Regenerating")}</strong> · applies within a minute</span><span class="spacer"></span><button class="btn" data-undo>Undo</button></div>`
       : `<div class="actions"><button class="btn primary" data-approve>Approve${Object.keys(e).length ? " with edits" : ""}</button>
          <button class="btn" data-regen>Regenerate</button><span class="spacer"></span><button class="btn danger" data-reject>Reject lead</button></div>`}
   </article>`;
@@ -438,7 +459,7 @@ function bindReview(card) {
     const e = state.edits[id] || {};
     const list = Object.entries(e).map(([mid, v]) => ({ id: Number(mid), subject: v.subject, body: v.body }));
     delete state.edits[id];
-    act("approve", id, { edits: list }, "Approved. It sends after the next sync.");
+    act("approve", id, { edits: list }, "Approved. It goes into the send queue within a minute.");
   });
   on("[data-regen]", () => act("regenerate", id, {}, "Queued for a fresh draft."));
   on("[data-reject]", () => { if (confirm("Reject this lead? It won't be emailed.")) act("reject", id, {}, "Lead rejected."); });
@@ -464,7 +485,7 @@ function renderRespond(panel, pend) {
     const id = Number(row.dataset.deal);
     const save = row.querySelector("[data-save]");
     if (save) save.onclick = () => act("set_stage", id, { stage: row.querySelector("select").value,
-      value: row.querySelector("[name=value]").value, note: row.querySelector("[name=note]").value }, "Saved. It updates at the next sync.");
+      value: row.querySelector("[name=value]").value, note: row.querySelector("[name=note]").value }, "Saved. It updates within a minute.");
     const undo = row.querySelector("[data-undo]");
     if (undo) undo.onclick = () => act("cancel", id, { family: "deal" }, "Undone.");
   });
@@ -474,11 +495,11 @@ function renderRespond(panel, pend) {
     on("[data-send]", () => {
       const body = card.querySelector("textarea").value.trim();
       if (!body) return toast("The reply is empty.");
-      if (confirm("Send this reply from your inbox at the next sync?")) { delete state.drafts["reply:" + id]; act("reply_send", id, { body }, "Reply queued. It sends at the next sync."); }
+      if (confirm("Send this reply from your inbox now?")) { delete state.drafts["reply:" + id]; act("reply_send", id, { body }, "Reply queued. It sends within a minute."); }
     });
     on("[data-done]", () => act("reply_done", id, {}, "Marked done."));
     on("[data-copy]", () => copy(card.querySelector("textarea").value));
-    on("[data-plan]", () => act("make_plan", id, {}, "Writing the plan. It appears here after the next sync (≤5 min)."));
+    on("[data-plan]", () => act("make_plan", id, {}, "Writing the plan. It appears here in 1-3 minutes."));
     on("[data-copyplan]", () => copy(state.data.reply.find((r) => r.id === id).plan));
     on("[data-insertplan]", () => {
       const t = card.querySelector("textarea"), plan = state.data.reply.find((r) => r.id === id).plan;
@@ -507,7 +528,7 @@ function replyCard(r, pending, planPending) {
     <div class="email"><label>Your reply</label><textarea rows="6" data-draft="reply:${r.id}" ${pending ? "disabled" : ""}>${esc(state.drafts["reply:" + r.id] ?? r.suggested_reply)}</textarea></div>
     ${r.plan ? `<details open><summary>One-page plan</summary><div class="quote">${esc(r.plan)}</div>
       <div class="actions" style="margin-top:8px"><button class="btn" data-insertplan>Add plan to reply</button><button class="btn" data-copyplan>Copy plan</button></div></details>` : ""}
-    ${pending ? `<div class="banner"><span><strong>${pending.kind === "reply_send" ? "Sending" : "Marked done"}</strong> · applies at the next sync</span><span class="spacer"></span><button class="btn" data-undo>Undo</button></div>`
+    ${pending ? `<div class="banner"><span><strong>${pending.kind === "reply_send" ? "Sending" : "Marked done"}</strong> · applies within a minute</span><span class="spacer"></span><button class="btn" data-undo>Undo</button></div>`
       : `<div class="actions"><button class="btn primary" data-send>Send reply</button><button class="btn" data-copy>Copy</button>
          ${planPending ? `<span class="small muted">Writing plan…</span>` : `<button class="btn" data-plan>${r.plan ? "Rewrite plan" : "Make 1-page plan"}</button>`}
          <span class="spacer"></span><button class="btn" data-done>Mark done</button></div>`}
@@ -535,7 +556,7 @@ function postCard(p, pending) {
     ${p.reason ? `<dl class="kv"><dt>Why fit</dt><dd>${esc(p.reason)}</dd></dl>` : ""}
     ${p.body ? `<details><summary>Post text</summary><div class="quote">${esc(p.body)}</div></details>` : ""}
     <div class="email"><label>Drafted reply (post it yourself)</label><textarea rows="6" data-draft="post:${p.id}" ${pending ? "disabled" : ""}>${esc(state.drafts["post:" + p.id] ?? p.draft_reply)}</textarea></div>
-    ${pending ? `<div class="banner"><span><strong>Answered</strong> · clears at the next sync</span><span class="spacer"></span><button class="btn" data-undo>Undo</button></div>`
+    ${pending ? `<div class="banner"><span><strong>Answered</strong> · clears within a minute</span><span class="spacer"></span><button class="btn" data-undo>Undo</button></div>`
       : `<div class="actions"><button class="btn primary" data-copy>Copy reply</button><span class="spacer"></span><button class="btn" data-done>Mark answered</button></div>`}
   </article>`;
 }
@@ -662,7 +683,7 @@ function jobCard(name, job, pend) {
   if (retry && !job.running) line += `<div class="small" style="margin-top:4px"><span class="status warning"><span class="dot"></span>Continues by itself at ${esc(new Date(retry).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))}</span></div>`;
   return `<article class="card"><div class="card-head"><div class="meta"><h3>${title}</h3>
       <div class="small muted" style="margin-top:4px">${blurb}</div><div style="margin-top:8px">${line}</div></div>
-      ${queued ? `<div class="banner" style="margin:0"><span>Starts at the next engine run (≤5 min)</span><button class="btn" data-cancel="${fam}">Undo</button></div>`
+      ${queued ? `<div class="banner" style="margin:0"><span>Starting within a minute…</span><button class="btn" data-cancel="${fam}">Undo</button></div>`
         : `<button class="btn primary" data-run="${kind}" ${job.running ? "disabled" : ""}>Run now</button>`}</div>
     ${job.log ? `<details><summary>Last output</summary><div class="quote" style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${esc(job.log)}</div></details>` : ""}
   </article>`;
@@ -695,13 +716,13 @@ function renderEngine(panel, pend) {
   const sendPending = pend["sending:1"];
   const off = !e.heartbeat || (Date.now() - new Date(e.heartbeat).getTime()) / 60000 > 15;
   panel.innerHTML = `
-    ${off ? `<div class="card" style="border-color:var(--critical)"><h3>The engine isn't running on your Mac</h3>
-      <p class="small" style="margin:6px 0 0">Nothing is found, sent or synced until it runs. On the Mac, run <code>python -m outreach install</code> once in the project folder. It then starts by itself every 5 minutes while the Mac is awake. Last seen: ${esc(e.heartbeat ? ago(e.heartbeat) : "never")}.</p></div>` : ""}
+    ${off ? `<div class="card" style="border-color:var(--critical)"><h3>Your Mac hasn't checked in since ${esc(e.heartbeat ? ago(e.heartbeat) : "ever")}</h3>
+      <p class="small" style="margin:6px 0 0">Nothing is found, sent or synced while it's away, and buttons here wait until it's back. Usually the Mac is asleep, the lid is closed, or it's off: wake it and press ↻. If it's awake and this stays red, open Terminal in the project folder and run <code>python -m outreach doctor</code>; it says what's wrong and starts the engine.</p></div>` : ""}
     ${geminiCard(e.gemini)}
     <article class="card"><div class="card-head"><div class="meta"><h3>Sending</h3>
       <div class="small muted" style="margin-top:4px">Approved emails go out automatically inside each market's business hours, within the daily warm-up limit.</div>
       <div style="margin-top:8px">${e.sending_paused ? `<span class="status warning"><span class="dot"></span>Paused</span>` : `<span class="status good"><span class="dot"></span>On</span>`}</div></div>
-      ${sendPending ? `<div class="banner" style="margin:0"><span>${sendPending.kind === "pause_sending" ? "Pausing" : "Resuming"} at the next engine run</span><button class="btn" data-cancel="sending">Undo</button></div>`
+      ${sendPending ? `<div class="banner" style="margin:0"><span>${sendPending.kind === "pause_sending" ? "Pausing" : "Resuming"} within a minute</span><button class="btn" data-cancel="sending">Undo</button></div>`
         : e.sending_paused ? `<button class="btn primary" data-run="resume_sending">Resume sending</button>` : `<button class="btn danger" data-run="pause_sending">Pause sending</button>`}
     </div></article>
     ${Object.keys(JOB_INFO).map((j) => jobCard(j, jobs[j] || {}, pend)).join("")}
@@ -756,7 +777,7 @@ function renderActivity(panel) {
   const acts = state.data.actions || [];
   const label = { approve: "Approve", reject: "Reject", regenerate: "Regenerate", reply_send: "Send reply", reply_done: "Reply done", post_done: "Post answered",
     run_prepare: "Find & draft", run_community: "Check boards", pause_sending: "Pause sending", resume_sending: "Resume sending", add_lead: "Add company",
-    set_stage: "Deal stage", make_plan: "Make plan", run_content: "Draft posts" };
+    set_stage: "Deal stage", make_plan: "Make plan", run_content: "Draft posts", sync: "Sync now" };
   panel.innerHTML = acts.length ? `<div class="table-wrap"><table>
     <thead><tr><th>When</th><th>Action</th><th>Item</th><th>Status</th><th>Result</th></tr></thead>
     <tbody>${acts.map((a) => {

@@ -79,6 +79,8 @@ In the dashboard's **Engine** tab you can pause or resume sending, run "find & d
 
 macOS blocks background jobs from reading `~/Desktop`, `~/Documents` and `~/Downloads`, so `install` refuses to run from there and prints the commands to move the project to `~/agent-outreach`. To stop it: `python -m outreach uninstall`.
 
+**If the dashboard says "Engine stopped":** the Mac is usually asleep (background jobs pause during sleep). Wake it and press ↻ in the dashboard: that asks the Mac to sync right away, and actions you take in the dashboard apply within about a minute. If it stays red while the Mac is awake, run `python -m outreach doctor`. It says what's wrong and starts the engine.
+
 `--mock` runs (`prepare --mock` etc.) work on a throwaway copy, `data/mock.db`, and never change real data. Placeholder text is also blocked from ever being sent.
 
 ## Sending: Gmail vs Zoho
