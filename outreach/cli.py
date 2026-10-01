@@ -107,9 +107,12 @@ def main() -> None:
     p.add_argument("--probe", action="store_true", help="self-addressed send, threaded follow-up, and reply check")
 
     p = sub.add_parser("prospect-find", help="enrich a single prospect and identify professional email")
-    p.add_argument("--first", required=True, help="first name")
-    p.add_argument("--last", default="", help="last name")
-    p.add_argument("--company", required=True, help="company name")
+    p.add_argument("pos_first", nargs="?", default=None, help="first name (positional)")
+    p.add_argument("pos_last", nargs="?", default=None, help="last name (positional)")
+    p.add_argument("pos_company", nargs="?", default=None, help="company name (positional)")
+    p.add_argument("--first", default=None, help="first name")
+    p.add_argument("--last", default=None, help="last name")
+    p.add_argument("--company", default=None, help="company name")
     p.add_argument("--domain", default=None, help="company domain if known")
     p.add_argument("--title", default=None, help="job title")
     p.add_argument("--linkedin", default=None, help="LinkedIn profile URL")
@@ -267,9 +270,14 @@ def main() -> None:
     elif args.cmd == "zoho-check":
         zoho_check(args.send_test, getattr(args, "probe", False))
     elif args.cmd == "prospect-find":
+        first = args.first or args.pos_first
+        last = args.last or args.pos_last or ""
+        company = args.company or args.pos_company
+        if not first or not company:
+            ap.error("prospect-find requires both first name and company name (e.g. prospect-find 'Patrick' 'Collison' 'Stripe' or with --first and --company)")
         proc = prospecting.ProspectProcessor()
         inp = prospecting.ProspectInput(
-            first_name=args.first, last_name=args.last, company=args.company,
+            first_name=first, last_name=last, company=company,
             domain=args.domain, title=args.title, linkedin_url=args.linkedin
         )
         res = proc.process(inp)
