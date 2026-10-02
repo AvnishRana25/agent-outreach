@@ -103,6 +103,9 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("dashboard", help="run the dashboard locally on http://127.0.0.1:7347")
     p.add_argument("--port", type=int, default=None, help="default: DASHBOARD_PORT from .env, else 7347")
 
+    p = sub.add_parser("github-secrets", help="show GitHub Actions secrets status and instructions")
+    p.add_argument("--show-values", action="store_true", help="display secret values to easily copy to GitHub")
+
     sub.add_parser("telegram-setup", help="find your Telegram chat id and send a test message")
 
     p = sub.add_parser("zoho-token", help="exchange a Zoho Self Client code for the refresh token .env needs")
@@ -353,6 +356,56 @@ def main(argv: list[str] | None = None) -> None:
     elif args.cmd == "dashboard":
         from . import dashboard_local
         dashboard_local.serve(args.port)
+    elif args.cmd == "github-secrets":
+        import os
+        print("\n" + "=" * 70)
+        print(" GITHUB ACTIONS SECRETS GUIDE")
+        print(" Add these at: https://github.com/AvnishRana25/agent-outreach/settings/secrets/actions")
+        print("=" * 70 + "\n")
+        env_keys = [
+            ("TURSO_DATABASE_URL", "Turso Cloud connection URL", True),
+            ("TURSO_AUTH_TOKEN", "Turso Cloud authentication token", True),
+            ("GEMINI_API_KEY", "Gemini 2.5 LLM API key", True),
+            ("GROQ_API_KEY", "Groq backup LLM API key", True),
+            ("TELEGRAM_BOT_TOKEN", "Telegram notification bot token", True),
+            ("TELEGRAM_CHAT_ID", "Telegram notification chat ID", True),
+            ("ZOHO_CLIENT_ID", "Zoho OAuth Client ID (if using Zoho)", False),
+            ("ZOHO_CLIENT_SECRET", "Zoho OAuth Client Secret", False),
+            ("ZOHO_REFRESH_TOKEN", "Zoho OAuth Refresh Token", False),
+            ("ZOHO_APP_PASSWORD", "Zoho SMTP/IMAP App Password", False),
+            ("GMAIL_APP_PASSWORD", "Gmail App Password (if using Gmail)", False),
+            ("FIRECRAWL_API_KEY", "Firecrawl web research key", False),
+            ("PROSPEO_API_KEY", "Prospeo email finding key", False),
+            ("HUNTER_API_KEY", "Hunter.io email finding key", False),
+            ("SKRAPP_API_KEY", "Skrapp email finding key", False),
+            ("REDDIT_CLIENT_ID", "Reddit API client ID", False),
+            ("REDDIT_CLIENT_SECRET", "Reddit API client secret", False),
+            ("REDDIT_USER_AGENT", "Reddit API user agent", False),
+        ]
+        print(f"{'Secret Name':<26} {'Status':<14} {'Description'}")
+        print("-" * 70)
+        for key, desc, required in env_keys:
+            val = os.getenv(key, "")
+            status = "✅ Set" if val else ("⚠️ Missing" if required else "⚪ Optional")
+            print(f"{key:<26} {status:<14} {desc}")
+        settings_file = Path("config/settings.yaml")
+        profile_file = Path("config/profile.yaml")
+        print("-" * 70)
+        print(f"{'SETTINGS_YAML':<26} {'✅ File exists' if settings_file.exists() else '❌ Missing':<14} Full config/settings.yaml")
+        print(f"{'PROFILE_YAML':<26} {'✅ File exists' if profile_file.exists() else '❌ Missing':<14} Full config/profile.yaml")
+        print("=" * 70)
+        if args.show_values:
+            print("\n--- COPY-PASTE VALUES ---")
+            for key, _, _ in env_keys:
+                val = os.getenv(key, "")
+                if val:
+                    print(f"\n[{key}]:\n{val}")
+            if settings_file.exists():
+                print(f"\n[SETTINGS_YAML]:\n{settings_file.read_text()}")
+            if profile_file.exists():
+                print(f"\n[PROFILE_YAML]:\n{profile_file.read_text()}")
+        else:
+            print("\nTip: Run `python -m outreach github-secrets --show-values` to output values for copy-pasting.")
     elif args.cmd == "migrate-to-turso":
         counts = db.migrate_to_turso(args.db)
         print("Migrated local database to Turso:")
