@@ -262,11 +262,12 @@ GH = "https://api.github.com"
 
 def _gh(path: str, **params):
     headers = {"Accept": "application/vnd.github+json", "User-Agent": UA["User-Agent"]}
-    if os.getenv("GITHUB_TOKEN"):
-        headers["Authorization"] = f"Bearer {os.getenv('GITHUB_TOKEN')}"
+    gh_token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
+    if gh_token:
+        headers["Authorization"] = f"Bearer {gh_token}"
     r = requests.get(GH + path, params=params, headers=headers, timeout=30)
     if r.status_code in (403, 429):
-        raise ValueError("GitHub rate limit reached (add a free GITHUB_TOKEN to .env for more)")
+        raise ValueError("GitHub rate limit reached (add a free GH_TOKEN or GITHUB_TOKEN to .env for more)")
     r.raise_for_status()
     return r.json()
 

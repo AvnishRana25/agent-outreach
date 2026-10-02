@@ -13,7 +13,7 @@ def _headers() -> dict[str, str]:
         "Accept": "application/vnd.github.cloak-preview+json,application/vnd.github.v3+json",
         "User-Agent": "agent-outreach-prospecting/1.0"
     }
-    token = os.getenv("GITHUB_TOKEN")
+    token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
     if token:
         headers["Authorization"] = f"token {token}"
     return headers

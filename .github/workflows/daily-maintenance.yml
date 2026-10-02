@@ -37,6 +37,8 @@ jobs:
       FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
       SETTINGS_YAML: ${{ secrets.SETTINGS_YAML }}
       PROFILE_YAML: ${{ secrets.PROFILE_YAML }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
