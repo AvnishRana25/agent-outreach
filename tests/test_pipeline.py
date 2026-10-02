@@ -64,6 +64,55 @@ def test_free_mail_not_deduped():
         assert not db.add_lead(conn, email="y@acme.com", domain="acme.com", segment="uk_agencies")
 
 
+def test_website_contact_stays_on_company_domain():
+    from outreach.enrich import _best_email
+    assert _best_email(["agency@gmail.com", "info@acme.com", "jane@acme.com"], "acme.com") == "jane@acme.com"
+    assert _best_email(["agency@gmail.com"], "acme.com") == ""
+
+
+def test_prepare_skips_crawl_when_send_queue_is_full(monkeypatch):
+    import sys
+    from outreach import cli, db, engine, prospect, sender
+    monkeypatch.setattr(sys, "argv", ["outreach", "prepare"])
+    monkeypatch.setattr(sender, "draft_room", lambda: {"room": 0, "waiting": 21, "capacity": 20})
+    monkeypatch.setattr(prospect, "run", lambda **kw: pytest.fail("full queue should not trigger prospecting"))
+    cli.main()
+    with db.connect() as conn:
+        assert "skipped discovery" in engine.job_state(conn, "prepare")["result"]
+
+
+def test_prepare_uses_verified_backlog_before_crawling(monkeypatch):
+    import sys
+    from outreach import cli, db, enrich, personalize, prospect, research, sender, verify
+    with db.connect() as conn:
+        for i in range(9):
+            db.add_lead(conn, email=f"person{i}@firm{i}.com", domain=f"firm{i}.com",
+                        segment="uk_agencies", status="verified", email_status="valid", email_source="website")
+    monkeypatch.setattr(sys, "argv", ["outreach", "prepare"])
+    monkeypatch.setattr(sender, "draft_room", lambda: {"room": 3, "waiting": 0, "capacity": 20})
+    monkeypatch.setattr(prospect, "run", lambda **kw: pytest.fail("verified backlog should be used first"))
+    monkeypatch.setattr(enrich, "run", lambda *a: 0)
+    monkeypatch.setattr(verify, "run", lambda: {})
+    monkeypatch.setattr(verify, "confirm_guesses", lambda: 0)
+    monkeypatch.setattr(research, "run", lambda *a: {"researched": 0})
+    monkeypatch.setattr(personalize, "run", lambda *a: 0)
+    cli.main()
+
+
+def test_automatic_prospecting_skips_segments_not_allowed_to_send(monkeypatch):
+    import json
+    from outreach import db, prospect
+    seen = []
+    monkeypatch.setattr(prospect, "all_runners", lambda: {"sample": lambda job: seen.append(job["segment"]) or 1})
+    monkeypatch.setattr(prospect.config, "settings", lambda: {"prospecting": [
+        {"source": "sample", "segment": "off"}, {"source": "sample", "segment": "on"}]})
+    assert prospect.run(allowed_segments=["on"]) == {"sample->on": 1}
+    assert seen == ["on"]
+    with db.connect() as conn:
+        assert not db.get_state(conn, "source_health:sample->off")
+        assert json.loads(db.get_state(conn, "source_health:sample->on"))["result"] == "1"
+
+
 def test_llm_wrapper_parses_and_detects_daily_quota(monkeypatch):
     from google.genai import errors
     from outreach import llm, research
@@ -87,14 +136,14 @@ def test_india_share_cap():
     from outreach import db, personalize
     with db.connect() as conn:
         for i in range(30):
-            db.add_lead(conn, email=f"o{i}@ind{i}.in", domain=f"ind{i}.in", segment="india_realestate", status="researched", fit=9)
+            db.add_lead(conn, email=f"o{i}@ind{i}.in", domain=f"ind{i}.in", segment="india_realestate", status="researched", fit=9, email_status="valid", email_source="website")
         for i in range(30):
-            db.add_lead(conn, email=f"g{i}@gulf{i}.ae", domain=f"gulf{i}.ae", segment="gulf_realestate", status="researched", fit=7)
-        picked = personalize.pick_leads(conn, 38)
+            db.add_lead(conn, email=f"g{i}@gulf{i}.ae", domain=f"gulf{i}.ae", segment="gulf_realestate", status="researched", fit=8, email_status="valid", email_source="website")
+        picked = personalize.pick_leads(conn, 28)
     india = sum(r["segment"] == "india_realestate" for r in picked)
     from outreach import config
-    assert india <= int(38 * config.settings()["targeting"]["india_share_max"])
-    assert len(picked) > 30
+    assert india <= int(28 * config.settings()["targeting"]["india_share_max"])
+    assert len(picked) == 28
 
 
 def test_full_flow_with_zoho_transport(monkeypatch):
@@ -108,8 +157,9 @@ def test_full_flow_with_zoho_transport(monkeypatch):
     research.run(10, use_mock=True)
     assert personalize.run(10, use_mock=True) == 1
     with db.connect() as conn:  # stand-in for a real Gemini draft: mock text is never sent
-        conn.execute("UPDATE messages SET body='Hi Omar, a real draft.', review_note='', confidence=0.9")
-        conn.execute("UPDATE leads SET research='{}'")
+        omar_id = conn.execute("SELECT id FROM leads WHERE email='omar@palmrealty.ae'").fetchone()[0]
+        conn.execute("UPDATE messages SET body='Hi Omar, here is a custom plan for Palm Realty.', review_note='', confidence=0.9 WHERE lead_id=?", (omar_id,))
+        conn.execute("UPDATE leads SET research='{}' WHERE id=?", (omar_id,))
     assert review.bulk_approve(0) == 1
 
     sent = []

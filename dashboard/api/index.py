@@ -31,8 +31,11 @@ FAMILIES = {"review": {"approve", "reject", "regenerate"}, "reply": {"reply_send
             "deal": {"set_stage"}, "plan": {"make_plan"}, "content": {"run_content"},
             "sync": {"sync"}, "held": {"send_anyway", "mark_sent", "retry_send"},
             "prospect": {"promote_prospect"}, "find": {"find_prospects"},
-            "bulk": {"approve_many"}, "runall": {"run_all"}, "draftlead": {"draft_lead"}}
+            "bulk": {"approve_many"}, "runall": {"run_all"}, "draftlead": {"draft_lead"},
+            "outcome": {"record_outcome"}, "tick": {"trigger_tick"}}
 STAGES = {"", "call_booked", "proposal_sent", "won", "lost"}
+OUTCOMES = {"delivered", "bounced", "replied", "positive_reply", "negative_reply",
+            "meeting", "interview", "project_discussion", "offer", "won_project", "lost_project", "no_response"}
 CURRENCIES = {"USD", "GBP", "AED", "INR"}
 KIND_FAMILY = {k: fam for fam, kinds in FAMILIES.items() for k in kinds}
 MAX_BULK = 200   # prospects per bulk request; bigger files are split by the page
@@ -170,6 +173,18 @@ def clean_action(body: dict) -> tuple[str, int, dict]:
                    "note": str(payload.get("note", ""))[:500],
                    "next_action": str(payload.get("next_action", ""))[:300], "next_due": next_due,
                    "opportunity_type": opp_type}
+    elif kind == "record_outcome":
+        outcome = str(payload.get("outcome", "")).strip().lower()
+        if outcome not in OUTCOMES:
+            raise ValueError(f"unknown outcome: {outcome}")
+        notes = str(payload.get("notes", ""))[:500]
+        stage = str(payload.get("stage", ""))
+        if stage and stage not in STAGES:
+            raise ValueError("bad stage")
+        payload = {"outcome": outcome, "notes": notes, "stage": stage}
+    elif kind == "trigger_tick":
+        dry_run = bool(payload.get("dry_run", True))
+        payload = {"dry_run": dry_run, "max_sends": int(payload.get("max_sends", 2))}
     elif kind == "cancel":
         fam = payload.get("family")
         if fam not in FAMILIES:
@@ -197,7 +212,7 @@ def load_data() -> dict:
         ("SELECT kind, id, data FROM dash_items ORDER BY kind, sort DESC", ()),
         ("SELECT key, value FROM dash_meta", ()),
         ("SELECT id, kind, target, payload, status, result, created_at, applied_at FROM actions "
-         "ORDER BY id DESC LIMIT 80", ()),
+         "ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END, id DESC LIMIT 80", ()),
     ])
     out = {"review": [], "reply": [], "post": [], "held": []}
     for row in items:

@@ -222,6 +222,9 @@ REDDIT_ATOM = """<feed xmlns="http://www.w3.org/2005/Atom">
 
 
 def test_community_digest(tmp_path, monkeypatch):
+    monkeypatch.setenv("REDDIT_CLIENT_ID", "test")
+    monkeypatch.setenv("REDDIT_CLIENT_SECRET", "test")
+    monkeypatch.setenv("REDDIT_USER_AGENT", "test")
     from outreach import community, config
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
     posts = community.parse_reddit_atom(REDDIT_ATOM.format(now=now))
@@ -237,6 +240,40 @@ def test_community_digest(tmp_path, monkeypatch):
     assert community.run(use_mock=True) == 0   # already seen
     digest = (tmp_path / "opportunities_today.md").read_text()
     assert "[Hiring] n8n + WhatsApp lead bot" in digest and "For Hire" not in digest
+
+
+def test_community_source_failure_is_reported(monkeypatch):
+    monkeypatch.setenv("REDDIT_CLIENT_ID", "test")
+    monkeypatch.setenv("REDDIT_CLIENT_SECRET", "test")
+    monkeypatch.setenv("REDDIT_USER_AGENT", "test")
+    from outreach import community
+    import requests
+    monkeypatch.setattr(community.config, "settings", lambda: {"community": [{"name": "Reddit", "type": "reddit"}]})
+    monkeypatch.setattr(community, "FETCHERS", {"reddit": lambda src: (_ for _ in ()).throw(requests.HTTPError("429"))})
+    with pytest.raises(RuntimeError, match="Reddit"):
+        community.run()
+
+
+def test_reddit_requires_approved_credentials(monkeypatch):
+    from outreach import community
+    monkeypatch.delenv("REDDIT_CLIENT_ID", raising=False)
+    monkeypatch.delenv("REDDIT_CLIENT_SECRET", raising=False)
+    with pytest.raises(ValueError, match="Reddit API approval"):
+        community.fetch_reddit({"subreddit": "forhire"})
+
+
+def test_community_skips_reddit_without_api_but_runs_other_sources(monkeypatch):
+    from outreach import community
+    monkeypatch.delenv("REDDIT_CLIENT_ID", raising=False)
+    monkeypatch.setattr(community.config, "settings", lambda: {"community": [
+        {"type": "reddit", "subreddit": "forhire"},
+        {"type": "discourse", "name": "forum"},
+    ]})
+    monkeypatch.setattr(community, "FETCHERS", {
+        "reddit": lambda _: pytest.fail("Reddit should remain manual"),
+        "discourse": lambda _: [],
+    })
+    assert community.run() == 0
 
 
 def test_adlibrary(tmp_path, monkeypatch):

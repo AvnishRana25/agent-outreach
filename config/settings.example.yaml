@@ -11,7 +11,7 @@ provider_budget:
 
 # Prospects desk: how many verified emails a day the bulk finder aims for before it stops.
 prospecting_desk:
-  daily_verified_target: 38
+  daily_verified_target: 28
 
 # Only fresh postings: these caps apply on top of every source's own max age.
 freshness:
@@ -21,7 +21,36 @@ freshness:
 
 targeting:
   india_share_max: 0.33       # at most a third of each day's new emails go to India-market segments
-  min_fit: 6                  # research fit score (0-10) needed before a lead is drafted
+  min_fit: 8                  # research fit score (0-10) needed before a lead is drafted
+
+# Phase 2 Enforced Quality Gates & Opportunity Scoring
+quality:
+  min_opportunity_score: 75
+  min_email_confidence: 80
+  min_verified_personalization_facts: 1
+  min_personalization_confidence: 0.75
+  daily_send_ceiling: 28
+
+# Phase 3 & 4 Strategic Allocation: 28 new emails/day ceiling, follow-ups unconstrained
+allocation:
+  daily_send_limit: 28             # 28 new emails/day ceiling
+  daily_new_limit: 28              # Cap applies strictly to new initial outreach
+  daily_freelance_new_limit: 16    # Strategic freelance target within the 28 new
+  daily_internship_new_limit: 12   # Strategic internship target within the 28 new
+  daily_followup_limit: 0          # 0 = unlimited/as due (follow-ups do NOT count against 28 new cap)
+  allow_unused_quota_reallocation: true  # Flexible allocation between freelance/internship up to 28 new
+
+# Notification significance filtering (anti-spam policy)
+notifications:
+  telegram:
+    enabled: true
+    on_hot_reply: true           # Interested, meeting_request, question, referral
+    on_all_replies: false        # False = do NOT notify for unclassified, out of office, or unsubscribes
+    on_daily_cap_reached: true   # Milestone notification when 28/28 new emails reached
+    on_batch_send: false         # False = do NOT buzz phone every hour when 1-2 emails are sent
+    on_community_post: false     # False = do NOT buzz phone for every scraped Reddit/forum post
+    on_discovery: false          # False = do NOT buzz phone when background scraping runs
+    on_critical_alerts: true     # Bounces exceeded, auth failure, runner crash
 
 sending:
   home_timezone: Asia/Kolkata
@@ -34,6 +63,7 @@ sending:
   gap_jitter_minutes: 7       # ...plus a random 0-7 min
   max_bounce_rate: 0.03       # an inbox pauses itself above 3% bounces over 7 days
   # Cold sends (first emails + follow-ups) per inbox per day, by week since warmup_start.
+  daily_first_target: 28  # new researched first emails per day; follow-ups excluded
   ramp_by_week: [10, 20, 30, 35]
 
 sequence:
@@ -77,10 +107,10 @@ firecrawl:
   daily_credit_cap: 60           # raise if you're on a paid plan or self-hosting
 
 # Segments. daily_new sums to 38; India-market segments = 12 (32%), under india_share_max. With one inbox (35 sends/day including
-# follow-ups) the sender reaches ~35 new/day in week 1 and ~15-20 new/day once follow-ups start.
+# The 28 first-email target excludes follow-ups; warm-up and total inbox capacity can lower actual volume.
 segments:
   gulf_realestate:
-    daily_new: 8
+    daily_new: 6
     market: gulf
     country: UAE
     timezone: Asia/Dubai
@@ -112,7 +142,7 @@ segments:
     score_signals: {whatsapp_link: 10, portals: 15, no_crm: 15, no_whatsapp_tool: 10, form_tool: 5}
 
   uk_agencies:
-    daily_new: 5
+    daily_new: 4
     market: uk
     country: United Kingdom
     timezone: Europe/London
@@ -141,7 +171,7 @@ segments:
     score_signals: {careers: 10, analytics: 5, cms_wordpress: 5}
 
   us_agencies:
-    daily_new: 3
+    daily_new: 2
     market: us
     country: United States
     timezone: America/New_York
@@ -168,7 +198,7 @@ segments:
     score_signals: {careers: 10, analytics: 5}
 
   intl_freelance_posts:
-    daily_new: 5
+    daily_new: 4
     market: global
     country: ""
     timezone: America/New_York
@@ -195,7 +225,7 @@ segments:
     score_signals: {}
 
   intl_startups_intern:
-    daily_new: 5                             # cut from 8: hiring abroad from India is often blocked by payroll/visa
+    daily_new: 4                             # cut from 8: hiring abroad from India is often blocked by payroll/visa
     market: global
     country: ""
     timezone: America/New_York
@@ -225,7 +255,7 @@ segments:
     score_signals: {careers: 20, ai_mention: 10, framework_next: 5}
 
   india_realestate:
-    daily_new: 6
+    daily_new: 4
     market: india
     country: India
     timezone: Asia/Kolkata
@@ -254,7 +284,7 @@ segments:
     score_signals: {whatsapp_link: 10, portals: 15, no_crm: 15, no_whatsapp_tool: 10}
 
   india_startups_intern:
-    daily_new: 6                             # raised from 3: Indian startups can hire you without visa friction
+    daily_new: 4                             # raised from 3: Indian startups can hire you without visa friction
     market: india
     country: India
     timezone: Asia/Kolkata

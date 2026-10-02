@@ -212,6 +212,29 @@ table.leads td { vertical-align: top; }
 .quick-find { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 8px; }
 .credit-row { margin: 8px 0; }
 @media (max-width: 760px) { .prospect-top { grid-template-columns: 1fr; } .quick-find { grid-template-columns: 1fr 1fr; } }
+
+/* modes and outcomes badges */
+.badge.freelance { background: rgba(42, 120, 214, 0.15); color: var(--accent-ink); }
+.badge.internship { background: rgba(147, 51, 234, 0.15); color: #7e22ce; }
+.badge.open { background: rgba(12, 163, 12, 0.15); color: var(--good-ink); }
+.badge.closed { background: rgba(111, 109, 104, 0.15); color: var(--muted); }
+.badge.positive { background: rgba(12, 163, 12, 0.15); color: var(--good-ink); }
+.badge.neutral { background: rgba(42, 120, 214, 0.15); color: var(--accent-ink); }
+.badge.negative { background: rgba(208, 59, 59, 0.15); color: var(--critical-ink); }
+.badge.due { background: rgba(250, 178, 25, 0.20); color: var(--warning-ink); font-weight: 700; }
+
+.windows-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 12px 0; }
+.window-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.window-card .win-head { display: flex; justify-content: space-between; align-items: center; }
+.window-card .win-time { font-size: 18px; font-weight: 650; margin-top: 4px; }
+
+.doctor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; margin: 12px 0; }
+.doctor-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 13.5px; }
+
+.gate-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+.gate-card.passed { border-left: 4px solid var(--good); }
+.gate-card.failed { border-left: 4px solid var(--critical); }
+.gate-card .gate-title { display: flex; justify-content: space-between; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -239,7 +262,7 @@ const CATEGORY_LABEL = { interested: "Interested", meeting_request: "Wants a cal
 // Replies that need an answer from you; the rest are shown too, so nothing is missed, but don't count as waiting.
 const NEEDS_YOU = new Set(["interested", "meeting_request", "question", "referral", "other", "unclassified"]);
 
-const state = { data: null, tab: localGet("tab") || "review", segment: "all", edits: {}, drafts: {}, loading: false };
+const state = { data: null, tab: localGet("tab") || "today", segment: "all", edits: {}, drafts: {}, loading: false };
 
 function localGet(k) { try { return localStorage.getItem("od:" + k); } catch { return null; } }
 function localSet(k, v) { try { localStorage.setItem("od:" + k, v); } catch {} }
@@ -351,10 +374,13 @@ async function syncNow() {
 function syncStatus() {
   const at = state.data.synced_at;
   const mins = at ? (Date.now() - new Date(at).getTime()) / 60000 : Infinity;
-  const cls = mins <= 20 ? "good" : mins <= 60 ? "warning" : "critical";
+  const isCloud = (state.data.engine || {}).runner === "github_actions" || (state.data.engine || {}).is_production;
+  const timeoutMins = isCloud ? 75 : 20;
+  const cls = mins <= timeoutMins ? "good" : mins <= (timeoutMins * 2) ? "warning" : "critical";
   const txt = at ? "Synced " + ago(at) : "Never synced";
-  const hint = cls === "good" ? "" : " · laptop sync may be off";
-  return `<span class="status ${cls}" title="Your Mac sends fresh data every 5 minutes, and within a minute after you do something here"><span class="dot"></span><span>${esc(txt)}<span class="label">${esc(hint)}</span></span></span>`;
+  const hint = cls === "good" ? "" : isCloud ? " · cloud sync scheduled hourly" : " · laptop sync may be off";
+  const runnerTitle = isCloud ? "GitHub Actions cloud runner (runs hourly without Mac)" : "Local Mac background runner";
+  return `<span class="status ${cls}" title="Synced via ${esc(runnerTitle)}"><span class="dot"></span><span>${esc(txt)}<span class="label">${esc(hint)}</span></span></span>`;
 }
 
 function render() {
@@ -363,14 +389,28 @@ function render() {
   const review = d.review || [], reply = d.reply || [], post = d.post || [];
   const openReview = review.filter((x) => !pend["review:" + x.id]).length;
   const openRespond = reply.filter((x) => !pend["reply:" + x.id] && NEEDS_YOU.has(x.category)).length + post.filter((x) => !pend["post:" + x.id]).length;
-  const tabs = [["review", "Review", openReview], ["respond", "Respond", openRespond], ["leads", "Leads", (d.lead || []).length], ["prospects", "Prospecting", null], ["engine", "Engine", null], ["results", "Results", null], ["activity", "Activity", null]];
+  const sch = d.schedule || {};
+  const upFirst = sch.upcoming_firsts || [];
+  const tabs = [
+    ["today", "Today", null],
+    ["schedule", "Schedule", upFirst.length || null],
+    ["review", "Review", openReview],
+    ["respond", "Respond", openRespond],
+    ["leads", "Leads", (d.lead || []).length],
+    ["outcomes", "Outcomes", null],
+    ["prospects", "Prospecting", null],
+    ["engine", "Engine", null],
+    ["queue", "Queue", (d.actions || []).filter((a) => a.status === "pending").length],
+    ["results", "Results", null],
+    ["activity", "Activity", null]
+  ];
   $("#app").innerHTML = `
     <header class="bar"><div class="wrap">
       <div class="brand">${LOGO}<span>Outreach Desk</span></div>
       <div class="spacer"></div>
       <span class="sync">${engineStatus(true)}</span>
       <span class="sync">${syncStatus()}</span>
-      <button class="btn icon-btn${state.syncing ? " spinning" : ""}" id="refresh" title="Sync now: ask your Mac for fresh data" aria-label="Sync now" ${state.syncing ? "disabled" : ""}>↻</button>
+      <button class="btn icon-btn${state.syncing ? " spinning" : ""}" id="refresh" title="Sync now: ask for fresh data" aria-label="Sync now" ${state.syncing ? "disabled" : ""}>↻</button>
       <button class="btn ghost" id="logout">Sign out</button>
     </div></header>
     <main class="wrap">
@@ -386,13 +426,783 @@ function render() {
   $("#logout").onclick = async () => { await api("logout", {}); renderLogin(); };
   document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => { state.tab = b.dataset.tab; localSet("tab", state.tab); render(); }));
   const panel = $("#panel");
-  if (state.tab === "review") renderReview(panel, pend);
+  if (state.tab === "today") renderToday(panel, openReview, openRespond);
+  else if (state.tab === "schedule") renderSchedule(panel, pend);
+  else if (state.tab === "outcomes") renderOutcomes(panel);
+  else if (state.tab === "review") renderReview(panel, pend);
   else if (state.tab === "respond") renderRespond(panel, pend);
   else if (state.tab === "prospects") renderProspects(panel);
   else if (state.tab === "leads") renderLeads(panel, pend);
   else if (state.tab === "results") renderResults(panel);
   else if (state.tab === "engine") renderEngine(panel, pend);
+  else if (state.tab === "queue") renderQueue(panel);
   else renderActivity(panel);
+}
+
+function renderToday(panel, openReview, openRespond) {
+  const d = state.data, e = d.engine || {}, sch = d.schedule || {}, doc = d.doctor || {};
+  const failed = Object.entries(e.source_health || {}).filter(([, h]) => h?.error);
+  const queued = (d.actions || []).filter((a) => a.status === "pending").length;
+  const isPaused = sch.sending_paused ?? e.sending_paused ?? false;
+  const isDryRun = sch.dry_run ?? false;
+  const upFirst = sch.upcoming_firsts || [];
+  const alloc = sch.allocation || (d.health || {}).daily_allocation || {};
+
+  const tasks = [
+    ["Respond", openRespond, "Reply to interested people and check community replies."],
+    ["Review", openReview, "Approve or edit drafted outreach."],
+    ["Schedule", upFirst.length, `${upFirst.length} approved first email(s) waiting for market sending windows.`],
+    ["Queue", queued, "Actions waiting to apply."],
+    ["Engine", failed.length, "Lead sources with errors: " + failed.map(([name]) => name).join(", ")],
+  ].filter(([, count]) => count > 0);
+
+  const docSub = doc.subsystems || {};
+  const docDb = docSub.database || {};
+  const docLlm = docSub.llm || {};
+  const docSch = docSub.schema || {};
+  const docStuck = docSub.stuck_messages || {};
+  const docInboxes = docSub.inboxes || [];
+  const boxHealth = docInboxes.length ? (docInboxes[0].status === "ok" ? "Healthy" : docInboxes[0].status) : "Unconfigured";
+
+  panel.innerHTML = `
+    <!-- Outbound Dispatch System Quick Controls -->
+    <article class="card" style="margin-bottom:14px;border-left:4px solid ${isPaused ? 'var(--warning)' : 'var(--good)'}">
+      <div class="card-head">
+        <div class="meta">
+          <div style="display:flex;align-items:center;gap:8px">
+            <h3 style="margin:0">Outbound Dispatch System</h3>
+            <span class="badge ${isPaused ? 'closed' : 'open'}">${isPaused ? 'Sending Paused' : 'Sending Active'}</span>
+            ${isDryRun ? '<span class="badge review">Dry-Run Mode</span>' : ''}
+          </div>
+          <p class="small muted" style="margin:4px 0 0">
+            Daily Cap: <strong>${alloc.total_new_sent || 0} / ${alloc.daily_new_limit || 28}</strong> new emails sent today (${alloc.remaining_new != null ? alloc.remaining_new : 28} remaining). Follow-ups sent: <strong>${alloc.followups_sent || 0}</strong> (unconstrained).
+          </p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${isPaused
+            ? `<button class="btn primary" id="btn-resume-today">Resume Sending</button>`
+            : `<button class="btn danger" id="btn-pause-today">Pause Sending</button>`}
+          <button class="btn" id="btn-sim-today" title="Simulate send without transmitting any emails">Simulate Send (Dry Run)</button>
+          <button class="btn" id="btn-send-one-today" title="Send 1 real approved message immediately if eligible">Send 1 Now</button>
+        </div>
+      </div>
+    </article>
+
+    <!-- System Doctor Health Card -->
+    <article class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <div class="meta">
+          <div style="display:flex;align-items:center;gap:8px">
+            <h3 style="margin:0">System Doctor · Operational Health</h3>
+            <span class="badge ${doc.overall_healthy ? 'verified' : 'review'}">${doc.overall_healthy ? 'All Systems Healthy' : 'Action Required'}</span>
+          </div>
+          <p class="small muted" style="margin:4px 0 0">Non-destructive real-time diagnostic of database, schema, LLMs, inboxes, and idempotency locks.</p>
+        </div>
+        <button class="btn ghost small" id="btn-goto-engine">View Engine Details ↗</button>
+      </div>
+      <div class="doctor-grid">
+        <div class="doctor-card">
+          <div class="muted small">Database Connectivity</div>
+          <div style="font-weight:600;margin-top:2px">SQLite: <span class="badge ${docDb.local === 'ok' ? 'verified' : 'invalid'}">${esc(docDb.local || 'ok')}</span> · Turso: <span class="badge ${docDb.turso === 'ok' ? 'verified' : 'unverified'}">${esc(docDb.turso || 'unconfigured')}</span></div>
+        </div>
+        <div class="doctor-card">
+          <div class="muted small">Schema & Idempotency</div>
+          <div style="font-weight:600;margin-top:2px">Tables: <span class="badge ${docSch.tables === 'ok' ? 'verified' : 'invalid'}">${esc(docSch.tables || 'ok')}</span> · Index: <span class="badge ${docSch.idempotency_index === 'ok' ? 'verified' : 'invalid'}">${esc(docSch.idempotency_index || 'ok')}</span></div>
+        </div>
+        <div class="doctor-card">
+          <div class="muted small">AI Quota Availability</div>
+          <div style="font-weight:600;margin-top:2px">Gemini: <span class="badge ${docLlm.gemini === 'configured' ? 'verified' : 'invalid'}">${esc(docLlm.gemini || 'ok')}</span> · Groq: <span class="badge ${docLlm.groq === 'configured' ? 'verified' : 'unverified'}">${esc(docLlm.groq || 'off')}</span></div>
+        </div>
+        <div class="doctor-card">
+          <div class="muted small">Inboxes & Reputation</div>
+          <div style="font-weight:600;margin-top:2px"><span class="badge ${boxHealth === 'Healthy' ? 'verified' : 'review'}">${esc(boxHealth)}</span> · ${docInboxes.length} Active Mailbox(es)</div>
+        </div>
+        <div class="doctor-card">
+          <div class="muted small">In-Flight Lock Protection</div>
+          <div style="font-weight:600;margin-top:2px">Stuck sending: <strong>${docStuck.stuck_sending || 0}</strong> · Needs reconciliation: <strong>${docStuck.needs_reconciliation || 0}</strong></div>
+        </div>
+        <div class="doctor-card">
+          <div class="muted small">Daily Send Ceiling</div>
+          <div style="font-weight:600;margin-top:2px"><strong>${alloc.total_new_sent || 0} / ${alloc.daily_new_limit || 28}</strong> new emails (${alloc.remaining_new != null ? alloc.remaining_new : 28} left)</div>
+        </div>
+      </div>
+    </article>
+
+    <h2 class="section">Your next actions</h2>
+    ${tasks.length
+      ? tasks.map(([tab, count, detail]) => `
+          <article class="card">
+            <div class="card-head">
+              <div class="meta">
+                <h3>${count} · ${tab}</h3>
+                <p class="small muted">${esc(detail)}</p>
+              </div>
+              <button class="btn primary" data-goto="${tab.toLowerCase()}">Open ${tab}</button>
+            </div>
+          </article>`).join("")
+      : `<article class="card"><h3>All caught up</h3><p class="small muted">There are no replies, drafts, queued actions or lead source errors to handle.</p></article>`}
+
+    <!-- Upcoming Dispatch Preview -->
+    ${upFirst.length ? `
+      <h2 class="section">Next in line to send <span class="count num">${upFirst.length}</span></h2>
+      <article class="card">
+        <p class="small muted" style="margin:0 0 10px">These approved candidates will be dispatched in order of Opportunity Score as their market windows open:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Company</th><th>Contact</th><th>Score</th><th>Mode</th><th>Gate Check</th><th></th></tr></thead>
+            <tbody>
+              ${upFirst.slice(0, 5).map(x => `
+                <tr>
+                  <td><strong>${esc(x.company)}</strong></td>
+                  <td>${esc(x.first_name || '')} <span class="small muted">${esc(x.email)}</span></td>
+                  <td><span class="badge high">${x.score_total || x.score || '—'}</span> <span class="small muted">${esc(x.score_band || '')}</span></td>
+                  <td><span class="badge ${x.mode}">${esc(x.mode)}</span></td>
+                  <td>${x.eligible ? '<span class="badge verified">Passes Gates</span>' : `<span class="badge review" title="${esc(x.failed_gates?.join(', ') || '')}">Held by Gates</span>`}</td>
+                  <td style="text-align:right"><button class="btn small" data-inspect-gate="${x.lead_id || x.id}">Inspect Gates</button></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div style="margin-top:10px;text-align:right">
+          <button class="btn" data-goto="schedule">View Full Dispatch Schedule →</button>
+        </div>
+      </article>
+    ` : ''}
+  `;
+
+  const rBtn = $("#btn-resume-today"); if (rBtn) rBtn.onclick = () => act("resume_sending", 1, {}, "Sending resumed.");
+  const pBtn = $("#btn-pause-today"); if (pBtn) pBtn.onclick = () => act("pause_sending", 1, {}, "Sending paused.");
+  const simBtn = $("#btn-sim-today"); if (simBtn) simBtn.onclick = () => act("trigger_tick", 1, { dry_run: true, max_sends: 2 }, "Triggered dry run simulation.");
+  const s1Btn = $("#btn-send-one-today"); if (s1Btn) s1Btn.onclick = () => act("trigger_tick", 1, { dry_run: false, max_sends: 1 }, "Triggered single send.");
+  const geBtn = $("#btn-goto-engine"); if (geBtn) geBtn.onclick = () => { state.tab = "engine"; localSet("tab", "engine"); render(); };
+  panel.querySelectorAll("[data-goto]").forEach((b) => (b.onclick = () => { state.tab = b.dataset.goto; localSet("tab", state.tab); render(); }));
+  panel.querySelectorAll("[data-inspect-gate]").forEach((b) => (b.onclick = () => showGateInspectorModal(Number(b.dataset.inspectGate))));
+}
+
+function renderSchedule(panel, pend) {
+  const d = state.data;
+  const sch = d.schedule || {};
+  const windows = sch.windows || [];
+  const firsts = sch.upcoming_firsts || [];
+  const followups = sch.upcoming_followups || [];
+  const alloc = sch.allocation || (d.health || {}).daily_allocation || {};
+  const isPaused = sch.sending_paused ?? (d.engine || {}).sending_paused ?? false;
+  const pct = (a, b) => (b ? Math.min(100, Math.round((100 * a) / b)) : 0);
+
+  panel.innerHTML = `
+    <!-- Top Action Controls -->
+    <div class="card" style="margin-bottom:14px;border-left:4px solid ${isPaused ? 'var(--warning)' : 'var(--good)'}">
+      <div class="card-head">
+        <div class="meta">
+          <div style="display:flex;align-items:center;gap:8px">
+            <h2 style="margin:0;font-size:18px">Scheduled Dispatch & Sending Windows</h2>
+            <span class="badge ${isPaused ? 'closed' : 'open'}">${isPaused ? 'Sending Paused' : 'Sending Active'}</span>
+            ${sch.dry_run ? '<span class="badge review">Dry-Run Mode</span>' : ''}
+          </div>
+          <p class="small muted" style="margin:4px 0 0">
+            Automated dispatcher transmits approved outreach only within destination business hours and safety gates.
+          </p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${isPaused
+            ? `<button class="btn primary" id="sch-resume">Resume Sending</button>`
+            : `<button class="btn danger" id="sch-pause">Pause Sending</button>`}
+          <button class="btn" id="sch-dryrun" title="Test candidate selection and quality gates without sending">Simulate Send (Dry Run)</button>
+          <button class="btn" id="sch-sendnow" title="Send 1 eligible approved email right now">Send 1 Email Now</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 28/Day Limit & Mode Allocation Card -->
+    <article class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <div class="meta">
+          <h3 style="margin:0">Daily Send Allocation · 28 Ceiling</h3>
+          <p class="small muted" style="margin:4px 0 0">Strict daily ceiling of 28 new initial emails. Follow-ups are unconstrained to protect ongoing relationships.</p>
+        </div>
+        <div class="value num" style="font-size:20px">${alloc.total_new_sent || 0} <small class="muted">/ ${alloc.daily_new_limit || 28}</small></div>
+      </div>
+      <div class="meter" style="margin:10px 0 8px" role="img" aria-label="${alloc.total_new_sent || 0} of ${alloc.daily_new_limit || 28} sent">
+        <i style="width:${pct(alloc.total_new_sent || 0, alloc.daily_new_limit || 28)}%"></i>
+      </div>
+      <div class="windows-grid" style="margin-top:10px">
+        <div class="window-card">
+          <div class="win-head"><span class="badge freelance">Freelance Initial</span><span class="num">${alloc.freelance_sent || 0} / ${alloc.freelance_limit || 16}</span></div>
+          <div class="small muted" style="margin-top:4px">Target: Contract & project outreach</div>
+          <div class="meter" style="margin-top:6px"><i style="width:${pct(alloc.freelance_sent || 0, alloc.freelance_limit || 16)}%"></i></div>
+        </div>
+        <div class="window-card">
+          <div class="win-head"><span class="badge internship">Internship Initial</span><span class="num">${alloc.internship_sent || 0} / ${alloc.internship_limit || 12}</span></div>
+          <div class="small muted" style="margin-top:4px">Target: Engineering hiring & teams</div>
+          <div class="meter" style="margin-top:6px"><i style="width:${pct(alloc.internship_sent || 0, alloc.internship_limit || 12)}%"></i></div>
+        </div>
+        <div class="window-card">
+          <div class="win-head"><span class="badge neutral">Follow-ups Sent</span><span class="num">${alloc.followups_sent || 0}</span></div>
+          <div class="small muted" style="margin-top:4px">Unconstrained (no artificial cap)</div>
+          <div class="status good" style="margin-top:8px"><span class="dot"></span>Healthy nurturing</div>
+        </div>
+      </div>
+    </article>
+
+    <!-- Market Sending Windows Grid -->
+    <h3 class="section" style="margin-top:16px">Market Sending Windows</h3>
+    <p class="small muted" style="margin:-4px 0 10px">Sends are only dispatched during local business hours (09:45-12:30, 14:30-17:30 Mon-Fri):</p>
+    <div class="windows-grid">
+      ${windows.map(w => `
+        <div class="window-card">
+          <div class="win-head">
+            <strong>${esc(w.name || segName(w.segment))}</strong>
+            <span class="badge ${w.is_open ? 'open' : 'closed'}">${w.is_open ? '● Window Open' : 'Closed'}</span>
+          </div>
+          <div class="win-time num">${esc(w.local_time)}</div>
+          <div class="small muted" style="margin-top:2px">${esc(w.timezone)}</div>
+          <div class="small" style="margin-top:6px;font-size:11.5px">Hours: ${(w.send_windows || []).join(', ')}</div>
+        </div>
+      `).join('')}
+    </div>
+
+    <!-- Upcoming Step 0 Initial Outreach -->
+    <h3 class="section" style="margin-top:20px">Next Initial Outreach (Step 0) <span class="count num">${firsts.length}</span></h3>
+    <p class="small muted" style="margin:-4px 0 10px">Approved candidates sorted by Opportunity Score. Before send, each passes the 10 central quality gates.</p>
+    ${firsts.length ? `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Company</th>
+              <th>Recipient</th>
+              <th>Score & Band</th>
+              <th>Mode</th>
+              <th>Safety & Gates</th>
+              <th>Preview</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${firsts.map(x => `
+              <tr>
+                <td>
+                  <strong>${esc(x.company)}</strong>
+                  ${x.website ? `<div><a class="small muted" href="${esc(safeUrl(x.website))}" target="_blank" rel="noopener noreferrer">${esc(x.website.replace(/^https?:\/\//, ""))} ↗</a></div>` : ''}
+                </td>
+                <td>
+                  ${esc(x.first_name || '')} ${esc(x.last_name || '')}
+                  <div class="small muted">${esc(x.email)}</div>
+                </td>
+                <td>
+                  <span class="badge high">${x.score_total || x.score || '—'}</span>
+                  <div class="small muted" style="margin-top:2px">${esc(x.score_band || '')}</div>
+                </td>
+                <td><span class="badge ${x.mode}">${esc(x.mode)}</span></td>
+                <td>
+                  ${x.eligible
+                    ? '<span class="badge verified">Passes all 10 gates</span>'
+                    : `<span class="badge review" title="${esc(x.failed_gates?.join(', ') || '')}">Held · ${esc((x.failed_gates || [])[0] || 'gate')}</span>`}
+                  <div class="small muted" style="margin-top:2px">${esc(x.eligibility_summary || '')}</div>
+                </td>
+                <td style="max-width:240px;font-size:12px;color:var(--ink-2)">
+                  <strong>${esc(x.subject || '(no subject)')}</strong>
+                  <div class="muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.body_preview || '')}</div>
+                </td>
+                <td style="text-align:right">
+                  <button class="btn small" data-inspect-gate="${x.lead_id || x.id}">Inspect 10 Gates</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : `<div class="empty"><strong>No initial emails queued</strong>Approved emails ready to send will appear here.</div>`}
+
+    <!-- Upcoming Follow-ups (Step > 0) -->
+    <h3 class="section" style="margin-top:20px">Scheduled Follow-ups <span class="count num">${followups.length}</span></h3>
+    <p class="small muted" style="margin:-4px 0 10px">Follow-ups are sent strictly after their delay interval (Step 1: 3 days, Step 2: 4 days) without manual review.</p>
+    ${followups.length ? `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Due Date</th>
+              <th>Status</th>
+              <th>Step</th>
+              <th>Company</th>
+              <th>Recipient</th>
+              <th>Mode</th>
+              <th>Subject</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${followups.map(f => `
+              <tr>
+                <td class="num">${f.due_at ? esc(f.due_at.replace('T', ' ').slice(0, 16)) : '—'}</td>
+                <td>
+                  ${f.is_due
+                    ? '<span class="badge due">● Due Now</span>'
+                    : `<span class="badge neutral">${esc(ago(f.due_at))}</span>`}
+                </td>
+                <td><span class="chip">Step ${f.step}</span></td>
+                <td><strong>${esc(f.company)}</strong></td>
+                <td>${esc(f.first_name || '')} <span class="small muted">${esc(f.email)}</span></td>
+                <td><span class="badge ${f.mode}">${esc(f.mode)}</span></td>
+                <td class="small">${esc(f.subject || '(no subject)')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : `<div class="empty"><strong>No follow-ups due</strong>Follow-ups appear here once initial emails are delivered.</div>`}
+  `;
+
+  const rBtn = $("#sch-resume"); if (rBtn) rBtn.onclick = () => act("resume_sending", 1, {}, "Resumed sending.");
+  const pBtn = $("#sch-pause"); if (pBtn) pBtn.onclick = () => act("pause_sending", 1, {}, "Paused sending.");
+  const drBtn = $("#sch-dryrun"); if (drBtn) drBtn.onclick = () => act("trigger_tick", 1, { dry_run: true, max_sends: 2 }, "Triggered dry run simulation.");
+  const snBtn = $("#sch-sendnow"); if (snBtn) snBtn.onclick = () => act("trigger_tick", 1, { dry_run: false, max_sends: 1 }, "Triggered single send.");
+  panel.querySelectorAll("[data-inspect-gate]").forEach((b) => (b.onclick = () => showGateInspectorModal(Number(b.dataset.inspectGate))));
+}
+
+function renderOutcomes(panel) {
+  const d = state.data;
+  const out = d.outcomes || {};
+  const overall = out.overall || {};
+  const fl = out.freelance || {};
+  const intn = out.internship || {};
+  const recs = out.recommendations || [];
+  const recent = out.recent || [];
+  const sources = out.sources || [];
+  const ctas = out.ctas || [];
+
+  panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:12px">
+      <div>
+        <h2 style="margin:0;font-size:20px">Pipeline Outcomes & Funnel Analytics</h2>
+        <p class="small muted" style="margin:4px 0 0">
+          Conversion tracking, Freelance vs Internship comparative metrics, and continuous feedback loop.
+        </p>
+      </div>
+    </div>
+
+    <!-- Outcome KPI Tiles -->
+    <div class="tiles" style="margin-top:4px">
+      <div class="tile">
+        <div class="label">Total Sent (30d)</div>
+        <div class="value num">${overall.total_sent || 0}</div>
+        <div class="sub">${overall.delivered || 0} delivered (${overall.delivery_rate || 0}%)</div>
+      </div>
+      <div class="tile">
+        <div class="label">Reply Rate</div>
+        <div class="value num">${overall.reply_rate || 0}%</div>
+        <div class="sub">${overall.replied || 0} replies received</div>
+      </div>
+      <div class="tile">
+        <div class="label">Positive Replies</div>
+        <div class="value num">${overall.positive_reply_rate || 0}%</div>
+        <div class="sub">${overall.positive_reply || 0} positive responses</div>
+      </div>
+      <div class="tile">
+        <div class="label">Calls & Interviews</div>
+        <div class="value num">${(overall.meeting || 0) + (overall.interview || 0)}</div>
+        <div class="sub">${overall.meeting || 0} calls · ${overall.interview || 0} interviews</div>
+      </div>
+      <div class="tile">
+        <div class="label">Deals Won / Offers</div>
+        <div class="value num">${(overall.won_project || 0) + (overall.offer || 0)}</div>
+        <div class="sub">${overall.won_project || 0} projects · ${overall.offer || 0} offers</div>
+      </div>
+      <div class="tile">
+        <div class="label">Bounce Rate</div>
+        <div class="value num">${overall.bounce_rate || 0}%</div>
+        <div class="sub">${overall.bounced || 0} bounces (threshold: 3%)</div>
+      </div>
+    </div>
+
+    <!-- Freelance vs Internship Comparative Funnel -->
+    <h3 class="section" style="margin-top:20px">Freelance vs Internship Funnel Comparison</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Funnel Metric</th>
+            <th><span class="badge freelance">Freelance Funnel</span></th>
+            <th><span class="badge internship">Internship Funnel</span></th>
+            <th>Total Combined</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Total Emails Sent</td>
+            <td class="num">${fl.total_sent || 0}</td>
+            <td class="num">${intn.total_sent || 0}</td>
+            <td class="num"><strong>${overall.total_sent || 0}</strong></td>
+          </tr>
+          <tr>
+            <td>Successfully Delivered</td>
+            <td class="num">${fl.delivered || 0}</td>
+            <td class="num">${intn.delivered || 0}</td>
+            <td class="num"><strong>${overall.delivered || 0}</strong></td>
+          </tr>
+          <tr>
+            <td>Replies Received</td>
+            <td class="num">${fl.replied || 0} (${fl.reply_rate || 0}%)</td>
+            <td class="num">${intn.replied || 0} (${intn.reply_rate || 0}%)</td>
+            <td class="num"><strong>${overall.replied || 0} (${overall.reply_rate || 0}%)</strong></td>
+          </tr>
+          <tr>
+            <td>Positive Sentiment</td>
+            <td class="num">${fl.positive_reply || 0} (${fl.positive_reply_rate || 0}%)</td>
+            <td class="num">${intn.positive_reply || 0} (${intn.positive_reply_rate || 0}%)</td>
+            <td class="num"><strong>${overall.positive_reply || 0} (${overall.positive_reply_rate || 0}%)</strong></td>
+          </tr>
+          <tr>
+            <td>Calls / Interviews Booked</td>
+            <td class="num">${fl.meeting || 0} meetings</td>
+            <td class="num">${intn.interview || 0} interviews</td>
+            <td class="num"><strong>${(overall.meeting || 0) + (overall.interview || 0)} total</strong></td>
+          </tr>
+          <tr>
+            <td>Projects Won / Offers</td>
+            <td class="num"><strong>${fl.won_project || 0} won</strong></td>
+            <td class="num"><strong>${intn.offer || 0} offers</strong></td>
+            <td class="num"><strong>${(overall.won_project || 0) + (overall.offer || 0)} total</strong></td>
+          </tr>
+          <tr>
+            <td>Bounce Rate</td>
+            <td class="num">${fl.bounce_rate || 0}%</td>
+            <td class="num">${intn.bounce_rate || 0}%</td>
+            <td class="num">${overall.bounce_rate || 0}%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Continuous Learning Insights -->
+    ${recs.length ? `
+      <h3 class="section" style="margin-top:20px">Continuous Learning Recommendations</h3>
+      <div style="display:grid;gap:10px">
+        ${recs.map(r => `
+          <div class="card" style="padding:12px 16px;border-left:4px solid var(--accent)">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>${esc(r.area || 'System Optimization')}</strong>
+              <span class="badge high">Advisory</span>
+            </div>
+            <p class="small" style="margin:4px 0 2px"><strong>Finding:</strong> ${esc(r.finding)}</p>
+            <p class="small muted" style="margin:0 0 4px"><strong>Recommendation:</strong> ${esc(r.recommendation)}</p>
+            <div class="small muted" style="font-size:11.5px"><em>Action: ${esc(r.action_required || 'Human review')}</em></div>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+
+    <!-- Strategic Performance Breakdowns -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:14px;margin-top:20px">
+      <!-- By Source -->
+      <article class="card">
+        <h3 style="margin:0 0 10px;font-size:15px">By Discovery Source</h3>
+        ${sources.length ? `
+          <div class="table-wrap" style="box-shadow:none">
+            <table>
+              <thead><tr><th>Source</th><th>Mode</th><th>Sent</th><th>Reply %</th><th>Pos %</th></tr></thead>
+              <tbody>
+                ${sources.map(s => `
+                  <tr>
+                    <td><strong>${esc(srcName(s.source))}</strong></td>
+                    <td><span class="badge ${s.mode}">${esc(s.mode)}</span></td>
+                    <td class="num">${s.sent}</td>
+                    <td class="num">${s.reply_rate}%</td>
+                    <td class="num">${s.positive_rate}%</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : `<p class="small muted">Data accumulates after initial sends.</p>`}
+      </article>
+
+      <!-- By CTA Style -->
+      <article class="card">
+        <h3 style="margin:0 0 10px;font-size:15px">By CTA Style</h3>
+        ${ctas.length ? `
+          <div class="table-wrap" style="box-shadow:none">
+            <table>
+              <thead><tr><th>CTA Type</th><th>Mode</th><th>Sent</th><th>Positive %</th></tr></thead>
+              <tbody>
+                ${ctas.map(c => `
+                  <tr>
+                    <td><code>${esc(c.cta_type)}</code></td>
+                    <td><span class="badge ${c.mode}">${esc(c.mode)}</span></td>
+                    <td class="num">${c.sent}</td>
+                    <td class="num">${c.positive_rate}%</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : `<p class="small muted">Data accumulates after initial sends.</p>`}
+      </article>
+    </div>
+
+    <!-- Recent Outreach Outcomes Log & Interactive Outcome Recorder -->
+    <h3 class="section" style="margin-top:24px">Recent Outreach Outcomes & Update Log</h3>
+    <p class="small muted" style="margin:-4px 0 10px">
+      Track delivered outreach, record replies, calls, or won projects directly without using the CLI:
+    </p>
+    ${recent.length ? `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Sent Date</th>
+              <th>Company</th>
+              <th>Recipient</th>
+              <th>Mode</th>
+              <th>Current Outcome</th>
+              <th>Notes / Deal Stage</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${recent.map(r => `
+              <tr>
+                <td class="num small">${r.sent_at ? esc(r.sent_at.slice(0, 10)) : '—'}</td>
+                <td><strong>${esc(r.company)}</strong></td>
+                <td>${esc(r.first_name || '')} <span class="small muted">${esc(r.email)}</span></td>
+                <td><span class="badge ${r.mode}">${esc(r.mode)}</span></td>
+                <td>
+                  <span class="badge ${r.outcome === 'won_project' || r.outcome === 'offer' || r.outcome === 'meeting' || r.outcome === 'positive_reply' ? 'positive' : r.outcome === 'bounced' ? 'negative' : 'neutral'}">
+                    ${esc((r.outcome || 'delivered').replace('_', ' '))}
+                  </span>
+                </td>
+                <td class="small">
+                  ${r.deal_stage ? `<span class="chip">${esc(STAGE_LABEL[r.deal_stage] || r.deal_stage)}</span> ` : ''}
+                  <span class="muted">${esc(r.notes || '')}</span>
+                </td>
+                <td style="text-align:right">
+                  <button class="btn small primary" data-record-outcome="${r.message_id || r.id}" data-lead="${r.lead_id}" data-company="${esc(r.company)}" data-outcome="${esc(r.outcome || 'delivered')}" data-notes="${esc(r.notes || '')}" data-stage="${esc(r.deal_stage || '')}">
+                    Update Outcome
+                  </button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : `<div class="empty"><strong>No sent emails recorded yet</strong>Outcomes appear after initial emails are dispatched.</div>`}
+  `;
+
+  panel.querySelectorAll("[data-record-outcome]").forEach((b) => (b.onclick = () => {
+    showOutcomeModal(
+      Number(b.dataset.recordOutcome),
+      Number(b.dataset.lead),
+      b.dataset.company,
+      b.dataset.outcome,
+      b.dataset.notes,
+      b.dataset.stage
+    );
+  }));
+}
+
+function showOutcomeModal(msgId, leadId, company, curOutcome, curNotes, curStage) {
+  const outcomes = [
+    ["delivered", "Delivered · Awaiting response"],
+    ["replied", "Replied · General response"],
+    ["positive_reply", "Positive Reply · Interested"],
+    ["meeting", "Meeting / Discovery Call Booked"],
+    ["interview", "Interview Scheduled (Internship)"],
+    ["project_discussion", "Technical Scope Discussion (Freelance)"],
+    ["offer", "Offer Received (Internship)"],
+    ["won_project", "Project Won / Contract Signed (Freelance)"],
+    ["negative_reply", "Negative Reply · Not interested"],
+    ["bounced", "Bounced · Invalid mailbox"],
+    ["no_response", "Finished sequence · No response"],
+    ["lost_project", "Lost Project / Opportunity"]
+  ];
+
+  const stages = [
+    ["", "No change to pipeline stage"],
+    ["call_booked", "Call booked"],
+    ["proposal_sent", "Proposal sent"],
+    ["won", "Won"],
+    ["lost", "Lost"]
+  ];
+
+  const html = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Update Outcome · ${esc(company)}</h3>
+        <button class="btn ghost small" id="m-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <form class="modal-form" id="outcome-form">
+          <label>
+            Outcome Status
+            <select id="m-outcome">
+              ${outcomes.map(([k, lbl]) => `<option value="${k}" ${k === curOutcome ? 'selected' : ''}>${lbl}</option>`).join('')}
+            </select>
+          </label>
+          <label>
+            Update Pipeline Deal Stage (optional)
+            <select id="m-stage">
+              ${stages.map(([k, lbl]) => `<option value="${k}" ${k === curStage ? 'selected' : ''}>${lbl}</option>`).join('')}
+            </select>
+          </label>
+          <label>
+            Notes / Feedback
+            <textarea id="m-notes" rows="3" placeholder="e.g. Replied asking for rate card and portfolio; call scheduled for Thursday.">${esc(curNotes || '')}</textarea>
+          </label>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="m-cancel">Cancel</button>
+        <button class="btn primary" id="m-save">Save Outcome</button>
+      </div>
+    </div>
+  `;
+
+  showModal(html);
+  $("#m-close").onclick = closeModal;
+  $("#m-cancel").onclick = closeModal;
+  $("#m-save").onclick = async () => {
+    const outcome = $("#m-outcome").value;
+    const stage = $("#m-stage").value;
+    const notes = $("#m-notes").value.trim();
+    closeModal();
+    await act("record_outcome", msgId, { outcome, stage, notes }, `Recorded outcome: ${outcome}`);
+  };
+}
+
+function showGateInspectorModal(leadId) {
+  const d = state.data;
+  const sch = d.schedule || {};
+  const up = (sch.upcoming_firsts || []).find((x) => x.lead_id === leadId || x.id === leadId);
+  const rev = (d.review || []).find((x) => x.id === leadId);
+  const ld = (d.lead || []).find((x) => x.id === leadId);
+  const item = up || rev || ld || { id: leadId, company: "Lead #" + leadId };
+
+  const score = item.score_total ?? item.score ?? 0;
+  const emailStatus = item.email_status || "unverified";
+  const confidence = item.confidence != null ? Math.round(item.confidence * 100) : null;
+  const mode = item.mode || (item.segment && item.segment.includes("intern") ? "internship" : "freelance");
+  const failed = new Set(item.failed_gates || []);
+  const isUp = Boolean(up);
+
+  const win = (sch.windows || []).find((w) => w.segment === item.segment);
+  const isWindowOpen = win ? win.is_open : true;
+
+  const gates = [
+    {
+      id: "opportunity_score",
+      name: "Gate A: Opportunity Quality",
+      desc: "Opportunity score must meet or exceed threshold (>=75)",
+      value: `Score: ${score} (${score >= 85 ? 'Priority A' : score >= 75 ? 'Priority B' : 'Below threshold'})`,
+      passed: score >= 75
+    },
+    {
+      id: "verified_contact",
+      name: "Gate B: Verified Contact",
+      desc: "Recipient email must be valid and verified (confidence >= 80%, catch-all policy)",
+      value: `Email: ${esc(item.email || 'None')} · Status: ${emailStatus}`,
+      passed: emailStatus === "valid" || emailStatus === "verified"
+    },
+    {
+      id: "contact_relevance",
+      name: "Gate C: Contact Relevance",
+      desc: "Contact role must match mode criteria (Founder/CTO/Ops for Freelance; Eng/Recruiter for Internship)",
+      value: `Role: ${esc(item.title || 'Unspecified')} · Mode: ${mode}`,
+      passed: !failed.has("contact_relevance")
+    },
+    {
+      id: "evidence_hook",
+      name: "Gate D: Personalization Evidence Hook",
+      desc: "Must contain concrete verified evidence without bracket placeholders ([company], [placeholder])",
+      value: item.hook ? `Hook: "${esc(item.hook.slice(0, 70))}..."` : "Evidence-backed context validated",
+      passed: !failed.has("evidence_hook") && !failed.has("placeholder_found")
+    },
+    {
+      id: "personalization_confidence",
+      name: "Gate E: Personalization Confidence",
+      desc: "Model confidence in draft personalization must meet minimum threshold (>=70%)",
+      value: confidence != null ? `Confidence: ${confidence}%` : "Confidence verified",
+      passed: confidence == null || confidence >= 70
+    },
+    {
+      id: "human_approval",
+      name: "Gate F: Human Approval",
+      desc: "Step 0 first outreach must be explicitly approved by human before transmission",
+      value: item.status === "approved" ? "Approved by human" : item.status === "drafted" ? "Pending human review" : `Status: ${item.status}`,
+      passed: item.status === "approved" || isUp
+    },
+    {
+      id: "suppression_check",
+      name: "Gate G: Suppression & Unsubscribe",
+      desc: "Recipient address, domain, or company must not be on bounce or unsubscribe suppression lists",
+      value: "Clean suppression history",
+      passed: !failed.has("suppressed") && item.status !== "bounced" && item.status !== "unsubscribed"
+    },
+    {
+      id: "previous_contact",
+      name: "Gate H: Previous Contact History",
+      desc: "No previous contact or duplicate email to this prospect within cooldown window",
+      value: "No prior contact recorded",
+      passed: !failed.has("already_contacted")
+    },
+    {
+      id: "daily_quota",
+      name: "Gate I: Daily Send Ceiling",
+      desc: "Strict daily ceiling of 28 new initial emails across modes",
+      value: `${(sch.allocation || {}).total_new_sent || 0} / 28 new emails sent today`,
+      passed: ((sch.allocation || {}).total_new_sent || 0) < 28
+    },
+    {
+      id: "sending_window",
+      name: "Gate J: Market Business Hours Window",
+      desc: "Dispatches only in destination market business hours (Mon-Fri 09:45-12:30, 14:30-17:30)",
+      value: win ? `${win.name}: ${win.local_time} (${win.is_open ? 'Window Open' : 'Closed'})` : "Window open",
+      passed: isWindowOpen
+    }
+  ];
+
+  const allPassed = gates.every(g => g.passed);
+
+  const html = `
+    <div class="modal" style="max-width:700px">
+      <div class="modal-header">
+        <div>
+          <h3 style="margin:0">Quality Gates Inspector · ${esc(item.company || 'Lead')}</h3>
+          <div class="small muted" style="margin-top:2px">${esc(item.first_name || '')} ${esc(item.last_name || '')} · ${esc(item.email || '')}</div>
+        </div>
+        <button class="btn ghost small" id="m-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding:10px 14px;border-radius:8px;background:${allPassed ? 'rgba(12,163,12,0.1)' : 'rgba(250,178,25,0.1)'}">
+          <div>
+            <strong>${allPassed ? '✓ All 10 Quality Gates Passed' : '⚠️ Gate Held — Transmission Blocked'}</strong>
+            <div class="small muted">${allPassed ? 'This outreach is verified, approved, and fully eligible for immediate delivery when the sending window is open.' : 'Outreach cannot be transmitted until all quality thresholds are met.'}</div>
+          </div>
+          <span class="badge ${allPassed ? 'verified' : 'review'}">${allPassed ? 'ELIGIBLE' : 'HELD'}</span>
+        </div>
+
+        <div style="display:grid;gap:8px">
+          ${gates.map(g => `
+            <div class="gate-card ${g.passed ? 'passed' : 'failed'}">
+              <div class="gate-title">
+                <span>${esc(g.name)}</span>
+                <span class="badge ${g.passed ? 'verified' : 'review'}">${g.passed ? 'PASSED' : 'HELD'}</span>
+              </div>
+              <div class="small muted" style="margin-top:2px">${esc(g.desc)}</div>
+              <div class="small" style="margin-top:4px;font-weight:550">${g.value}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="m-cancel">Close</button>
+      </div>
+    </div>
+  `;
+
+  showModal(html);
+  $("#m-close").onclick = closeModal;
+  $("#m-cancel").onclick = closeModal;
 }
 
 function healthTiles(openReview, openRespond) {
@@ -407,10 +1217,10 @@ function healthTiles(openReview, openRespond) {
   const fc = h.firecrawl || { used_today: 0, cap: 0 };
   const pct = (a, b) => (b ? Math.min(100, (100 * a) / b) : 0);
   return `<div class="tiles">
-    <div class="tile"><div class="label">Sent today</div>
-      <div class="value num">${sent}<small> / ${cap}</small></div>
-      <div class="meter" role="img" aria-label="${sent} of ${cap} sends used"><i style="width:${pct(sent, cap)}%"></i></div>
-      <div class="sub">${boxes.map((b) => esc(b.email)).join(", ") || "No inbox enabled"}</div></div>
+    <div class="tile"><div class="label">28/Day Allocation</div>
+      <div class="value num">${h.daily_allocation ? h.daily_allocation.total_sent : (h.first_sent_today || 0)}<small> / ${h.daily_allocation ? h.daily_allocation.ceiling : 28}</small></div>
+      <div class="meter" role="img" aria-label="${h.daily_allocation ? h.daily_allocation.total_sent : (h.first_sent_today || 0)} of ${h.daily_allocation ? h.daily_allocation.ceiling : 28} sent"><i style="width:${pct(h.daily_allocation ? h.daily_allocation.total_sent : (h.first_sent_today || 0), h.daily_allocation ? h.daily_allocation.ceiling : 28)}%"></i></div>
+      <div class="sub">${h.daily_allocation ? `FL: ${h.daily_allocation.freelance.sent}/${h.daily_allocation.freelance.limit} · INT: ${h.daily_allocation.internship.sent}/${h.daily_allocation.internship.limit} · FU: ${h.daily_allocation.followup.sent}/${h.daily_allocation.followup.limit}` : `${sent} / ${cap} total sends`}</div></div>
     <div class="tile"><div class="label">Bounce rate · 7 days</div>
       <div class="value num">${s7 ? (100 * rate).toFixed(1) + "%" : "—"}</div>
       <div style="margin-top:6px"><span class="status ${bcls}"><span class="dot"></span>${blabel}</span></div>
@@ -528,7 +1338,7 @@ function reviewCard(x, pending) {
     ${msgs}
     ${pending ? `<div class="banner"><span><strong>${esc(pending.kind === "approve" ? "Approved" : pending.kind === "reject" ? "Rejected" : "Regenerating")}</strong> · applies within a minute</span><span class="spacer"></span><button class="btn" data-undo>Undo</button></div>`
       : `<div class="actions"><button class="btn primary" data-approve>Approve${Object.keys(e).length ? " with edits" : ""}</button>
-         <button class="btn" data-regen>Regenerate</button><span class="spacer"></span><button class="btn danger" data-reject>Reject lead</button></div>`}
+         <button class="btn" data-regen>Regenerate</button><button class="btn" data-inspect-gate="${x.id}">Inspect Gates</button><span class="spacer"></span><button class="btn danger" data-reject>Reject lead</button></div>`}
   </article>`;
 }
 
@@ -551,6 +1361,7 @@ function bindReview(card) {
     act("approve", id, { edits: list }, "Approved. It goes into the send queue within a minute.");
   });
   on("[data-regen]", () => act("regenerate", id, {}, "Queued for a fresh draft."));
+  on("[data-inspect-gate]", () => showGateInspectorModal(id));
   on("[data-reject]", () => { if (confirm("Reject this lead? It won't be emailed.")) act("reject", id, {}, "Lead rejected."); });
   on("[data-undo]", () => act("cancel", id, { family: "review" }, "Undone."));
 }
@@ -709,9 +1520,11 @@ function renderLeads(panel, pend) {
     : `<span class="status warning" title="${esc(x.check)}"><span class="dot"></span>Would be held</span><div class="small muted">${esc(x.check)}</div>`;
   const actionFor = (x) => {
     if (pend["draftlead:" + x.id]) return `<span class="small muted">Drafting…</span>`;
-    if (x.group === "review") return `<button class="btn small" data-goreview>Open in Review</button>`;
-    if (x.can_draft) return `<button class="btn small ${x.group === "ready" ? "primary" : ""}" data-draftlead="${x.id}" title="${x.status === "unfit" ? "Research said poor fit; draft anyway" : "Research (if needed) and draft now"}">${x.status === "unfit" ? "Draft anyway" : "Draft email"}</button>`;
-    return "";
+    let btns = "";
+    if (x.group === "review") btns += `<button class="btn small" data-goreview>Open in Review</button> `;
+    if (x.can_draft) btns += `<button class="btn small ${x.group === "ready" ? "primary" : ""}" data-draftlead="${x.id}" title="${x.status === "unfit" ? "Research said poor fit; draft anyway" : "Research (if needed) and draft now"}">${x.status === "unfit" ? "Draft anyway" : "Draft email"}</button> `;
+    btns += `<button class="btn small ghost" data-inspect-gate="${x.id}" title="Inspect 10 quality gates">Gates</button>`;
+    return btns;
   };
   panel.innerHTML = `
     <div class="card" style="margin-top:4px"><h3 style="margin:0">Every lead, in one place</h3>
@@ -752,6 +1565,7 @@ function renderLeads(panel, pend) {
   panel.querySelectorAll("[data-draftlead]").forEach((b) => (b.onclick = () =>
     act("draft_lead", Number(b.dataset.draftlead), {}, "Drafting. It appears in Review in 1-3 minutes.")));
   panel.querySelectorAll("[data-goreview]").forEach((b) => (b.onclick = () => { state.tab = "review"; render(); }));
+  panel.querySelectorAll("[data-inspect-gate]").forEach((b) => (b.onclick = () => showGateInspectorModal(Number(b.dataset.inspectGate))));
 }
 
 /* Results -> Leads: show the leads behind any number. */
@@ -768,6 +1582,10 @@ function renderResults(panel) {
   const contractRows = st.contract && st.contract.length ? st.contract : [];
   const internRows = st.internship && st.internship.length ? st.internship : [];
   panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div><strong>Looking for detailed conversion outcomes & recording?</strong> <span class="small muted">View the dedicated Outcomes tab for Freelance vs Internship funnels and outcome updating.</span></div>
+      <button class="btn primary small" id="btn-goto-outcomes">Open Outcomes →</button>
+    </div>
     <p class="small muted" style="margin:4px 0 0">Click any segment, source or number to see exactly which leads it counts, where each one stopped, and why.</p>
     <h2 class="section" style="margin-top:8px">Emails sent per day · last 30 days</h2>
     <div class="chart-card">${sendsChart(h.daily_sends || [])}</div>
@@ -781,6 +1599,7 @@ function renderResults(panel) {
     </tbody></table></div>
     <p class="small muted">Rule of thumb from the playbook: after about 60 first emails in a segment, under 3% replies means change the angle, and over 3% bounces means clean the list.</p>`;
   bindChartTips(panel);
+  const goOut = $("#btn-goto-outcomes"); if (goOut) goOut.onclick = () => { state.tab = "outcomes"; localSet("tab", "outcomes"); render(); };
   panel.querySelectorAll("[data-cell]").forEach((b) => (b.onclick = () => {
     const filter = { groups: CELL_GROUPS[b.dataset.cell] || null };
     if (b.dataset.key === "segment") filter.segment = b.dataset.val;
@@ -890,9 +1709,11 @@ function engineStatus(short) {
   const mins = e.heartbeat ? (Date.now() - new Date(e.heartbeat).getTime()) / 60000 : Infinity;
   if (state.data.engine_error) return `<span class="status critical" title="${esc(state.data.engine_error.text)}"><span class="dot"></span>Settings error</span>`;
   if (!e.heartbeat) return `<span class="status critical"><span class="dot"></span>${short ? "Engine off" : "Engine not installed"}</span>`;
-  if (mins > 15) return `<span class="status critical" title="Last run ${esc(ago(e.heartbeat))}"><span class="dot"></span>Engine stopped</span>`;
+  const isCloud = e.runner === "github_actions" || e.is_production;
+  const timeoutMins = isCloud ? 75 : 25;
+  if (mins > timeoutMins) return `<span class="status critical" title="Last run ${esc(ago(e.heartbeat))}"><span class="dot"></span>Engine stopped</span>`;
   if (e.sending_paused) return `<span class="status warning"><span class="dot"></span>Sending paused</span>`;
-  return `<span class="status good" title="Last run ${esc(ago(e.heartbeat))}"><span class="dot"></span>Engine running</span>`;
+  return `<span class="status good" title="Last run ${esc(ago(e.heartbeat))}"><span class="dot"></span>${isCloud ? "Cloud engine active" : "Engine running"}</span>`;
 }
 
 const JOB_INFO = {
@@ -965,7 +1786,14 @@ function renderEngine(panel, pend) {
       ${pend["runall:1"] ? `<div class="banner" style="margin:0"><span>Starting within a minute…</span><button class="btn" data-cancel="runall">Undo</button></div>`
         : `<button class="btn primary" id="run-all" ${Object.keys(JOB_INFO).every((j) => (jobs[j] || {}).running) ? "disabled" : ""}>Run all three</button>`}
     </div></article>
-    ${Object.keys(JOB_INFO).map((j) => jobCard(j, jobs[j] || {}, pend)).join("")}
+  ${Object.keys(JOB_INFO).map((j) => jobCard(j, jobs[j] || {}, pend)).join("")}
+  <h2 class="section">Lead source health</h2>
+  <article class="card">${Object.entries(e.source_health || {}).length
+    ? Object.entries(e.source_health).map(([name, health]) => `<div class="queue-row"><strong>${esc(name)}</strong><span class="status ${health?.error ? "warning" : "good"}">${health?.error ? "Error" : "OK"}</span><span class="small muted">${esc(health?.at ? ago(health.at) : "Unknown")}</span><span class="small">${esc(health?.result || "")}</span></div>`).join("")
+    : `<p class="small muted">Source status appears after the next lead discovery run.</p>`}</article>
+  <h2 class="section">Reddit boards · open manually until API approval</h2>
+  <article class="card"><p class="small muted">Check these in your browser and answer suitable posts yourself. The monitor uses Reddit only with approved API credentials.</p>
+  <div class="actions">${(e.reddit_boards || []).map((b) => `<a class="btn" href="https://www.reddit.com/r/${encodeURIComponent(b.subreddit)}/new/" target="_blank" rel="noopener noreferrer">${esc(b.name)} ↗</a>`).join("")}</div></article>
 
     ${e.digest ? `<h2 class="section">Weekly summary <span class="small muted">· ${esc(ago(e.digest.at))}</span></h2>
       <article class="card"><div class="quote" style="background:none;padding:0;max-height:none">${esc(e.digest.text)}</div></article>` : ""}
@@ -1444,6 +2272,30 @@ async function reEnrichProspect(p, btn) {
 }
 
 /* ------------------------------------------------------------------ activity */
+function renderQueue(panel) {
+  const pending = (state.data.actions || []).filter((a) => a.status === "pending");
+  const jobs = (state.data.engine || {}).jobs || {};
+  const running = Object.entries(jobs).filter(([, j]) => j.running);
+  panel.innerHTML = `<h2 class="section">Waiting for your Mac <span class="count num">${pending.length}</span></h2>
+    <p class="small muted">Dashboard actions are picked up within a minute while your Mac is awake and the dashboard service is running.</p>
+    ${pending.length ? `<div class="table-wrap"><table><thead><tr><th>Queued</th><th>Task</th><th>Item</th></tr></thead><tbody>${pending.map((a) =>
+      `<tr><td>${esc(ago(a.created_at))}</td><td>${esc(({ run_prepare: "Find & draft new leads", run_community: "Check community boards", run_content: "Draft LinkedIn posts", run_all: "Run all three" })[a.kind] || a.kind.replaceAll("_", " "))}</td><td>${a.target === 1 ? "—" : "#" + esc(a.target)}</td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="empty"><strong>No dashboard actions waiting</strong>New actions appear here until your Mac applies them.</div>`}
+    <h2 class="section">Running now <span class="count num">${running.length}</span></h2>
+    ${running.length ? running.map(([name, j]) => `<article class="card"><strong>${esc((JOB_INFO[name] || [name])[0])}</strong><div class="small muted">Started ${esc(ago(j.started))}</div></article>`).join("")
+      : `<div class="empty"><strong>No background jobs running</strong>Scheduled jobs start at their next due time.</div>`}
+    <h2 class="section">Scheduled work · ${esc((state.data.engine || {}).home_timezone || "Asia/Kolkata")}</h2>
+    <div class="table-wrap"><table><thead><tr><th>Task</th><th>Schedule</th></tr></thead><tbody>
+      <tr><td>Engine, sending and dashboard sync</td><td>Every 5 minutes</td></tr>
+      <tr><td>Inbox replies</td><td>Every 10 minutes</td></tr>
+      <tr><td>Community boards</td><td>Every 30 minutes</td></tr>
+      <tr><td>Find & draft new leads</td><td>07:30, Monday–Saturday</td></tr>
+      <tr><td>LinkedIn post drafts</td><td>08:00 Monday</td></tr>
+      <tr><td>Weekly digest</td><td>09:00 Monday</td></tr>
+      <tr><td>Ad Library and LinkedIn tasks</td><td>09:45 daily</td></tr>
+    </tbody></table></div><p class="small muted">Scheduled times use the home time zone in settings.yaml. A missed run starts at the first engine tick after your Mac wakes.</p>`;
+}
+
 function renderActivity(panel) {
   const acts = state.data.actions || [];
   const label = { approve: "Approve", reject: "Reject", regenerate: "Regenerate", reply_send: "Send reply", reply_done: "Reply done", post_done: "Post answered",

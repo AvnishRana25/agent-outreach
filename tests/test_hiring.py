@@ -87,7 +87,10 @@ def test_funding_news_adds_only_fresh_relevant_raises(monkeypatch):
                 f"<pubDate>{_ago(days=days).strftime('%a, %d %b %Y %H:%M:%S +0000')}</pubDate></item>")
     feed = ("<rss><channel>" + item("AI startup Sarvam raises $41 Mn", 2) + item("Old Co raises $5 Mn seed", 30)
             + item("Bakery chain Crumbs raises Rs 10 Cr", 1) + "</channel></rss>")
-    monkeypatch.setattr(hiring.requests, "get", lambda url, **kw: R(text=feed))
+    def get(url, **kw):
+        assert all(isinstance(v, str) for v in kw["headers"].values())
+        return R(text=feed)
+    monkeypatch.setattr(hiring.requests, "get", get)
     monkeypatch.setattr(website, "find", lambda name, *a, **k: f"https://{name.split()[0].lower()}.ai")
     job = {"source": "funding", "segment": "india_startups_intern", "feeds": ["inc42"], "include_regex": r"\bai\b|saas"}
     assert hiring.run_funding(job) == 1

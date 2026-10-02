@@ -190,7 +190,7 @@ def _hiring_lead(company: str, site: str, text: str, note: str, job: dict, sourc
 # =========================================================================== funding news
 FUNDING_FEEDS = {
     "inc42": "https://inc42.com/buzz/feed/",
-    "entrackr": "https://entrackr.com/feed/",
+    "entrackr": "https://entrackr.com/rss",
     "yourstory": "https://yourstory.com/feed",
     "techcrunch": "https://techcrunch.com/category/startups/feed/",
 }
@@ -227,7 +227,7 @@ def run_funding(job: dict) -> int:
     for name in job.get("feeds", ["inc42", "entrackr"]):
         url = FUNDING_FEEDS.get(name, name)
         try:
-            items = parse_feed(_get(url, headers={"User-Agent": website.UA}).text)
+            items = parse_feed(_get(url, headers=website.UA).text)
         except (requests.RequestException, ET.ParseError) as e:
             print(f"    {name}: {e}")
             continue

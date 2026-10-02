@@ -40,13 +40,13 @@ def _msg(mid):
         return dict(conn.execute("SELECT * FROM messages WHERE id=?", (mid,)).fetchone())
 
 
-def test_your_approval_is_enough_for_low_confidence_and_generic_addresses(monkeypatch):
+def test_your_approval_sends_low_confidence_but_holds_risky_addresses(monkeypatch):
     from outreach import sender, transport
     sent = []
     monkeypatch.setattr(transport, "send", lambda box, to, *a: sent.append(to) or ("<m>", "z"))
     _approved(1, confidence=0.6)
     _approved(2, email="info@palm2.ae", email_status="risky")
-    assert sender.tick(5) == 2 and sorted(sent) == ["info@palm2.ae", "sara1@palm1.ae"]
+    assert sender.tick(5) == 1 and sent == ["sara1@palm1.ae"]
 
 
 def test_every_segment_sends_unless_you_limit_it(monkeypatch):
@@ -67,12 +67,13 @@ def test_held_emails_show_the_reason_and_send_anyway_works(monkeypatch):
     assert sender.tick(5) == 0
     with db.connect() as conn:
         held = {h["id"]: h for h in dashboard_sync._held_items(conn)}
-    assert "came from dashboard" in held[guessed]["hold"] and held[guessed]["overridable"]
+    assert "public or provider-verified" in held[guessed]["hold"] and not held[guessed]["overridable"]
     assert "AI-written" in held[no_ai]["hold"] and not held[no_ai]["overridable"]
     assert "85%" in held[auto]["hold"]
-    assert dashboard_sync._send_anyway(guessed, {}).startswith("will send")
-    assert dashboard_sync._send_anyway(no_ai, {}).startswith("will send")   # the button isn't shown, but even so:
-    assert sender.tick(5) == 1 and sent == ["sara1@palm1.ae"]               # the no-AI request still wins
+    assert dashboard_sync._send_anyway(guessed, {}).startswith("error:")
+    assert dashboard_sync._send_anyway(no_ai, {}).startswith("error:")
+    assert dashboard_sync._send_anyway(auto, {}).startswith("will send")
+    assert sender.tick(5) == 1 and sent == ["sara3@palm3.ae"]
 
 
 def test_provider_refusal_retries_then_holds(monkeypatch):

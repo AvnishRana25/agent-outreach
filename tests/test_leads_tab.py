@@ -37,7 +37,7 @@ def test_every_lead_says_where_it_is_and_why(monkeypatch):
     assert items["Palm 1"]["group"] == "skipped" and "500+ staff" in items["Palm 1"]["why"] and items["Palm 1"]["can_draft"]
     assert items["Palm 2"]["why"].startswith("No email") and not items["Palm 2"]["can_draft"]
     assert items["Palm 3"]["check"] == "ok"                                    # your approval would be enough
-    assert "not from their website" in items["Palm 4"]["check"]
+    assert "public or provider-verified" in items["Palm 4"]["check"]
 
 
 def test_draft_one_lead_researches_first(monkeypatch):
@@ -53,7 +53,7 @@ def test_draft_one_lead_researches_first(monkeypatch):
     assert leadview.draft_one(lid) == "drafted: it's in Review now"
     with db.connect() as conn:
         row = conn.execute("SELECT status, fit FROM leads WHERE id=?", (lid,)).fetchone()
-    assert row["status"] == "drafted" and row["fit"] == 7
+        assert row["status"] == "drafted" and row["fit"] == 8
     assert leadview.draft_one(lid).startswith("skipped")
 
 

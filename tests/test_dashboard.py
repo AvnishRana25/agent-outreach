@@ -104,9 +104,10 @@ def seed():
     research.run(10, use_mock=True)
     assert personalize.run(10, use_mock=True) == 1
     with db.connect() as conn:  # stand-in for real Gemini output: mock text is purged by design
-        conn.execute("UPDATE messages SET body='Hi Omar, a real draft about your WhatsApp leads.', review_note=''")
-        conn.execute("UPDATE leads SET research=? WHERE research != ''",
-                     ('{"company_summary": "Dubai brokerage", "best_hook": "WhatsApp ads", "fit_reason": "clear gap"}',))
+        omar_id = conn.execute("SELECT id FROM leads WHERE email='omar@palmrealty.ae'").fetchone()[0]
+        conn.execute("UPDATE messages SET body='Hi Omar, a real draft about your WhatsApp leads.', review_note='' WHERE lead_id=?", (omar_id,))
+        conn.execute("UPDATE leads SET research=? WHERE id=?",
+                     ('{"company_summary": "Dubai brokerage", "best_hook": "WhatsApp ads", "fit_reason": "clear gap"}', omar_id))
         sam = conn.execute("SELECT id FROM leads WHERE email='sam@acme.io'").fetchone()[0]
         conn.execute("INSERT INTO replies (lead_id, inbox, imap_uid, message_id, from_addr, subject, body, received_at,"
                      " category, summary, suggested_reply) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -387,6 +388,37 @@ def test_settings_error_shows_until_a_good_run(env):
     dashboard_sync.push()
     _, data, _ = call(env, "GET", "/api/data", cookie=cookie)
     assert "engine_error" not in data
+
+
+def test_run_all_queues_and_starts_three_jobs(env, monkeypatch):
+    port = env
+    from outreach import dashboard_sync, engine
+    started = []
+    monkeypatch.setattr(engine, "spawn", lambda job: started.append(job) or "started")
+    dashboard_sync.sync()
+    cookie = call(port, "POST", "/api/login", {"password": "correct horse battery"})[2].split(";")[0]
+    assert call(port, "POST", "/api/action", {"kind": "run_all", "target": 1}, cookie=cookie)[0] == 200
+    queued = call(port, "GET", "/api/data", cookie=cookie)[1]["actions"]
+    assert queued[0]["kind"] == "run_all" and queued[0]["status"] == "pending"
+    dashboard_sync.sync()
+    assert started == ["prepare", "community", "content"]
+    applied = call(port, "GET", "/api/data", cookie=cookie)[1]["actions"]
+    assert applied[0]["status"] == "applied"
+
+
+def test_run_all_starts_remaining_jobs_after_one_fails(monkeypatch):
+    from outreach import dashboard_sync, engine
+    started = []
+
+    def spawn(job):
+        started.append(job)
+        if job == "community":
+            raise RuntimeError("could not start")
+        return "started"
+
+    monkeypatch.setattr(engine, "spawn", spawn)
+    assert dashboard_sync._run_all(1, {}).startswith("error:")
+    assert started == ["prepare", "community", "content"]
 
 
 def test_login_lockout_after_ten_wrong_passwords(env, monkeypatch):

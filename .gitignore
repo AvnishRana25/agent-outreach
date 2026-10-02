@@ -1,5 +1,7 @@
 .env
 data/*.db
+data/*.db-*
+data/*.bak*
 data/leads/
 config/settings.yaml
 config/profile.yaml

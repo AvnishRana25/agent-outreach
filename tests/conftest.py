@@ -1,9 +1,28 @@
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import pytest
 
 @pytest.fixture(autouse=True)
 def isolate_test_credentials(monkeypatch):
     """Ensure external API keys from local .env do not leak into unit tests."""
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setenv("OUTREACH_ENV", "local")
+
+
+@pytest.fixture(autouse=True)
+def isolate_test_database(tmp_path, monkeypatch):
+    """Strict database isolation: ensure no test can ever touch data/outreach.db."""
+    test_db = tmp_path / "test_outreach.db"
+    monkeypatch.setenv("OUTREACH_DB", str(test_db))
+    from outreach import config
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    from outreach import db
+    db.init()
+    yield test_db
 
 
 @pytest.fixture(autouse=True)

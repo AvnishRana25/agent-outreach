@@ -1,0 +1,97 @@
+name: Daily Maintenance & Reporting
+
+on:
+  schedule:
+    # Run once per day at 03:00 UTC (08:30 IST)
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: daily-maintenance
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  maintenance:
+    name: Reporting & Daily Maintenance
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      OUTREACH_ENV: production
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+      ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+      ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+      ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+      ZOHO_APP_PASSWORD: ${{ secrets.ZOHO_APP_PASSWORD }}
+      PROSPEO_API_KEY: ${{ secrets.PROSPEO_API_KEY }}
+      HUNTER_API_KEY: ${{ secrets.HUNTER_API_KEY }}
+      SKRAPP_API_KEY: ${{ secrets.SKRAPP_API_KEY }}
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+      SETTINGS_YAML: ${{ secrets.SETTINGS_YAML }}
+      PROFILE_YAML: ${{ secrets.PROFILE_YAML }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Write configuration files from secrets if provided
+        run: |
+          if [ -n "$SETTINGS_YAML" ]; then
+            echo "$SETTINGS_YAML" > config/settings.yaml
+          fi
+          if [ -n "$PROFILE_YAML" ]; then
+            echo "$PROFILE_YAML" > config/profile.yaml
+          fi
+
+      - name: Initialize remote schema
+        run: python -m outreach init
+
+      - name: Pull dashboard approvals & actions
+        run: python -m outreach dashboard-sync
+
+      - name: Sync provider balances & verify limits
+        run: python -m outreach providers-check || true
+
+      - name: Generate daily ad library and LinkedIn tasks
+        run: |
+          python -m outreach adlib || true
+          python -m outreach linkedin || true
+
+      - name: Generate funnel report & analytics
+        run: python -m outreach report
+
+      - name: Send weekly summary (Mondays or manual trigger)
+        run: |
+          DOW=$(date -u +%u)
+          if [ "$DOW" -eq 1 ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python -m outreach digest || true
+          fi
+
+      - name: Push fresh dashboard snapshot
+        run: python -m outreach dashboard-sync
+
+      - name: Alert Telegram on failure
+        if: failure()
+        run: |
+          python -c "
+          from outreach import alerts
+          alerts.send_alert('workflow_failure', '❌ Daily Maintenance run failed in GitHub Actions. Check logs at: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}', cooldown_minutes=5)
+          " || true

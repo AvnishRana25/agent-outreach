@@ -87,7 +87,7 @@ def mock_brief(row) -> Brief:
     return Brief(company_summary=f"{row['company']} (mock)", facts=[], pains=[],
                  best_hook=f"{row['company']} website", proof_id="re_pipeline", angle="mock",
                  contact_first_name=row["first_name"] or "", contact_role="Founder",
-                 fit_score=7, fit_reason="mock")
+                 fit_score=8, fit_reason="mock")
 
 
 def run(limit: int, use_mock: bool = False, segment: str | None = None) -> dict:
@@ -113,12 +113,31 @@ def run(limit: int, use_mock: bool = False, segment: str | None = None) -> dict:
         if brief is None:
             counts["failed"] += 1
             continue
+        from . import scoring, evidence
         status = "researched" if brief.fit_score >= threshold else "unfit"
-        fields = {"research": brief.model_dump_json(), "fit": brief.fit_score, "status": status}
+        lead_dict = {**dict(row), "research": brief.model_dump_json(), "fit": brief.fit_score}
+        ev_records = evidence.extract_evidence_from_lead(lead_dict)
+        opp_score = scoring.score_lead(lead_dict, brief=brief, evidence=ev_records)
+
+        if opp_score.score_total < 60:
+            status = "unfit"
+
+        fields = {
+            "research": brief.model_dump_json(),
+            "fit": brief.fit_score,
+            "status": status,
+            "score_total": opp_score.score_total,
+            "score_components": json.dumps(opp_score.components),
+            "score_version": opp_score.version,
+            "score_reason_summary": opp_score.reason_summary,
+            "score_timestamp": opp_score.timestamp,
+            "score": opp_score.score_total,
+            "verified_evidence": json.dumps([e.model_dump() for e in ev_records]),
+        }
         if brief.contact_first_name and not row["first_name"]:
             fields["first_name"] = brief.contact_first_name
         with db.connect() as conn:
             db.set_lead(conn, row["id"], **fields)
         counts[status] += 1
-        print(f"  {status:<10} fit={brief.fit_score:<2} {row['company'] or row['domain']}: {brief.fit_reason[:90]}")
+        print(f"  {status:<10} score={opp_score.score_total:<2} fit={brief.fit_score:<2} {row['company'] or row['domain']}: {brief.fit_reason[:90]}")
     return counts

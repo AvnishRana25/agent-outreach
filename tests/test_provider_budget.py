@@ -126,7 +126,7 @@ def test_hunter_key_is_never_in_the_url(monkeypatch):
     assert "api_key" not in seen["params"] and seen["headers"]["X-API-KEY"] == "test-key"
 
 
-def test_prospeo_answers_in_either_shape(monkeypatch):
+def test_prospeo_verified_only_response_and_errors(monkeypatch):
     from outreach.prospecting.providers.prospeo import ProspeoProvider
 
     class R:
@@ -134,9 +134,9 @@ def test_prospeo_answers_in_either_shape(monkeypatch):
             self.status_code, self.data = code, data
         def json(self):
             return self.data
-    replies = [R(200, {"error": False, "response": {"email": {"email": "Ana@Acme.com", "email_status": "VALID"}}}),
-               R(200, {"error": False, "response": {"email": "bo@acme.com", "email_status": "VERIFIED"}}),
-               R(400, {"error": True, "message": "NO_RESULT"}), R(401, {"error": True})]
+    replies = [R(200, {"error": False, "person": {"email": {"email": "Ana@Acme.com", "status": "VERIFIED", "revealed": True}}}),
+               R(200, {"error": False, "person": {"email": {"email": "bo@acme.com", "status": "VERIFIED", "revealed": True}}}),
+               R(400, {"error": True, "error_code": "NO_MATCH"}), R(401, {"error": True})]
     monkeypatch.setattr("outreach.prospecting.providers.prospeo.requests.post", lambda *a, **k: replies.pop(0))
     p = ProspeoProvider()
     assert p.find_email("A", "R", "Acme", "acme.com").email == "ana@acme.com"

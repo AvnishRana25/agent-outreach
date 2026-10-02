@@ -19,8 +19,10 @@ def _show(lead, msgs) -> None:
     sig = db.signals(lead)
     on = [k for k, v in sig.items() if v is True and k != "reachable"]
     print("\n" + "=" * 78)
+    score_tot = (lead["score_total"] if "score_total" in lead.keys() and lead["score_total"] else lead["score"]) or 0
+    score_band = "Priority A" if score_tot >= 85 else "Priority B" if score_tot >= 75 else "Manual Review" if score_tot >= 60 else "Reject"
     print(f"{lead['company'] or lead['domain']}  |  {lead['first_name']} {lead['last_name']} "
-          f"<{lead['email']}> [{lead['email_status']}]  |  {lead['segment']}  score={lead['score']}")
+          f"<{lead['email']}> [{lead['email_status']}]  |  {lead['segment']}  score={score_tot} ({score_band})")
     print(f"site: {lead['website']}   signals: {', '.join(on) or '-'}")
     brief = db.research(lead)
     if brief:

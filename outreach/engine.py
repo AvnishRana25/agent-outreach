@@ -87,6 +87,8 @@ def run_job(job: str, fn) -> None:
         _set_job(job, started=_now().isoformat(timespec="seconds"), finished=None, error=None, running=True)
         try:
             result = fn()
+            if isinstance(result, str) and result.startswith("error:"):
+                raise RuntimeError(result[7:].strip())
             _set_job(job, finished=_now().isoformat(timespec="seconds"), result=str(result)[:500], running=False)
         except BaseException as e:  # noqa: BLE001 - recorded for the dashboard, then re-raised
             _set_job(job, finished=_now().isoformat(timespec="seconds"), running=False,

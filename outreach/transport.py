@@ -40,13 +40,18 @@ def _display(box: dict) -> str:
 
 
 # --------------------------------------------------------------------------- SMTP / IMAP
-def smtp_send(box: dict, to: str, subject: str, body: str, thread: dict | None) -> tuple[str, str]:
+def smtp_send(box: dict, to: str, subject: str, body: str, thread: dict | None,
+              custom_msg_id: str | None = None) -> tuple[str, str]:
     em = EmailMessage()
     em["From"] = formataddr((_display(box), box["email"]))
     em["To"] = to
     em["Subject"] = subject
     em["Date"] = formatdate(localtime=True)
-    em["Message-ID"] = make_msgid(domain=box["email"].split("@")[1])
+    domain = box["email"].split("@")[1]
+    if custom_msg_id:
+        em["Message-ID"] = f"<{custom_msg_id}@{domain}>" if not custom_msg_id.startswith("<") else custom_msg_id
+    else:
+        em["Message-ID"] = make_msgid(domain=domain)
     if thread and thread.get("message_id"):
         em["In-Reply-To"] = thread["message_id"]
         em["References"] = thread["message_id"]
@@ -296,11 +301,12 @@ def not_sent(e: BaseException) -> bool:
     return isinstance(e, (requests.ConnectTimeout, ConnectionRefusedError))
 
 
-def send(box: dict, to: str, subject: str, body: str, thread: dict | None) -> tuple[str, str]:
+def send(box: dict, to: str, subject: str, body: str, thread: dict | None,
+         custom_msg_id: str | None = None) -> tuple[str, str]:
     """Returns (message_id, provider_id)."""
     if box.get("transport") == "zoho_api":
         return zoho(box).send(to, subject, body, thread)
-    return smtp_send(box, to, subject, body, thread)
+    return smtp_send(box, to, subject, body, thread, custom_msg_id=custom_msg_id)
 
 
 def fetch(box: dict, days: int, known: set | None = None) -> list[Incoming]:

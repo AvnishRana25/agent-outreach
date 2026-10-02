@@ -8,7 +8,7 @@ from . import (community, config, dashboard_sync, db, engine, enrich, importer, 
                prospecting, replies, report, research, review, sender, sources, transport, verify)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="outreach", description="Automated, personalised cold email pipeline")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -69,6 +69,10 @@ def main() -> None:
     p.add_argument("reply_id", type=int)
 
     sub.add_parser("report", help="funnel numbers")
+
+    p = sub.add_parser("analytics", help="Phase 3 outcome analytics, conversion rates, and learning safety")
+    p.add_argument("--mode", choices=["freelance", "internship"], default=None, help="filter by mode")
+    p.add_argument("--days", type=int, default=30, help="time window in days (default: 30)")
 
     p = sub.add_parser("done", help="mark a positive reply as handled")
     p.add_argument("reply_id", type=int)
@@ -131,7 +135,19 @@ def main() -> None:
     p.add_argument("output", type=Path, help="output CSV destination")
     p.add_argument("--status", choices=["verified", "high_confidence", "uncertain", "all"], default="verified")
 
-    args = ap.parse_args()
+    p = sub.add_parser("migrate-to-turso", help="copy local SQLite database into Turso production database")
+    p.add_argument("--db", type=Path, default=None, help="custom local SQLite database path")
+
+    p = sub.add_parser("check-eligibility", help="evaluate send eligibility gates for a lead or message")
+    p.add_argument("--lead-id", type=int, default=None, help="check specific lead id")
+    p.add_argument("--all", action="store_true", help="check all drafted or approved leads")
+
+    p = sub.add_parser("reset-db", help="safely wipe all leads, drafts, messages, outcomes and logs to start fresh")
+    p.add_argument("--purge-suppression", action="store_true", help="also purge suppression list (unsubscribes and bounces)")
+    p.add_argument("--no-backup", action="store_true", help="do not create a backup file before clearing")
+    p.add_argument("-y", "--yes", action="store_true", help="bypass confirmation prompt")
+
+    args = ap.parse_args(argv)
     if getattr(args, "mock", False):
         # --mock never touches real data: it runs on a throwaway copy of the database.
         import os
@@ -167,7 +183,20 @@ def main() -> None:
         print(f"drafted {personalize.run(args.limit, args.mock, getattr(args, 'segment', None))} sequences")
     elif args.cmd == "prepare":
         def prepare():
-            found = prospect.run() if not args.skip_prospect else {}
+            if not args.mock:
+                room = sender.draft_room()
+                if room["room"] <= 0:
+                    return (f"skipped discovery: {room['waiting']} emails already wait for review or sending; "
+                            f"inboxes can send {room['capacity']} in 2 days")
+            allowed = config.settings()["sending"].get("allowed_segments")
+            with db.connect() as conn:
+                backlog = conn.execute("SELECT COUNT(*) FROM leads WHERE status IN ('verified','researched') "
+                                       "AND email_status='valid'").fetchone()[0]
+            if not args.mock and backlog >= room["room"] * 3:
+                print(f"  discovery skipped: {backlog} verified contacts are ready for {room['room']} draft slots")
+                found = {}
+            else:
+                found = prospect.run(allowed_segments=allowed) if not args.skip_prospect else {}
             enrich.run(args.limit * 4)
             checked = verify.run()
             print(checked)
@@ -182,13 +211,21 @@ def main() -> None:
                     print(held.lstrip("; "))
             # Research more than we draft (the fit filter drops some), minus what's already researched.
             with db.connect() as conn:
-                ready = conn.execute("SELECT COUNT(*) FROM leads WHERE status='researched'").fetchone()[0]
+                ready = conn.execute("SELECT COUNT(*) FROM leads WHERE status='researched' AND fit>=? "
+                                     "AND email_status='valid'", (config.settings().get("targeting", {}).get("min_fit", 6),)).fetchone()[0]
             researched = research.run(max(0, int(limit * 1.3) - ready), args.mock) if limit else {"researched": 0}
             print(researched)
             drafted = personalize.run(limit, args.mock) if limit else 0
             print(f"drafted {drafted} sequences. Next: review them in the dashboard (or python -m outreach review)")
             new = sum(v for v in found.values() if isinstance(v, int))
             summary = f"{new} new companies, {researched.get('researched', 0)} researched, {drafted} drafted{held}"
+            try:
+                from . import alerts
+                with db.connect() as conn:
+                    rev_count = conn.execute("SELECT count(*) FROM leads WHERE status='drafted'").fetchone()[0]
+                alerts.notify_discovery_complete(new, rev_count)
+            except Exception:
+                pass
             from . import llm
             if llm.last_stop:
                 at = engine.schedule_retry("prepare", llm.last_stop)
@@ -224,6 +261,10 @@ def main() -> None:
         replies.send_reply(args.reply_id)
     elif args.cmd == "report":
         report.run()
+    elif args.cmd == "analytics":
+        from . import analytics
+        with db.connect() as conn:
+            print(analytics.format_analytics_report(conn, mode=args.mode, days=args.days))
     elif args.cmd == "done":
         with db.connect() as conn:
             conn.execute("UPDATE replies SET handled=1 WHERE id=?", (args.reply_id,))
@@ -239,6 +280,43 @@ def main() -> None:
         with db.connect() as conn:
             db.set_state(conn, "sending_paused", "0")
         print("sending resumed")
+    elif args.cmd == "reset-db":
+        if not args.yes:
+            ans = input("⚠️ Are you sure you want to reset the database and start completely fresh? [y/N]: ")
+            if ans.strip().lower() not in ("y", "yes"):
+                print("Aborted.")
+                return
+        keep_supp = not args.purge_suppression
+        backup = not args.no_backup
+        res = db.reset_database(keep_suppression=keep_supp, backup=backup)
+        print("Database reset complete:")
+        if res.get("backup_file"):
+            print(f"  Backup created: {res['backup_file']}")
+        for k, v in res.items():
+            if k not in ("backup_file", "turso_cleared", "turso_cleared_error"):
+                print(f"  Purged {k}: {v} records")
+        if res.get("turso_cleared"):
+            print("  Turso Cloud database cleared successfully.")
+        elif res.get("turso_cleared_error"):
+            print(f"  Turso Cloud warning: {res['turso_cleared_error']}")
+        try:
+            dashboard_sync.push()
+            print("  Fresh 0-state snapshot pushed to hosted dashboard.")
+        except Exception as e:
+            print(f"  Dashboard push error: {e}")
+        try:
+            from . import alerts
+            alerts.notify(
+                "🧹 *DATABASE PURGE & RESET COMPLETE*\n\n"
+                "All pipeline leads, drafts, outcomes, and logs have been wiped.\n"
+                "• Pipeline leads: 0\n"
+                "• Review drafts: 0\n"
+                "• Quota: 0 / 28 sent\n"
+                "• Engine: Active & ready for fresh outreach"
+            )
+            print("  Notification sent to Telegram.")
+        except Exception:
+            pass
     elif args.cmd == "content":
         from . import growth
         engine.run_job("content", growth.linkedin_posts)
@@ -254,7 +332,8 @@ def main() -> None:
         engine.run_job("assist", lambda: f"{dashboard_sync.pull(slow=True)} actions applied")
         engine.kick_tick()  # show the results in the dashboard now, not at the next 5-minute run
     elif args.cmd == "doctor":
-        engine.doctor()
+        from . import doctor
+        doctor.run()
     elif args.cmd == "groq-check":
         groq_check()
     elif args.cmd == "sources-check":
@@ -274,6 +353,35 @@ def main() -> None:
     elif args.cmd == "dashboard":
         from . import dashboard_local
         dashboard_local.serve(args.port)
+    elif args.cmd == "migrate-to-turso":
+        counts = db.migrate_to_turso(args.db)
+        print("Migrated local database to Turso:")
+        for tbl, cnt in counts.items():
+            print(f"  {tbl:<22}: {cnt} rows")
+    elif args.cmd == "check-eligibility":
+        from . import eligibility
+        with db.connect() as conn:
+            if args.lead_id:
+                leads = conn.execute("SELECT * FROM leads WHERE id=?", (args.lead_id,)).fetchall()
+            elif getattr(args, "all", False):
+                leads = conn.execute("SELECT * FROM leads WHERE status IN ('drafted', 'approved')").fetchall()
+            else:
+                leads = conn.execute("SELECT * FROM leads WHERE status IN ('drafted', 'approved') LIMIT 10").fetchall()
+            if not leads:
+                print("No matching leads found to evaluate.")
+            for lead in leads:
+                msgs = conn.execute("SELECT * FROM messages WHERE lead_id=? ORDER BY step", (lead["id"],)).fetchall()
+                msg = msgs[0] if msgs else {"step": 0, "status": "draft", "confidence": 0.0, "subject": "", "body": ""}
+                res = eligibility.evaluate_send_eligibility(lead, msg, conn)
+                print("=" * 70)
+                print(f"Lead #{lead['id']} {lead['company']} <{lead['email']}> [{lead['status']}]")
+                print(f"Eligibility: {'ELIGIBLE' if res.eligible else 'BLOCKED'}")
+                print(f"Opportunity Score: {res.score_total}/100 ({res.score_band})")
+                print(f"Summary: {res.summary}")
+                print("Gates:")
+                for gate_key, gate in res.reasons.items():
+                    mark = "✓ PASS" if gate.passed else "✗ FAIL"
+                    print(f"  {mark:<8} {gate.name}: {gate.reason}")
     elif args.cmd == "telegram-setup":
         replies.telegram_setup()
     elif args.cmd == "zoho-token":

@@ -192,7 +192,7 @@ def _hunter_balance(key: str) -> int | None:
 
 
 def _prospeo_balance(key: str) -> int | None:
-    r = requests.post("https://api.prospeo.io/account-information", headers={"X-KEY": key}, timeout=15)
+    r = requests.get("https://api.prospeo.io/account-information", headers={"X-KEY": key}, timeout=15)
     if r.status_code != 200:
         return None
     resp = r.json().get("response") or {}

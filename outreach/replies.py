@@ -99,12 +99,16 @@ def unclassified(why: str) -> ReplyClass:
 
 
 def _alert(lead, result: ReplyClass, where: str = "") -> None:
+    if result.category == "bounce":
+        return
+    lead_id = lead["id"] if lead and "id" in lead.keys() else "?"
+    company = lead["company"] if lead and "company" in lead.keys() else ""
+    text = f"#{lead_id} {company}: {result.category} ({result.summary}). Read it in the dashboard."
     if result.category in POSITIVE:
-        notify(f"🔥 {result.category.upper()} from {lead['first_name'] or ''} @ {lead['company']}\n"
-               f"{result.summary}\n\n{where or 'Answer it in the dashboard (Respond tab).'}")
+        text = f"#{lead_id} {company}: {result.category.upper()}! {result.summary}. {where} Answer in the dashboard."
     elif result.category in (UNCLASSIFIED, "other"):
-        notify(f"📩 Reply from {lead['first_name'] or ''} @ {lead['company']}: {result.summary}\n\n"
-               "Read it in the dashboard (Respond tab); it could be a yes.")
+        text = f"#{lead_id} {company}: could be a yes ({result.summary}). Read it in the dashboard."
+    notify(text)
 
 
 def reclassify(limit: int = 10) -> int:
@@ -134,6 +138,11 @@ def reclassify(limit: int = 10) -> int:
 
 
 def notify(text: str) -> None:
+    from . import alerts
+    if "could be a yes" in text and not alerts.is_notification_enabled("all_replies"):
+        return
+    if "New lead on" in text and not alerts.is_notification_enabled("community_post"):
+        return
     token, chat = os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
     if token and chat:
         try:
@@ -231,6 +240,7 @@ def sync(days: int = 4, use_mock: bool = False, require_all: bool = False,
                 _alert(lead, result)
         with db.connect() as conn:
             db.set_state(conn, f"last_inbound_sync:{box['email']}", datetime.now(timezone.utc).isoformat())
+            db.set_state(conn, "engine:heartbeat", datetime.now(timezone.utc).isoformat(timespec="seconds"))
     return handled
 
 
@@ -242,11 +252,17 @@ def _apply(conn, lead, result: ReplyClass) -> None:
     if result.category == "bounce":
         db.set_lead(conn, lead["id"], status="bounced", email_status="invalid")
         db.suppress(conn, lead["email"], "bounce")
+        db.update_message_outcome(conn, lead["id"], outcome="bounced", notes=result.summary)
     elif result.category in ("unsubscribe", "not_interested"):
         db.set_lead(conn, lead["id"], status="unsubscribed")
         db.suppress(conn, lead["email"], result.category)
+        db.update_message_outcome(conn, lead["id"], outcome="negative_reply", notes=f"{result.category}: {result.summary}")
+    elif result.category in POSITIVE:
+        db.set_lead(conn, lead["id"], status="replied")
+        db.update_message_outcome(conn, lead["id"], outcome="positive_reply", notes=f"{result.category}: {result.summary}")
     else:
         db.set_lead(conn, lead["id"], status="replied")
+        db.update_message_outcome(conn, lead["id"], outcome="replied", notes=result.summary)
 
 
 def send_reply(reply_id: int) -> None:

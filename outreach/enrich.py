@@ -145,8 +145,10 @@ def run(limit: int = 100) -> int:
         with db.connect() as conn:
             fields = {"signals": json.dumps(sig), "site_text": text, "status": "enriched"}
             if not row["email"] and sig.get("emails_on_site"):
-                fields["email"] = _best_email(sig["emails_on_site"], row["domain"])
-                fields["email_source"] = "website"
+                email = _best_email(sig["emails_on_site"], row["domain"])
+                if email:
+                    fields["email"] = email
+                    fields["email_source"] = "website"
             elif row["email"] and row["email"].lower() in {e.lower() for e in sig.get("emails_on_site") or []}:
                 fields["email_source"] = "website"   # e.g. a guessed address that turns out to be published
             if not sig.get("reachable"):
@@ -162,8 +164,8 @@ def run(limit: int = 100) -> int:
 
 
 def _best_email(emails: list[str], domain: str) -> str:
-    on_domain = [e for e in emails if domain and e.endswith("@" + domain)] or emails
+    on_domain = [e for e in emails if domain and e.lower().endswith("@" + domain.lower())]
     generic = {"noreply", "no-reply", "privacy", "info", "contact", "hello", "sales", "admin",
                "office", "enquiry", "enquiries", "support", "team", "mail", "hr", "careers", "jobs"}
     named = [e for e in on_domain if e.split("@")[0] not in generic]
-    return (named or on_domain)[0]
+    return (named or on_domain or [""])[0]

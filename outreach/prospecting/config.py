@@ -5,7 +5,7 @@ import os
 from .. import config as base_config
 
 # Daily targets
-DEFAULT_DAILY_VERIFIED_TARGET = 38
+DEFAULT_DAILY_VERIFIED_TARGET = 28
 
 # Scoring weights (0 - 100)
 DEFAULT_WEIGHTS = {

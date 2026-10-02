@@ -62,8 +62,12 @@ def discourse_body(post: dict) -> None:
 def _reddit_token() -> str:
     cid, secret = os.getenv("REDDIT_CLIENT_ID"), os.getenv("REDDIT_CLIENT_SECRET")
     if not (cid and secret):
-        return ""
-    r = requests.post("https://www.reddit.com/api/v1/access_token", auth=(cid, secret), headers=UA,
+        raise ValueError("Reddit API approval and REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET are required")
+    user_agent = os.getenv("REDDIT_USER_AGENT")
+    if not user_agent:
+        raise ValueError("REDDIT_USER_AGENT is required for approved Reddit API access")
+    r = requests.post("https://www.reddit.com/api/v1/access_token", auth=(cid, secret),
+                      headers={"User-Agent": user_agent},
                       data={"grant_type": "client_credentials"}, timeout=30)
     r.raise_for_status()
     return r.json().get("access_token", "")
@@ -83,20 +87,19 @@ def parse_reddit_atom(xml_text: str) -> list[dict]:
 
 
 def fetch_reddit(src: dict) -> list[dict]:
-    """Official API when REDDIT_CLIENT_ID/SECRET are set (free 'script' app); public RSS otherwise."""
+    """Read new posts through an approved OAuth client."""
     sub = src["subreddit"]
     token = _reddit_token()
-    if token:
-        data = requests.get(f"https://oauth.reddit.com/r/{sub}/new", params={"limit": 100}, timeout=30,
-                            headers={**UA, "Authorization": f"bearer {token}"}).json()
-        return [{"ext_id": c["data"]["id"], "title": c["data"].get("title", ""),
-                 "url": "https://www.reddit.com" + c["data"].get("permalink", ""),
-                 "author": c["data"].get("author", ""), "body": c["data"].get("selftext", ""),
-                 "posted": _parse_time(c["data"].get("created_utc"))}
-                for c in data.get("data", {}).get("children", [])]
-    r = requests.get(f"https://www.reddit.com/r/{sub}/new/.rss", params={"limit": 100}, headers=UA, timeout=30)
+    r = requests.get(f"https://oauth.reddit.com/r/{sub}/new", params={"limit": 100}, timeout=30,
+                     headers={"User-Agent": os.environ["REDDIT_USER_AGENT"],
+                              "Authorization": f"bearer {token}"})
     r.raise_for_status()
-    return parse_reddit_atom(r.text)
+    data = r.json()
+    return [{"ext_id": c["data"]["id"], "title": c["data"].get("title", ""),
+             "url": "https://www.reddit.com" + c["data"].get("permalink", ""),
+             "author": c["data"].get("author", ""), "body": c["data"].get("selftext", ""),
+             "posted": _parse_time(c["data"].get("created_utc"))}
+            for c in data.get("data", {}).get("children", [])]
 
 
 FETCHERS = {"discourse": fetch_discourse, "reddit": fetch_reddit}
@@ -145,15 +148,20 @@ def check(post: dict, use_mock: bool) -> PostCheck:
 
 def run(use_mock: bool = False) -> int:
     """Fetch, screen and store new posts; returns how many relevant new ones were found."""
-    found = 0
+    found, errors = 0, []
     for src in config.settings().get("community", []):
         if not src.get("enabled", True):
             continue
         name = src.get("name") or src.get("subreddit") or src.get("url")
+        if src["type"] == "reddit" and not all(os.getenv(k) for k in
+                ("REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USER_AGENT")):
+            print(f"  {name}: manual until Reddit API approval")
+            continue
         try:
             posts = FETCHERS[src["type"]](src)
         except (requests.RequestException, ValueError, ET.ParseError, KeyError) as e:
             print(f"  {name}: error: {e}")
+            errors.append(name)
             continue
         new = 0
         for post in posts:
@@ -174,7 +182,8 @@ def run(use_mock: bool = False) -> int:
                 result = check(post, use_mock)
             except llm.QuotaExhausted as e:
                 print(f"  stopped checking posts: {e}")
-                return found
+                write_digest(config.DATA_DIR / "opportunities_today.md")
+                raise RuntimeError(f"community screening stopped: {e}") from e
             with db.connect() as conn:
                 conn.execute(
                     "INSERT OR IGNORE INTO posts (source, ext_id, title, url, author, body, posted_at, found_at, "
@@ -184,13 +193,17 @@ def run(use_mock: bool = False) -> int:
                      result.reason, result.reply, "new" if result.relevant else "done"))
             if result.relevant:
                 new += 1
-                replies.notify(f"New lead on {name}: {post['title']}\n{post['url']}\n\nDraft reply:\n{result.reply}")
+                from . import alerts
+                if alerts.is_notification_enabled("community_post"):
+                    replies.notify(f"New lead on {name}: {post['title']}\n{post['url']}\n\nDraft reply:\n{result.reply}")
                 with db.connect() as conn:
                     conn.execute("UPDATE posts SET status='notified' WHERE source=? AND ext_id=?",
                                  (name, post["ext_id"]))
         print(f"  {name}: {len(posts)} posts, {new} new relevant")
         found += new
     write_digest(config.DATA_DIR / "opportunities_today.md")
+    if errors:
+        raise RuntimeError(f"{len(errors)} community sources failed: {', '.join(errors)}")
     return found
 
 

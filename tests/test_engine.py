@@ -98,8 +98,12 @@ def test_run_job_records_result_and_error():
     with db.connect() as conn:
         assert engine.job_state(conn, "prepare")["result"] == "3 drafted"
         st = engine.job_state(conn, "community")
-        assert st["error"] == "ValueError: bad" and st["running"] is False
+    assert st["error"] == "ValueError: bad" and st["running"] is False
     assert not engine.is_running("prepare")
+    with pytest.raises(RuntimeError, match="AI returned nothing"):
+        engine.run_job("content", lambda: "error: AI returned nothing")
+    with db.connect() as conn:
+        assert engine.job_state(conn, "content")["error"] == "RuntimeError: AI returned nothing"
 
 
 def test_lock_blocks_second_holder():

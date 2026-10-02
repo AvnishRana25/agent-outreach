@@ -103,7 +103,7 @@ def test_drafting_matches_what_can_be_sent(monkeypatch):
     assert sender.draft_room(now=now)["room"] == 20
     with db.connect() as conn:
         for i in range(15):
-            _lead(conn, i, status="drafted")
+            _lead(conn, i, status="drafted", fit=8, email_source="website")
     r = sender.draft_room(now=now)
     assert r["room"] == 5 and r["waiting"] == 15
 
@@ -114,9 +114,9 @@ def test_template_text_is_never_sent(monkeypatch):
     with db.connect() as conn:
         db.set_state(conn, "last_inbound_sync:me@zoho.in", datetime.now(timezone.utc).isoformat())
     with db.connect() as conn:
-        lid = _lead(conn, status="approved", fit=7, email_source="website")
+        lid = _lead(conn, status="approved", fit=8, email_source="website")
         conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence) VALUES (?,0,'idea','Hi [First Name], x','approved',0.9)", (lid,))
-        lid2 = _lead(conn, 2, status="approved", fit=7, email_source="website")
+        lid2 = _lead(conn, 2, status="approved", fit=8, email_source="website")
         conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence) VALUES (?,0,'idea','Hi Omar, x','approved',0.9)", (lid2,))
     monkeypatch.setattr(sender.config, "inboxes", lambda: [{"email": "me@zoho.in", "max_per_day": 35}])
     monkeypatch.setattr(sender, "in_window", lambda seg, now: True)
@@ -133,7 +133,7 @@ def test_uncertain_send_is_not_retried_and_dry_run_is_read_only(monkeypatch):
     _allow_gulf(monkeypatch)
 
     with db.connect() as conn:
-        lid = _lead(conn, status="approved", fit=7, email_source="website")
+        lid = _lead(conn, status="approved", fit=8, email_source="website")
         conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence) "
                      "VALUES (?,0,'Idea','Hi Omar, a specific idea.','approved',0.9)", (lid,))
         db.set_state(conn, "last_inbound_sync:me@zoho.in", datetime.now(timezone.utc).isoformat())
@@ -160,7 +160,7 @@ def test_uncertain_send_is_not_retried_and_dry_run_is_read_only(monkeypatch):
     assert attempts == [1]
     with db.connect() as conn:
         assert conn.execute("SELECT status FROM messages WHERE lead_id=?", (lid,)).fetchone()[0] == "needs_reconciliation"
-        lid2 = _lead(conn, 2, status="approved", fit=7, email_source="website")
+        lid2 = _lead(conn, 2, status="approved", fit=8, email_source="website")
         conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence) "
                      "VALUES (?,0,'Idea','Hi Omar, another idea.','approved',0.9)", (lid2,))
     monkeypatch.setattr(transport, "send", mock.Mock(side_effect=ValueError("malformed provider response")))
@@ -174,7 +174,7 @@ def test_disallowed_market_stays_queued(monkeypatch):
     settings = config.settings()
     monkeypatch.setattr(config, "settings", lambda: {**settings, "sending": {**settings["sending"], "allowed_segments": ["uk_agencies"]}})
     with db.connect() as conn:
-        lid = _lead(conn, status="approved", fit=7, email_source="website")
+        lid = _lead(conn, status="approved", fit=8, email_source="website")
         conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence) "
                      "VALUES (?,0,'Idea','Hi Omar, an idea.','approved',0.9)", (lid,))
         db.set_state(conn, "last_inbound_sync:me@zoho.in", datetime.now(timezone.utc).isoformat())
@@ -267,3 +267,46 @@ def test_without_a_groq_key_gemini_limits_still_stop_the_job(monkeypatch):
     with pytest.raises(llm.QuotaExhausted):
         llm.generate("s", "p", object, kind="draft")
     assert llm.status()["backup"] == []
+
+
+def test_new_email_target_and_quality_gate_exclude_followups(monkeypatch):
+    from datetime import date
+    from outreach import config, db, sender
+    from zoneinfo import ZoneInfo
+
+    s = config.settings()["sending"]
+    lead = {"segment": "gulf_realestate", "source_text": "", "site_text": "", "notes": "",
+            "research": "", "email_status": "valid", "email_source": "website", "fit": 7}
+    msg = {"step": 0, "override": 1, "approved_by": "manual", "subject": "Hello",
+           "body": "Specific proposal", "attempts": 0, "error": "", "confidence": 0.9}
+    assert "needs 8" in sender.hold_reason(lead, msg, s)
+    lead["fit"] = 8
+    lead["email_status"] = "risky"
+    assert "valid address" in sender.hold_reason(lead, msg, s)
+    lead["email_status"] = "valid"
+    assert sender.hold_reason(lead, msg, s) == ""
+
+    inbox = "test@example.com"
+    day = datetime.now(timezone.utc).astimezone(ZoneInfo(s["home_timezone"])).date().isoformat()
+    with db.connect() as conn:
+        for _ in range(28):
+            db.bump_send_count(conn, day, inbox, "first")
+        db.bump_send_count(conn, day, inbox, "followup")
+        assert db.send_count(conn, day, inbox, "first") == 28
+        assert db.send_count(conn, day, inbox) == 29
+    monkeypatch.setattr(sender.config, "inboxes", lambda: [{"email": inbox, "enabled": True}])
+    monkeypatch.setattr(sender, "_candidates", lambda *_: [{"step": 0}])
+    assert sender.tick(dry_run=True) == 0
+
+
+def test_send_anyway_cannot_bypass_first_email_quality_gate():
+    from outreach import dashboard_sync, db
+    with db.connect() as conn:
+        lid = _lead(conn, status="approved", fit=7, email_source="website")
+        conn.execute("INSERT INTO messages (lead_id, step, subject, body, status, confidence, hold) "
+                     "VALUES (?,0,'Hello','A specific proposal','approved',0.9,'research fit below 8')", (lid,))
+        mid = conn.execute("SELECT id FROM messages WHERE lead_id=? AND step=0", (lid,)).fetchone()[0]
+    assert "needs 8" in dashboard_sync._send_anyway(mid, {})
+    with db.connect() as conn:
+        row = conn.execute("SELECT override, status FROM messages WHERE id=?", (mid,)).fetchone()
+        assert not row["override"] and row["status"] == "approved"

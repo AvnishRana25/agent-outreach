@@ -34,6 +34,15 @@ def _followup_days() -> list[int]:
     return config.settings()["sequence"]["followup_days"]
 
 
+BANNED_FREELANCE_PHRASES = [
+    re.compile(r"\b(?:resume|cv|curriculum vitae|years of experience|hire me)\b", re.I),
+]
+
+BANNED_INTERNSHIP_PHRASES = [
+    re.compile(r"\b(?:passionate about|would love the opportunity|admire your company|eager to learn|aspiring)\b", re.I),
+]
+
+
 def pick_angle(conn, segment: str) -> dict | None:
     """A/B test: give each lead the segment's angle that has been used least so far."""
     angles = config.segment(segment).get("angles") or []
@@ -44,10 +53,14 @@ def pick_angle(conn, segment: str) -> dict | None:
     return min(angles, key=lambda a: (used.get(a["id"], 0), angles.index(a)))
 
 
-def system_prompt(segment: str, angle: dict | None = None) -> str:
+def system_prompt(segment: str, angle: dict | None = None, mode: str | None = None) -> str:
+    from .scoring import get_opportunity_mode, MODE_INTERNSHIP, MODE_FREELANCE
     p = config.profile()
     seg = config.segment(segment)
     days = _followup_days() + [None] * 3
+    if not mode:
+        mode = MODE_INTERNSHIP if seg.get("signature") == "internship" or "intern" in segment else MODE_FREELANCE
+
     playbook = (f"Segment: {segment}\nAudience: {seg['audience'].strip()}\nTheir pain: {seg['pain'].strip()}\n"
                 f"Offer: {seg['offer'].strip()}\nCTA: {seg['cta'].strip()}\nTone: {seg.get('tone', '')}")
     if seg.get("price"):
@@ -56,7 +69,7 @@ def system_prompt(segment: str, angle: dict | None = None) -> str:
     if angle:
         playbook += (f"\nAngle for this email (an A/B test, so stick to it): {angle['focus']} "
                      "Build the hook and follow-up 1 around this angle.")
-    return llm.load_prompt("draft_system.md").format(
+    base_prompt = llm.load_prompt("draft_system.md").format(
         name=p["name"],
         identity="\n".join(f"- {x}" for x in p["identity"]),
         proof="\n".join(f"- [{x['id']}] {x['text']}" for x in p["proof_points"]),
@@ -66,6 +79,25 @@ def system_prompt(segment: str, angle: dict | None = None) -> str:
         d1=days[0] or "-", d2=days[1] or "-", d3=days[2] or "-",
         **_role_words(seg),
     )
+
+    if mode == MODE_INTERNSHIP:
+        mode_section = (
+            "\n# Mode Guidelines: INTERNSHIP\n"
+            "- Structure: Specific company/technical relevance -> evidence of ability -> concrete contribution -> low-friction CTA.\n"
+            "- Focus on technical specifics: reference stack, architecture, or public engineering problem.\n"
+            "- Strictly avoid generic enthusiastic phrases ('passionate about', 'would love the opportunity', 'admire your company', 'eager to learn').\n"
+            "- Low-friction CTA: ask if a short technical scope or work sample would help.\n"
+        )
+    else:
+        mode_section = (
+            "\n# Mode Guidelines: FREELANCE\n"
+            "- Structure: Problem -> evidence that I understand it -> concrete contribution -> outcome -> low-friction CTA.\n"
+            "- Focus on commercial/operational pain and defined deliverables.\n"
+            "- Strictly avoid CV-style pitching (do NOT mention resume, CV, curriculum vitae, years of experience, or 'hire me').\n"
+            "- Low-friction CTA: e.g. 'I can outline how I\\'d implement this if useful.' or 'I can send a short technical proposal.'\n"
+        )
+
+    return base_prompt + mode_section
 
 
 def _role_words(seg: dict) -> dict:
@@ -88,12 +120,37 @@ def lead_prompt(row) -> str:
 
 
 def generate(row, angle: dict | None = None) -> Sequence | None:
+    from . import evidence
+    from .scoring import get_opportunity_mode, MODE_INTERNSHIP, MODE_FREELANCE
+    mode = get_opportunity_mode(row)
     if angle is None and row["angle"]:
         angle = next((a for a in config.segment(row["segment"]).get("angles") or [] if a["id"] == row["angle"]), None)
-    seq = llm.generate(system_prompt(row["segment"], angle), lead_prompt(row), Sequence, kind="draft", temperature=0.8)
+    seq = llm.generate(system_prompt(row["segment"], angle, mode=mode), lead_prompt(row), Sequence, kind="draft", temperature=0.8)
     if seq and len(seq.followups) >= len(_followup_days()):
         seq.linkedin_note = seq.linkedin_note[:200]
         seq.linkedin_dm = seq.linkedin_dm[:450]
+        ev_records = evidence.extract_evidence_from_lead(row)
+        n_facts = evidence.count_verified_facts(ev_records)
+        is_grounded, ground_err = evidence.validate_personalization_against_evidence(seq.body, seq.subject, ev_records)
+        if not is_grounded:
+            seq.confidence = min(seq.confidence, 0.5)
+            seq.review_note = (seq.review_note + f" | Grounding issue: {ground_err}").strip(" |")
+        elif n_facts < 1:
+            seq.confidence = min(seq.confidence, 0.6)
+            seq.review_note = (seq.review_note + " | Low evidence: fewer than 1 verified fact").strip(" |")
+
+        # Check mode-specific banned phrases
+        banned_pats = BANNED_INTERNSHIP_PHRASES if mode == MODE_INTERNSHIP else BANNED_FREELANCE_PHRASES
+        found_banned = []
+        full_text = f"{seq.subject} {seq.body} " + " ".join(f.body for f in seq.followups)
+        for pat in banned_pats:
+            m = pat.search(full_text)
+            if m:
+                found_banned.append(m.group(0))
+        if found_banned:
+            seq.confidence = min(seq.confidence, 0.5)
+            seq.review_note = (seq.review_note + f" | Banned {mode} phrasing: {', '.join(found_banned)}").strip(" |")
+
         return seq
     return None
 
@@ -115,7 +172,7 @@ def _auto_sequence(row) -> Sequence | None:
             or segment not in sending.get("auto_approve_segments", [])
             or (sending.get("allowed_segments") is not None and segment not in sending["allowed_segments"])
             or row["email_status"] != "valid" or row["email_source"] not in ("website", "post")
-            or row["fit"] is None or row["fit"] < 6
+        or row["fit"] is None or row["fit"] < config.settings().get("targeting", {}).get("min_fit", 6)
             or not all(row[k] for k in ("email", "company", "website", "source_text", "site_text", "created_at"))
             or len(row["company"]) > 60 or re.search(r"[\r\n]", row["company"])
             or any(rejects_ai_application(row[k] or "") for k in ("source_text", "site_text", "notes", "research"))):
@@ -182,8 +239,10 @@ def pick_leads(conn, limit: int, segment: str | None = None) -> list:
     def fetch(seg, n, exclude):
         marks = ",".join("?" * len(exclude)) or "-1"
         return conn.execute(
-            f"SELECT * FROM leads WHERE status='researched' AND segment=? AND id NOT IN ({marks}) "
-            "ORDER BY fit DESC, score DESC, id LIMIT ?", (seg, *exclude, n)).fetchall()
+            f"SELECT * FROM leads WHERE status='researched' AND fit>=? AND email_status='valid' "
+            f"AND segment=? AND id NOT IN ({marks}) "
+            "ORDER BY fit DESC, score DESC, id LIMIT ?",
+            (config.settings().get("targeting", {}).get("min_fit", 6), seg, *exclude, n)).fetchall()
 
     chosen: list = []
     for name, seg in segs.items():
@@ -233,12 +292,12 @@ def save(lead_id: int, seq: Sequence, auto_approve: bool = False) -> None:
     days = _followup_days()
     with db.connect() as conn:
         conn.execute("DELETE FROM messages WHERE lead_id=? AND status IN ('draft','approved')", (lead_id,))
-        conn.execute("INSERT INTO messages (lead_id, step, subject, body, confidence, review_note) VALUES (?,?,?,?,?,?)",
-                     (lead_id, 0, seq.subject, seq.body, seq.confidence, seq.review_note))
+        conn.execute("INSERT INTO messages (lead_id, step, subject, body, confidence, review_note, idempotency_key) VALUES (?,?,?,?,?,?,?)",
+                     (lead_id, 0, seq.subject, seq.body, seq.confidence, seq.review_note, f"lead:{lead_id}:step:0"))
         for i, fu in enumerate(seq.followups[:len(days)], start=1):
             # due_at holds the day offset until email 1 is sent, then a timestamp.
-            conn.execute("INSERT INTO messages (lead_id, step, subject, body, confidence, due_at) VALUES (?,?,?,?,?,?)",
-                         (lead_id, i, "Re: " + seq.subject, fu.body, seq.confidence, str(days[i - 1])))
+            conn.execute("INSERT INTO messages (lead_id, step, subject, body, confidence, due_at, idempotency_key) VALUES (?,?,?,?,?,?,?)",
+                         (lead_id, i, "Re: " + seq.subject, fu.body, seq.confidence, str(days[i - 1]), f"lead:{lead_id}:step:{i}"))
         db.set_lead(conn, lead_id, status="drafted", linkedin_note=seq.linkedin_note, linkedin_dm=seq.linkedin_dm)
         if auto_approve:
             lead = conn.execute("SELECT email, company, email_status, email_source, fit FROM leads WHERE id=?", (lead_id,)).fetchone()
@@ -249,7 +308,7 @@ def save(lead_id: int, seq: Sequence, auto_approve: bool = False) -> None:
                                      "AND status IN ('approved','active')", (lead_id, lead["company"])).fetchone()
             if (used < int(config.settings()["sending"]["auto_approve_daily_cap"])
                     and lead["email_status"] == "valid" and lead["email_source"] in ("website", "post")
-                    and lead["fit"] is not None and lead["fit"] >= 6
+            and lead["fit"] is not None and lead["fit"] >= config.settings().get("targeting", {}).get("min_fit", 6)
                     and not db.suppressed(conn, lead["email"]) and not duplicate
                     and not config.placeholders()
                     and seq.confidence >= 0.85

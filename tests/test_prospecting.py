@@ -29,6 +29,30 @@ from outreach.prospecting.pipeline.bulk import BulkProcessor, load_prospects_fro
 from outreach.prospecting.providers import query_fallback_providers
 
 
+def test_prospeo_uses_current_verified_email_api(monkeypatch):
+    from outreach.prospecting.providers.prospeo import ProspeoProvider
+    from outreach.prospecting.providers import budget
+    monkeypatch.setenv("PROSPEO_API_KEY", "test")
+    response = mock.Mock(status_code=200)
+    response.json.return_value = {"error": False, "person": {"email": {
+        "email": "Jane@acme.com", "status": "VERIFIED", "revealed": True}}}
+    with mock.patch("outreach.prospecting.providers.prospeo.requests.post", return_value=response) as post:
+        result = ProspeoProvider().find_email("Jane", "Doe", "Acme", "acme.com")
+    assert result.email == "jane@acme.com" and result.status == "verified"
+    assert post.call_args.args[0].endswith("/enrich-person")
+    assert post.call_args.kwargs["json"] == {"only_verified_email": True, "data": {
+        "first_name": "Jane", "last_name": "Doe", "company_website": "acme.com", "company_name": "Acme"}}
+    response.status_code = 400
+    response.json.return_value = {"error": True, "error_code": "NO_MATCH"}
+    with mock.patch("outreach.prospecting.providers.prospeo.requests.post", return_value=response):
+        assert ProspeoProvider().find_email("Jane", "Doe", "Acme", "acme.com").status == "not_found"
+    response.status_code = 200
+    response.json.return_value = {"response": {"remaining_credits": 12}}
+    with mock.patch("outreach.prospecting.providers.budget.requests.get", return_value=response) as get:
+        assert budget._prospeo_balance("test") == 12
+    assert get.call_args.args[0].endswith("/account-information")
+
+
 @pytest.fixture(autouse=True)
 def tmp_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test_prospecting.db"
@@ -411,7 +435,7 @@ def test_dashboard_prospects_api(tmp_path, monkeypatch):
         st, stats, _ = call_api("GET", "/api/prospects/stats", cookie=cookie)
         assert st == 200
         assert "target_daily" in stats
-        assert stats["target_daily"] == 38
+        assert stats["target_daily"] == 28
 
         # POST /api/prospects/enrich
         with mock.patch("outreach.prospecting.pipeline.processor.check_mx") as mock_mx, \

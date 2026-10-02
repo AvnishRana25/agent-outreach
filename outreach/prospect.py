@@ -14,6 +14,7 @@ new leads it may add per run. Duplicate companies (by domain) are skipped automa
 from __future__ import annotations
 
 import html
+import json
 import re
 import time
 
@@ -271,16 +272,24 @@ def all_runners() -> dict:
     return {**RUNNERS, **sources.RUNNERS, **hiring.RUNNERS}
 
 
-def run(only: str | None = None) -> dict:
+def run(only: str | None = None, allowed_segments: list[str] | None = None) -> dict:
     results = {}
     runners = all_runners()
     for job in config.settings().get("prospecting", []):
-        if not job.get("enabled", True) or (only and job["source"] != only):
+        if (not job.get("enabled", True) or (only and job["source"] != only)
+                or (allowed_segments is not None and job["segment"] not in allowed_segments)):
             continue
         name = f"{job['source']}->{job['segment']}"
+        started = time.monotonic()
         try:
             results[name] = runners[job["source"]](job)
         except (requests.RequestException, ValueError, KeyError) as e:
             results[name] = f"error: {e}"
+        with db.connect() as conn:
+            db.set_state(conn, f"source_health:{name}", json.dumps({
+                "at": db.now(), "duration_s": round(time.monotonic() - started, 1),
+                "result": str(results[name])[:300],
+                "error": str(results[name]).startswith("error:"),
+            }))
         print(f"  {name}: {results[name]}")
     return results

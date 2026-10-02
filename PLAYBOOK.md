@@ -30,7 +30,7 @@
   → Applying through portals is a lottery. A direct email to a founder, with a concrete idea for their product and proof you ship to production, is one of the few channels that still works.
 
 ### Realistic outcome for 30 days at ₹0
-With two free inboxes you can safely send about **60-70 emails/day by week 3**, which is **about 25-30 new people/day** once follow-ups are included. **38 new/day is only reachable in the first week or two**, before follow-ups pile up. The sender enforces this automatically. Expect roughly **550-650 prospects contacted** in the month.
+The current goal is **28 individually researched new first emails per day**, with follow-ups counted separately. One Zoho inbox is enabled. Its total-send warm-up is 10 → 20 → 30 → 35/day, including follow-ups, so the actual new-email count may be lower. Add another inbox only after deliverability and replies justify it.
 
 | Outcome in 30 days | Likely | Stretch |
 |---|---|---|
@@ -58,16 +58,16 @@ With two free inboxes you can safely send about **60-70 emails/day by week 3**, 
 
 **The honest answer to "where is it easiest?":** for a **freelance contract**, the UAE real-estate market, because your proof matches and the budget is there. For an **internship offer**, India is genuinely the fastest (trust, time zone, no payroll friction), which is why it keeps its 25%. Globally, remote-first startups with an India connection are the best bet. If after two weeks India produces most of the positive replies, that's the market telling you something. Rebalance `daily_new` in `config/settings.yaml`.
 
-### Daily split (38 new/day; India 9 = 24%)
+### Daily split (28 new first emails/day target; India 8 = 29%)
 | Segment | /day | Sources |
 |---|---|---|
-| `gulf_realestate` | 8 | **Meta Ad Library (by hand, best fit)**, Dubai Land Department broker register, OpenStreetMap, optional Google Maps via Apify |
-| `uk_agencies` | 5 | **UK Companies House (named directors)**, OpenStreetMap |
-| `us_agencies` | 3 | OpenStreetMap agencies in NYC/Austin/Miami/Chicago |
-| `intl_freelance_posts` | 5 | HN "Seeking freelancer?" + **contract/part-time automation roles on 5 remote job boards** |
-| `intl_startups_intern` | 8 | YC directory, HN "Who is hiring?" intern posts, **Launch HN**, **intern/junior roles on remote job boards** |
-| `india_realestate` | 6 | Meta Ad Library (by hand), OpenStreetMap, optional Google Maps via Apify |
-| `india_startups_intern` | 3 | YC directory, India region |
+| `gulf_realestate` | 6 | **Meta Ad Library (by hand, best fit)**, Dubai Land Department broker register, OpenStreetMap, optional Google Maps via Apify |
+| `uk_agencies` | 4 | **UK Companies House (named directors)**, OpenStreetMap |
+| `us_agencies` | 2 | OpenStreetMap agencies in NYC/Austin/Miami/Chicago |
+| `intl_freelance_posts` | 4 | HN "Seeking freelancer?" + **contract/part-time automation roles on 5 remote job boards** |
+| `intl_startups_intern` | 4 | YC directory, HN "Who is hiring?" intern posts, **Launch HN**, **intern/junior roles on remote job boards** |
+| `india_realestate` | 4 | Meta Ad Library (by hand), OpenStreetMap, optional Google Maps via Apify |
+| `india_startups_intern` | 4 | YC directory, India region |
 
 Plus, outside email: **community posts** (n8n forum Jobs, r/forhire, r/n8n, r/automation) checked every 30 minutes. These are people asking for this exact work right now; answer within the hour.
 
@@ -94,7 +94,7 @@ prospect ──► enrich ──► verify ──► research ──► draft �
 3. **Guessed emails.** "Verified" here means published: on the company's own website, in its OpenStreetMap listing, or in its own HN post, and with a domain that accepts mail (MX record). Free tools cannot truly verify an unpublished mailbox (the SMTP probe needs port 25, which home and cloud networks block, and probing hurts your sending reputation). Pattern-guessed addresses are never sent.
 
 ### 3a. Setting up the extra sources
-- **Remote job boards, Launch HN, community boards:** nothing to set up. Reddit works without a key through its public RSS feeds. If those start failing, create a free "script" app at reddit.com/prefs/apps and put its id/secret in `.env` to use the official API.
+- **Remote job boards, Launch HN, and non-Reddit community boards:** nothing to set up. Reddit boards require approved Data API access; request it at https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=14868593862164. Until then, check Reddit manually. If approved, put its client ID, secret, and descriptive user agent in `.env`.
 - **UK Companies House:** register at developer.company-information.service.gov.uk, create an application, add a "REST" key, and set `COMPANIES_HOUSE_API_KEY` in `.env`. Free; limit 600 requests per 5 minutes, which the source respects. It finds each agency's website by trying name-based domains and only accepts a page that shows the company's name or registration number, so expect roughly 1 in 3 to 1 in 5 companies to yield a usable site.
 - **Dubai broker register:** download the Dubai Land Department's list of licensed real-estate brokerage **offices** as a CSV (search "DLD brokers offices open data" on the Dubai open-data portal, currently Dubai Pulse / data.dubai). Save it as `data/dld_offices.csv` and set `enabled: true` on the `dld` job. The source detects the column names itself. If the file has no email or website column, it guesses `.ae`/`.com` domains the same careful way as above.
 - **Meta Ad Library:** `python -m outreach adlib` (cron 09:45) writes three searches a day. Collecting from Facebook automatically breaks its terms, so this one stays by hand: 15 minutes, about 10 advertisers.
@@ -105,7 +105,7 @@ prospect ──► enrich ──► verify ──► research ──► draft �
 ## 4. Zero-budget infrastructure
 
 ### Sending
-- [x] **Chosen setup:** one free Zoho inbox, `workwithavnish@zohomail.in`, for freelance and internship emails, sending through Zoho's REST API (steps below). The Gmail inbox stays in `settings.yaml` switched off. One inbox means about 35 sends a day including follow-ups, so roughly 35 new emails a day in week 1 and 15-20 a day once follow-ups start. Turning the Gmail inbox on is the quickest way to double that.
+- [x] **Chosen setup:** one free Zoho inbox, `workwithavnish@zohomail.in`, for freelance and internship emails, sending through Zoho's REST API (steps below). The Gmail inbox stays in `settings.yaml` switched off. One inbox means about 35 sends a day including follow-ups, so fewer than 28 new emails during warm-up and potentially fewer once follow-ups start. Turning the Gmail inbox on is the quickest way to double that.
 - [ ] **Zoho's terms:** Zoho can suspend free accounts that look like bulk mail. Keep to the ramp, keep every email personal, and watch `report` for bounces (the sender pauses itself above 3%).
 - [ ] **Gmail (free, works now):** turn on 2-step verification, create an app password, and put it in `.env` as `GMAIL_APP_PASSWORD`. The limit is 500 recipients/day, but for cold email stay at 35/day max; the ramp starts at 10/day in week 0. ([Gmail limits](https://reply.io/blog/gmail-sending-limits/))
 - [ ] **Zoho (check first):** Zoho's free plan is webmail-only, and IMAP/POP/SMTP now need a paid plan ([Zoho community](https://help.zoho.com/portal/ja/community/topic/no-more-imap-pop-smtp-on-free-plans-even-on-referrals-with-no-notice?page=96)). The tool can instead send through the **Zoho Mail REST API**, but it's unclear whether the API is enabled on free plans. Test it (about 10 minutes):

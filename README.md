@@ -1,12 +1,13 @@
 # agent-outreach
 
-> An autonomous, zero-budget B2B cold outreach engine and pipeline desk. It finds high-intent companies from public data sources, deduces and verifies verified decision-maker emails (~38/day target), conducts deep AI research via Gemini with Groq fallback, drafts hyper-personalized multi-touch email sequences and LinkedIn touches, schedules safe deliveries across international business hours, triages replies, and manages deals in a unified web dashboard.
+> A B2B outreach desk that researches companies and contacts, drafts emails for review, schedules approved outreach, triages replies, and tracks deals. The goal is 28 new first emails per day; actual sends depend on quality and inbox capacity.
 
 ---
 
 ## Table of Contents
 
 - [Overview & Architecture](#overview--architecture)
+- [How leads and contacts are found](#how-leads-and-contacts-are-found)
 - [Complete Feature Matrix](#complete-feature-matrix)
   - [1. Multi-Source Lead Prospecting](#1-multi-source-lead-prospecting)
   - [2. High-Confidence B2B Email Prospecting & Finder Engine](#2-high-confidence-b2b-email-prospecting--finder-engine)
@@ -22,6 +23,8 @@
 - [CLI Reference](#cli-reference)
 - [Configuration & Settings](#configuration--settings)
 - [Quickstart & Setup](#quickstart--setup)
+- [Background schedule and Mac power](#background-schedule-and-mac-power)
+- [Running Agent Outreach without keeping your computer online](#running-agent-outreach-without-keeping-your-computer-online)
 - [Dashboard Deployment (Vercel + Turso)](#dashboard-deployment-vercel--turso)
 - [Project Directory Structure](#project-directory-structure)
 - [Deliberate Design & Compliance Boundaries](#deliberate-design--compliance-boundaries)
@@ -45,7 +48,7 @@
 │  Domain Normalizer ➔ Public Discovery (Web/GitHub/RSS) ➔ Pattern Deduction ➔ Permutation Gen      │
 │  ➔ Local Validation (RFC/DNS/MX/Catch-all) ➔ 0-100 Confidence Scoring ➔ Free-Tier API Fallback   │
 └────────────────────────────────────────────────┬─────────────────────────────────────────────────┘
-                                                 │ (Target: ~38 Verified Prospects/Day)
+                                                 │ (28 draft/day target; actual volume depends on sources, contacts and send capacity)
                                                  ▼
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                  DEEP RESEARCH & QUALIFICATION                                   │
@@ -81,6 +84,30 @@
 
 ---
 
+## How leads and contacts are found
+
+**What “Find & draft new leads” runs.** The `prepare` job runs the enabled entries in `prospecting` in `config/settings.yaml`, then visits each new company's website, checks its email address, tries to confirm named founder guesses, researches fit, and drafts up to the available capacity. It is scheduled for 07:30 Monday–Saturday in `sending.home_timezone` and can also be started in the Engine tab. Each source's `max_new` caps additions **per run**, not guaranteed finds. Existing email or company domain, suppressed addresses, and already processed posts are skipped. Failed or unreachable sources reduce output.
+
+| Lead source in the current settings | Selection parameters |
+|---|---|
+| OpenStreetMap | Estate agents in Gulf and Indian cities; advertising/marketing agencies in UK and US cities. City lists, business tags, and `max_new` are set per job. |
+| Hacker News and YC | Recent “Seeking freelancer” or “Who is hiring?” comments filtered by work terms, internship terms, remote eligibility and exclusions; YC hiring startups filtered by region, team size and batch year. |
+| Remote boards and startup ATS | Remotive, Himalayas, RemoteOK, Jobicy, We Work Remotely and Working Nomads, plus known startups' Greenhouse/Lever/Ashby boards. Role, contract type, location, excluded terms and post age decide whether a job qualifies. |
+| Launch HN, funding news, GitHub | Fresh launches; funding headlines matching AI/software terms; recently active repos with good-first-issue work. These supply a timely reason to contact a startup, not proof it wants an email. |
+| Directories and registries | Firecrawl searches HubSpot/Webflow and Gulf property directories; Companies House searches UK SIC codes and locations. The DLD CSV and Apify Maps jobs are currently **disabled**. |
+
+Global freshness caps are **7 days for job posts**, **14 days for news**, and **24 hours for community posts**; each source may be stricter. Undated job and community posts are skipped. The source rules also reject location restrictions, senior-only or unpaid work where configured, and posts saying AI-written applications are unwelcome. A company website guessed from a name must show a matching company name; the Companies House path also checks its company number. Source-specific filters and limits are editable in `config/settings.yaml`.
+
+**Which address is used?** The automatic run uses an email published in a job/HN post or registry when present. Otherwise it reads the company's site and prefers a **named address on that company's domain** over a generic address such as `info@`; it does not assume the named mailbox belongs to the founder. If no company-domain address is published and a named founder is known, it may construct a possible `first@domain` or `first.last@domain` address. That is marked **guessed** and is not researched or drafted until the separate finder confirms it. With no usable address, the lead stops rather than entering the send queue. Community board posts are a separate manual-reply workflow and do not feed cold email.
+
+**What “verified” means here.** The automatic `verify` step checks address format, disposable/placeholder/role names and MX records. An MX record says the *domain* receives mail; it does **not** prove a particular person's mailbox exists. Published addresses can therefore be `valid` or generic `risky` without mailbox-level verification. For a named guess, the Prospecting Desk/finder resolves the official domain, looks for the exact address on public pages/search/GitHub, learns company address patterns, checks MX and catch-all behavior, then scores evidence from 0–100. Below 75, it may query budgeted providers. Its “verified” (90+) and “high confidence” (75–89) tiers are evidence scores, not guaranteed delivery. Unconfirmed guesses stay parked. The finder is automatic for guessed named founders (up to 15 per `prepare` run) and available on demand in the Prospecting Desk; it does **not** run a provider lookup for every email found on a website or post.
+
+**Current limits and send gates.** The daily target is **28 new, individually researched first emails**; follow-ups do not count toward this target. The seven segment quotas add up to 28 (6 Gulf real estate, 4 UK agencies, 2 US agencies, 4 international freelance, 4 international startup internships, 4 India real estate, 4 India startup internships). Prospecting Desk also targets 28 verified or high-confidence contacts. Research fit must be **8/10 or higher** before a first email can be drafted or sent. First emails also require a valid address from a public source or verified provider; risky role addresses and guesses are held. Auto-approval stays off, so every first email waits for your review. The single Zoho inbox has a separate **total-send** warm-up of 10 → 20 → 30 → 35 per day, including follow-ups. This means 28 new emails is a target, not a guaranteed daily send count: follow-ups and warm-up consume total capacity. The sender also checks suppression, placeholders, inbox freshness, recipient-market hours, an 8–15 minute gap, and the bounce threshold.
+
+The current external lookup budgets are Firecrawl **60 credits/day** and, for the separate finder, Prospeo **5/day**, Skrapp **3/day**, Hunter **2/day**, each also subject to monthly and per-run caps. Skrapp's API key is currently absent, so it is skipped. A lookup credit can be spent without finding an address. See `provider_budget`, `firecrawl`, `targeting`, `sending`, `segments`, and `prospecting` in `config/settings.yaml` for the live parameters.
+
+---
+
 ## Complete Feature Matrix
 
 ### 1. Multi-Source Lead Prospecting
@@ -107,7 +134,7 @@ Only fresh postings are used: forum and Reddit posts from the last 24 hours, job
 
 ### 2. High-Confidence B2B Email Prospecting & Finder Engine
 
-Engineered to discover verified professional email addresses for founders, CEOs, and decision-makers without paid APIs, targeting **~38 verified prospects per day**.
+The separate Prospecting Desk finds and scores named professional addresses. Its **28/day** value is a search target; the automatic lead run invokes it only to confirm founder guesses.
 
 - **Domain Normalization & Resolution**:
   - Cleans protocols, paths, and subdomains (`www.`, `blog.`, `docs.`).
@@ -131,7 +158,7 @@ Engineered to discover verified professional email addresses for founders, CEOs,
     - `last.first@domain.com`
   - Calculates dominant pattern distribution and candidate confidence.
 - **Local Validation Pipeline (Zero API Spend)**:
-  - RFC 5322 syntax validation.
+  - Basic address-format validation.
   - DNS & MX record lookup with mail provider signature recognition (Google Workspace, Microsoft 365, Zoho, ProtonMail).
   - Disposable domain detection.
   - Role-address detection (`info@`, `support@`, `sales@`, `admin@`, `contact@`, `jobs@`) preventing generic inboxes from being treated as decision-makers.
@@ -145,10 +172,11 @@ Engineered to discover verified professional email addresses for founders, CEOs,
   - `-15` Catch-all domain penalty
   - `-20` Unverified pattern penalty
   - `-30` Generic role-address penalty
-  - **Tiers**: `Verified (90-100%)`, `High Confidence (75-89%)`, `Needs Review (55-74%)`, `Unresolved (<55%)`.
+  - **Tiers**: `Verified (90-100%)`, `High Confidence (75-89%)`, `Needs Review (55-74%)`, `Unresolved (<55%)`. These are confidence labels, not mailbox delivery guarantees.
 - **Sequential Free-Tier Fallback Dispatcher**:
   - Only triggered when local confidence is insufficient (<75%).
-  - Queries free tiers sequentially: **Prospeo** (100 free/mo) ➔ **Hunter** (50 free/mo) ➔ **Skrapp** (50 free/mo).
+  - Tries configured providers in order: **Prospeo → Skrapp → Hunter**, with at most two charged lookups per person and the daily/monthly budgets in `config/settings.yaml`.
+  - Prospeo requests verified email through its [person enrichment API](https://prospeo.io/api-docs/enrich-person); Hunter is the last fallback. Provider matches still pass the local sending checks.
   - Strictly caps and records monthly credit usage in SQLite (`provider_credits` table).
 - **Comprehensive Provenance**:
   - Stores every candidate's evidence points, discovery URLs, MX provider, and scoring rationale in the database.
@@ -187,7 +215,7 @@ Engineered to discover verified professional email addresses for founders, CEOs,
 - **Durable `sending` State**: the email is marked `sending` before the provider call, so a crash can't send it twice. If the mail provider refuses it (a 4xx answer, or a login problem), it simply waits and retries; after 3 refusals it's held. If the connection drops mid-send, it may have gone out: it appears under **Review → Needs a decision** with "It's in my Sent folder" / "Not sent, try again", and Telegram tells you.
 - **Safety checks before every send**, shown on the email under **Review → Held** with the reason:
   - never: suppressed addresses, empty text, template placeholders, invalid/guessed addresses, companies whose post or site rejects AI-written applications;
-  - held until you press **Send anyway**: addresses not found on their website or a post (e.g. pattern guesses), research fit under 6;
+ - **Held by the first-email quality gate:** research fit below 8/10, risky role addresses, or addresses without public or provider-verified evidence. Follow-ups remain separate.
   - for auto-approved template emails only: generic `info@` addresses and AI confidence under 85%. Your own approval in Review is enough otherwise.
 - **Human-in-the-Loop Review**:
   - Interactive CLI review mode (`python -m outreach review`).
@@ -214,7 +242,7 @@ Engineered to discover verified professional email addresses for founders, CEOs,
 
 ### 7. Inbound Reply Triage & Autonomous Alerting
 
-- **Background Sync**: Checks inboxes every 20 minutes.
+- **Background Sync**: Checks inboxes every 10 minutes.
 - **Automatic Sequence Kill**: Immediately halts all pending follow-ups when any reply (other than out-of-office) is received.
 - **AI Classification**: Categorizes incoming messages:
   - `interested`: Prospect wants details, pricing, or a call.
@@ -248,24 +276,216 @@ Engineered to discover verified professional email addresses for founders, CEOs,
 - **Security**: Password protected, secure HTTP-only session cookies, no API keys exposed to the client.
 - **Key Desk Tabs**:
   - **Review**: Review drafted email sequences, inspect fit scores, edit copy, regenerate with custom instructions, approve, or reject.
-  - **Prospecting Desk**: Dedicated UI for single prospect lookup, bulk CSV import, 38/day verified target meter, provider credit monitor, and full evidence audit modal.
+  - **Prospecting Desk**: Dedicated UI for single prospect lookup, bulk CSV import, 28/day verified target meter, provider credit monitor, and full evidence audit modal.
   - **Respond / Inbox**: Unified inbox showing classified replies, AI drafted responses, and one-click sending.
   - **Deals**: Interactive CRM board for active negotiations with next-action dates.
-  - **Engine**: Background daemon heartbeat, manual job runners, job logs, Ad Library search cards, and LinkedIn outreach tasks.
+  - **Engine**: Background daemon heartbeat, manual job runners, job logs, per-source lead discovery status, manual Reddit links, Ad Library search cards, and LinkedIn outreach tasks.
+  - **Queue**: Dashboard actions waiting for the Mac, jobs currently running, and the recurring schedule.
+  - **Today**: Replies, drafts, queued actions, and lead source failures that need attention.
   - **Results**: Real-time conversion funnels, A/B angle comparison, and source channel attribution.
 
 ---
 
 ### 10. Hands-Free Background Daemon & Doctor
 
-- **Native macOS `launchd` / Linux `cron`**: `python -m outreach install` configures a persistent daemon running every 5 minutes.
+- **Native macOS `launchd` / Linux `cron`**: `python -m outreach install` installs a launch agent that ticks every 5 minutes while the Mac is awake and the user is logged in. On Linux, `install` prints a crontab entry to add manually.
 - **Autonomous Tick Workflow**:
   1. Synchronizes actions taken on the dashboard.
-  2. Syncs inboxes and triages replies.
+  2. Starts the inbox sync job every 10 minutes to read and triage replies.
   3. Sends due emails within market business hours.
   4. Runs morning preparation (`prepare`) at 07:30 Mon-Sat.
   5. Pushes updated snapshots to Turso / Dashboard.
-- **`doctor` Diagnostics**: Automatically inspects database integrity, background daemon status, pending sends, and connectivity.
+- **`doctor` Diagnostics**: Shows the last engine tick, running jobs, launch agent status, and recent engine log lines.
+
+## Background schedule and Mac power
+
+Times below use `sending.home_timezone` in `config/settings.yaml` (currently `Asia/Kolkata`). The engine checks what is due on each 5-minute tick, so starts may be a few minutes after the listed time. Dashboard actions are queued in Turso; the local dashboard watchdog notices them about every 20 seconds while it is running. **Run all three** queues one action that starts `prepare`, `community`, and `content` as separate jobs. A job already running is skipped, while the others still start. The Queue tab shows waiting actions and running jobs; the Engine tab shows each job's outcome and log.
+
+| Work | When | Result |
+|---|---|---|
+| Engine, approved-email sending, dashboard action pull and snapshot push | Every 5 minutes | Send only when all safety gates and the recipient market's business window allow it. |
+| Inbox sync | Every 10 minutes | Stops follow-ups on replies and drafts answers. |
+| Community boards | Every 30 minutes | Checks fresh posts, drafts replies, and alerts you; you reply manually. |
+| Find and draft new leads | 07:30 Monday–Saturday | Prospect, enrich, verify, research, draft; review the drafts before sending. |
+| LinkedIn posts | 08:00 Monday | Drafts three posts; review and publish them manually. |
+| Weekly digest | 09:00 Monday | Sends the summary via Telegram when configured. |
+| Ad Library and LinkedIn outreach tasks | 09:45 daily | Prepares links and tasks for manual work. |
+
+The engine and credentials live on your Mac. **Keep it on, awake, connected to the internet, and logged in** for on-time runs. The hosted dashboard can stay open while the Mac sleeps, but actions wait in its queue; `launchd` cannot execute the Python jobs while the Mac is asleep or powered off. On wake, the next tick runs overdue daily work once and resumes recurring checks. Freshness limits still apply, so a late community run may miss posts older than 24 hours.
+
+`caffeinate -i` in a Terminal window prevents *idle* system sleep while that command stays open. It can keep the installed launch agents ticking with the display asleep, but it does not power on a shut-down Mac, preserve connectivity, or reliably keep a laptop running with the lid closed. Keep the lid open and use AC power for unattended operation. `caffeinate` does not replace `python -m outreach install`; run `python -m outreach doctor` to check the agents and the last tick. For continuous operation independent of the Mac, run the local engine on an always-on host with the same configuration and secrets.
+
+The three manual jobs need working source sites and internet access. Lead and LinkedIn drafting need a configured Gemini key (Groq is a fallback). Reddit requires approved Data API access for this external script. Request it through [Reddit's Data API form](https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=14868593862164), describing the commercial lead-monitoring use honestly. Approval and free access are not guaranteed. Once approved, set `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, and a descriptive `REDDIT_USER_AGENT` in `.env`. Until then, check Reddit manually and let the engine monitor the n8n, Bubble, and Make forums. The engine does not scrape Reddit or retry anonymous RSS. Check each job's error and log in the Engine tab; a completed job does not mean every external source succeeded.
+
+---
+
+## Running Agent Outreach without keeping your computer online
+
+You do not need to keep your Mac awake, plugged in, or connected to the internet for `agent-outreach` to run. The system can execute scheduled prospecting, reply synchronization, opportunity monitoring, follow-up processing, and approved email sending completely autonomously on GitHub Actions runners using persistent remote storage on Turso.
+
+Local development with SQLite remains fully supported and untouched.
+
+### GitHub Actions Architecture
+
+The cloud execution model consists of four focused workflows under `.github/workflows/`:
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                GITHUB ACTIONS WORKFLOWS                                │
+├──────────────────────────┬──────────────────────────┬──────────────────────────────────┤
+│ scheduled-monitoring.yml │ scheduled-outreach.yml   │ daily-maintenance.yml            │
+│ (Every 30 min)           │ (Hourly: 0 * * * *)      │ (Daily: 03:00 UTC / 08:30 IST)   │
+│                          │                          │                                  │
+│ • Pull dashboard actions │ • Pull dashboard actions │ • Pull dashboard actions         │
+│ • Sync inbound replies   │ • Verify fresh inbox     │ • Sync provider balances         │
+│ • Screen Reddit/forums   │ • Prepare leads (4 hr)   │ • Generate AdLib/LinkedIn tasks  │
+│ • Push dashboard snap    │ • Send approved outreach │ • Funnel analytics & reporting   │
+│                          │ • Push dashboard snap    │ • Push dashboard snap            │
+└──────────────────────────┴──────────────────────────┴──────────────────────────────────┘
+                                      │
+                                      ▼
+                        ┌───────────────────────────┐
+                        │   PERSISTENT TURSO DB     │
+                        │  (libSQL Cloud Database)  │
+                        └───────────────────────────┘
+```
+
+#### Strict Safety, Idempotency & Concurrency Guarantees
+1. **Concurrency Protection**: `scheduled-outreach.yml` uses:
+   ```yaml
+   concurrency:
+     group: outreach-sending
+     cancel-in-progress: false
+   ```
+   This guarantees that send jobs will never run concurrently or overlap.
+2. **Deterministic Sequence Identity**: Every message in a sequence has a deterministic unique identity (`idempotency_key = lead:{lead_id}:step:{step}`) backed by a `UNIQUE(lead_id, step)` constraint. The same sequence step can never be sent twice.
+3. **Atomic Sending Transition**: Messages transition safely through `approved` ➔ `sending` (committed) ➔ `sent`. Before calling the mail provider, the message is claimed atomically with `UPDATE messages SET status='sending', sending_at=... WHERE id=? AND status='approved'`. If another worker or process already claimed it, `claimed.rowcount == 0` and the message is skipped.
+4. **Stale Sending Recovery**: If a GitHub Actions runner crashes or is abruptly killed while an email is in-flight, subsequent runs automatically run `reconcile_stale_sending()`. Any message in `status='sending'` older than 15 minutes is safely transitioned to `status='needs_reconciliation'` so it will **never be blindly resent**.
+5. **Human Approval Gate**: First-touch emails (`step == 0`) strictly require human approval (`status='approved'`) via the web dashboard or CLI before they can be sent.
+6. **Isolated CI**: `ci.yml` runs on push and pull requests with `OUTREACH_ENV=local`. It executes tests in an isolated, offline environment and never touches production data or sends real emails.
+
+---
+
+### Schedules & Cadence
+
+| Workflow | Trigger / Cadence | Commands Executed | Purpose |
+|---|---|---|---|
+| `scheduled-monitoring.yml` | `*/30 * * * *` (Every 30 min) | `python -m outreach dashboard-sync`<br>`python -m outreach sync`<br>`python -m outreach community` | Reads inbound replies, stops sequences on reply, alerts on hot leads via Telegram, and screens community `[Hiring]` posts. |
+| `scheduled-outreach.yml` | `0 * * * *` (Every hour) | `python -m outreach dashboard-sync`<br>`python -m outreach sync`<br>`python -m outreach prepare` (every 4h)<br>`python -m outreach send --max 5` | Pulls approvals, ensures inbox is fresh, runs lead preparation if capacity allows, and trickles out approved follow-ups and outreach. |
+| `daily-maintenance.yml` | `0 3 * * *` (Daily 03:00 UTC) | `python -m outreach dashboard-sync`<br>`python -m outreach providers-check`<br>`python -m outreach adlib`<br>`python -m outreach linkedin`<br>`python -m outreach report`<br>`python -m outreach digest` (Mondays) | Balances check, daily search and social task generation, pipeline funnel reporting, and weekly digest. |
+| `ci.yml` | `push`, `pull_request` | `python -m compileall outreach tests`<br>`python -m pytest -q` | Fast regression and syntax validation on Python 3.12 without external network calls. |
+
+All scheduled workflows support `workflow_dispatch` for manual triggering from the GitHub interface.
+
+---
+
+### Remote Database (Turso libSQL)
+
+GitHub runners are ephemeral. To ensure complete state persistence across separate workflow executions, production execution uses Turso (hosted libSQL/SQLite).
+
+#### Persistent Production State
+When running in production, all state is durably stored in Turso:
+- Prospects and email finder results (`prospects`, `prospect_domain_cache`, `provider_credits`)
+- Contacts, research briefs, fit scores, and source provenance (`leads`)
+- Sequences, multi-touch drafts, approval status, and send records (`messages`)
+- Inbound replies, sentiment categories, and bounce records (`replies`)
+- Delivery metrics, daily send volumes, and ramp tracking (`send_log`)
+- Suppression and unsubscribe lists (`suppression`)
+- Source checkpoints, job states, and sync cursors (`prospect_state`)
+- Community opportunity board posts and drafts (`posts`)
+- Deal CRM tracking, stage transitions, and values (`leads`)
+
+#### Environment Distinction
+- **`OUTREACH_ENV=production`**: All database calls connect directly to Turso via the native HTTP pipeline client (`outreach/turso.py`), sharing state between GitHub Actions and your Vercel dashboard.
+- **`OUTREACH_ENV=local`**: Defaults to your local SQLite database at `data/outreach.db`.
+
+#### Migrating Local Database to Turso
+If you have existing leads, drafts, or suppression lists in your local `data/outreach.db`, migrate them to Turso with a single command:
+```bash
+python -m outreach migrate-to-turso
+```
+
+---
+
+### Required GitHub Secrets
+
+To run the workflows in GitHub Actions, navigate to **Settings ➔ Secrets and variables ➔ Actions** in your repository and configure the following secrets:
+
+| Secret Name | Required? | Description |
+|---|---|---|
+| `TURSO_DATABASE_URL` | **Yes** | Your Turso database URL (e.g., `libsql://your-db.turso.io` or `https://...`). |
+| `TURSO_AUTH_TOKEN` | **Yes** | Authentication token generated from your Turso dashboard or CLI. |
+| `GEMINI_API_KEY` | **Yes** | Google Gemini API key (free at `aistudio.google.com/apikey`). |
+| `GROQ_API_KEY` | Optional | Backup AI key for when Gemini is rate-limited (`console.groq.com`). |
+| `ZOHO_CLIENT_ID` | Conditional | Zoho Self Client ID (if using Zoho Mail API). |
+| `ZOHO_CLIENT_SECRET` | Conditional | Zoho Self Client Secret (if using Zoho Mail API). |
+| `ZOHO_REFRESH_TOKEN` | Conditional | Zoho OAuth refresh token (obtain via `python -m outreach zoho-token <code>`). |
+| `ZOHO_APP_PASSWORD` | Conditional | Zoho SMTP app password (for paid Zoho plans with SMTP enabled). |
+| `GMAIL_APP_PASSWORD` | Conditional | Google App Password (if sending through Gmail SMTP). |
+| `TELEGRAM_BOT_TOKEN` | Optional | Telegram bot token from `@BotFather` for mobile notifications. |
+| `TELEGRAM_CHAT_ID` | Optional | Telegram chat ID (obtain via `python -m outreach telegram-setup`). |
+| `REDDIT_CLIENT_ID` | Optional | Reddit Data API client ID (for Reddit lead monitoring). |
+| `REDDIT_CLIENT_SECRET` | Optional | Reddit Data API client secret. |
+| `REDDIT_USER_AGENT` | Optional | Descriptive user agent format: `platform:app-name:v1.0 (by /u/username)`. |
+| `FIRECRAWL_API_KEY` | Optional | Firecrawl key for advanced web extraction (`firecrawl.dev`). |
+| `PROSPEO_API_KEY` | Optional | Prospeo email finder API key. |
+| `HUNTER_API_KEY` | Optional | Hunter.io email finder API key. |
+| `SKRAPP_API_KEY` | Optional | Skrapp.io email finder API key. |
+| `SETTINGS_YAML` | Optional | Raw content of `config/settings.yaml` (overrides default configuration). |
+| `PROFILE_YAML` | Optional | Raw content of `config/profile.yaml` (overrides default profile). |
+
+---
+
+### Manually Triggering Jobs (`workflow_dispatch`)
+
+You can run any job on demand directly from GitHub without waiting for the next cron schedule:
+1. Navigate to the **Actions** tab in your GitHub repository.
+2. In the left sidebar, click the workflow you want to run (e.g., **Scheduled Outreach**).
+3. Click the **Run workflow** dropdown on the right.
+4. (Optional) Provide input parameters:
+   - **`max_sends`**: Adjust how many emails to send in this run (e.g., `2` or `5`).
+   - **`dry_run`**: Check the box to test without dispatching real emails.
+   - **`run_prospecting`**: Check the box to immediately trigger discovery and sequence drafting.
+5. Click **Run workflow**.
+
+---
+
+### Disabling Jobs
+
+If you ever want to temporarily pause autonomous cloud runs:
+- **Disable a single workflow**: In the **Actions** tab, select the workflow in the left sidebar, click the `...` (options) menu next to the workflow name, and select **Disable workflow**.
+- **Pause outreach sending globally**: You do not need to disable GitHub Actions. In the web dashboard, click **Pause sending** (or run `python -m outreach pause`). The workflows will continue to sync replies and monitor opportunities, but the sender will hold all emails until resumed.
+
+---
+
+### Viewing Logs & Diagnostics
+
+- **GitHub Run Logs**: In the **Actions** tab, click on any completed or in-progress run. Expand individual steps (e.g., `Send approved outreach & due follow-ups` or `Sync replies & triage inbox`) to view exact CLI outputs, sender status, and error traces.
+- **Remote Dashboard**: View live queue status, review holds, and engine heartbeat in the web desk hosted on Vercel.
+
+---
+
+### Running Locally
+
+Local execution is completely preserved:
+- To run with local SQLite: simply run CLI commands without `OUTREACH_ENV=production`. Everything operates against `data/outreach.db`.
+- To run locally against the remote Turso database:
+  ```bash
+  export OUTREACH_ENV=production
+  python -m outreach send
+  ```
+
+---
+
+### Safe Dry-Run Mode
+
+You can verify the entire sending and delivery pipeline without sending a single real email:
+- **In GitHub Actions**: Trigger `Scheduled Outreach` manually with the `dry_run` checkbox enabled.
+- **In Local CLI**:
+  ```bash
+  python -m outreach send --dry-run
+  ```
+  The runner evaluates all candidates, checks time windows, inspects templates, and logs exactly what would be sent without contacting the email provider.
 
 ---
 
@@ -274,15 +494,15 @@ Engineered to discover verified professional email addresses for founders, CEOs,
 | Step | Command | Typical Frequency | Purpose |
 |---|---|---|---|
 | **Prospect** | `prospect` | Cron (in `prepare`) | Scrapes public directories, job boards, HN, UK/Dubai registers, OSM. |
-| **B2B Finder** | `prospect-find` / `prospect-enrich` | On-demand / Dashboard | Discovers and validates emails; scores confidence 0-100; enforces 38/day target. |
+| **B2B Finder** | `prospect-find` / `prospect-enrich` | On-demand / Dashboard | Discovers and validates emails; scores confidence 0-100; enforces 28/day target. |
 | **Import** | `import <file.csv>` | On-demand | Bulk imports existing lists into a target segment. |
 | **Enrich** | `enrich` | Daily | Scrapes website signals, team pages, and published company contacts. |
 | **Verify** | `verify` | Daily | Validates syntax, DNS/MX records, and checks disposable/role addresses. |
 | **Research** | `research` | Daily | Gemini research brief + Google News synthesis; computes 0-10 fit score. |
 | **Draft** | `draft` | Daily | Drafts Email 1, two follow-ups, and LinkedIn note with A/B angles. |
 | **Review** | `review` / `approve` | Daily (15-20 min) | Human review via terminal or dashboard (edit, approve, regenerate). |
-| **Send** | `send` | Every 10 min | Safe scheduled delivery inside timezone windows with randomized gaps. |
-| **Sync** | `sync` | Every 20 min | Fetches inbound replies, stops sequences, and triggers AI reply triage. |
+| **Send** | `send` | Every 5 min | Safe scheduled delivery inside timezone windows with randomized gaps. |
+| **Sync** | `sync` | Every 10 min | Fetches inbound replies, stops sequences, and triggers AI reply triage. |
 | **Reply** | `reply <id>` | On-demand | Dispatches approved reply to interested prospect. |
 | **Ad Library** | `adlib` | Daily | Generates targeted Meta Ad Library search queries. |
 | **Community** | `community` | Every 30 min | Monitors n8n & Reddit for `[Hiring]` posts; drafts proposals. |
@@ -302,7 +522,7 @@ python -m outreach prospect-find "Patrick" "Collison" "Stripe" --domain stripe.c
 python -m outreach prospect-find --first "Patrick" --last "Collison" --company "Stripe"
 
 # Bulk enrich prospects from CSV with a verified target cap and multi-threading
-python -m outreach prospect-enrich leads.csv --target 38 --workers 3 --output results.csv
+python -m outreach prospect-enrich leads.csv --target 28 --workers 3 --output results.csv
 
 # View prospecting database metrics, verification tiers, and provider credits
 python -m outreach prospect-stats
@@ -333,7 +553,7 @@ python -m outreach import my_leads.csv --segment uk_agencies
 python -m outreach enrich --limit 150
 python -m outreach verify
 python -m outreach research --limit 45
-python -m outreach draft --limit 38
+python -m outreach draft --limit 28
 
 # Review and approve drafts
 python -m outreach review                    # Interactive terminal review
@@ -443,7 +663,7 @@ Define target markets, sending windows, offers, pricing, and A/B angles:
 ```yaml
 targeting:
   india_share_max: 0.33       # Maximum domestic market share
-  min_fit: 6                  # Minimum research fit score (0-10)
+  min_fit: 8                  # Minimum research fit score (0-10)
 
 sending:
   home_timezone: Asia/Kolkata
@@ -451,6 +671,7 @@ sending:
   min_gap_minutes: 8
   gap_jitter_minutes: 7
   max_bounce_rate: 0.03       # Auto-pause threshold (3%)
+  daily_first_target: 28 # New first emails; follow-ups excluded
   ramp_by_week: [10, 20, 30, 35]
 
 inboxes:
@@ -463,7 +684,7 @@ inboxes:
 
 segments:
   uk_agencies:
-    daily_new: 8
+    daily_new: 4
     market: uk
     timezone: Europe/London
     send_days: [1, 2, 3, 4]   # Mon-Thu
@@ -577,26 +798,30 @@ agent-outreach/
 │   ├── cli.py                    # Unified CLI command router
 │   ├── community.py              # Forum & Reddit [Hiring] monitor
 │   ├── config.py                 # Configuration loader and validation
-│   ├── db.py                     # SQLite database schema and ORM operations
+│   ├── db.py                     # SQLite / Turso remote database schema and migrations
+│   ├── eligibility.py            # Central send eligibility gatekeeper (Gates A-J)
 │   ├── engine.py                 # Background daemon scheduler & tick loop
 │   ├── enrich.py                 # Website crawler and published email extractor
+│   ├── evidence.py               # Evidence extraction and personalization validation
 │   ├── firecrawl.py              # Optional Firecrawl fallback client
 │   ├── groq.py                   # Backup Groq LLM client
-│   ├── growth.py                 # 1-page proposal and content generator
+│   ├── growth.py                 # 1-page proposal and deal stage tracking
 │   ├── importer.py               # CSV and list importer
 │   ├── llm.py                    # Gemini client with retry & fallback logic
-│   ├── personalize.py            # AI sequence generation
+│   ├── personalize.py            # AI sequence generation (mode-specific copywriting)
 │   ├── prospect.py               # Directory and job board lead scrapers
 │   ├── replies.py                # IMAP/Zoho reply fetcher & classifier
-│   ├── report.py                 # Performance and conversion analytics
+│   ├── report.py                 # Segment funnel reporting
 │   ├── research.py               # Company research and fit scoring
 │   ├── review.py                 # Interactive terminal review interface
-│   ├── sender.py                 # Safe scheduled send executor
+│   ├── scoring.py                # Mode-aware opportunity scoring & intent detection
+│   ├── sender.py                 # Safe scheduled send executor & 28/day allocation
 │   ├── sources.py                # Public data source drivers
 │   ├── transport.py              # SMTP, IMAP, and Zoho REST API transports
 │   ├── turso.py                  # Turso edge database client
-│   ├── verify.py                 # Email validation and lead scoring
+│   ├── verification.py           # Multi-method email verification & deliverability scoring
 │   ├── website.py                # Domain resolution and discovery
+│   ├── analytics.py              # Phase 3 outcome analytics & learning safety
 │   └── prospecting/              # Free B2B Email Prospecting Engine
 │       ├── config.py             # Weights, thresholds, and provider credit caps
 │       ├── models.py             # Pydantic data schemas
@@ -606,7 +831,7 @@ agent-outreach/
 │       ├── discovery/            # Site crawler, search, GitHub scanner
 │       ├── providers/            # Prospeo, Hunter, Skrapp fallback clients
 │       └── pipeline/             # Single and bulk multi-threaded processors
-├── tests/                        # 107 comprehensive automated unit and integration tests
+├── tests/                        # 198 comprehensive automated unit and integration tests
 ├── PLAYBOOK.md                   # Strategic market research & 30-day outreach playbook
 ├── GROWTH.md                     # High-ticket closing guide & conversion channels
 └── requirements.txt              # Production Python dependencies
@@ -617,24 +842,24 @@ agent-outreach/
 ## Deliberate Design & Compliance Boundaries
 
 - **Zero Guessed Emails**: The pipeline prioritizes publicly exposed addresses and confirmed patterns. Unverified emails are scored down and flagged for manual review.
-- **Anti-Spam & Deliverability Standards**: Staggered sending gaps (8-15 mins), strict daily caps, automated bounce shutoffs, and immediate opt-out suppression keep sender domain reputation pristine.
-- **Terms of Service Compliance**:
-  - No automated LinkedIn scraping or robotic browser automation that risks account bans. LinkedIn tasks and texts are drafted for hand delivery.
-  - No scraping of Facebook personal data or restricted directories.
+- **Anti-Spam & Deliverability Standards**: Staggered sending gaps (8-15 mins), strict 28/day ceiling, automated bounce shutoffs, and immediate opt-out suppression keep sender domain reputation pristine.
+- **Mode-Specific Funnels**: Distinct scoring, targeting, and copywriting strategies for FREELANCE vs INTERNSHIP opportunities.
+- **Strategic Daily 28 Allocation**: Configurable split (12 Freelance, 8 Internship, 8 Follow-ups) with optional quota borrowing and strict quality enforcement.
+- **Learning & Optimization Safety**: The analytics engine observes real conversions and proposes recommendations with explicit human approval required—never automatically rewriting weights or prompts.
 - **Human-in-the-Loop Safeguard**: First-touch cold emails require approval before entering dispatch queues.
 
 ---
 
 ## Testing
 
-The codebase includes an exhaustive test suite covering all pipeline stages, edge cases, domain normalization, pattern deduction, scoring algorithms, and API endpoints.
+The codebase includes an exhaustive test suite covering all pipeline stages, edge cases, domain normalization, pattern deduction, scoring algorithms, quality gates, cloud automation, and mode-specific allocations.
 
 ```bash
 # Run the entire test suite
-python -m pytest -q
+python -m pytest -v
 
-# Run prospecting tests specifically
-python -m pytest tests/test_prospecting.py -q
+# Run Phase 3 mode and allocation tests specifically
+python -m pytest tests/test_phase3_modes_and_allocation.py -v
 ```
 
-All **107 tests pass** cleanly.
+All **198 tests pass** cleanly.

@@ -94,12 +94,15 @@ def items(conn, limit: int = 3000) -> list[dict]:
         check = None
         if row["status"] in ("drafted", "approved") and msg is not None:
             check = security_check(row, msg) or "ok"
+        score_tot = (row["score_total"] if "score_total" in row.keys() and row["score_total"] else row["score"]) or 0
+        score_band = "Priority A" if score_tot >= 85 else "Priority B" if score_tot >= 75 else "Manual Review" if score_tot >= 60 else "Reject"
         out.append({
             "id": row["id"], "company": row["company"] or row["domain"] or "", "email": row["email"] or "",
             "name": " ".join(x for x in (row["first_name"], row["last_name"]) if x),
             "segment": row["segment"], "source": row["source"] or "", "status": row["status"], "group": group,
             "label": label, "why": why(row, msg), "check": check, "fit": row["fit"], "website": row["website"] or "",
             "email_status": row["email_status"], "type": row["opportunity_type"] or "",
+            "score_total": score_tot, "score_band": score_band,
             "subject": msg["subject"] if msg is not None else "", "sent_at": msg["sent_at"] if msg is not None else "",
             "reply": last_reply.get(row["id"], ""), "updated": row["updated_at"] or row["created_at"] or "",
             "can_draft": row["status"] in DRAFTABLE and bool(row["email"]) and row["email_status"] in ("valid", "risky", "unchecked"),

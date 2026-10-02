@@ -48,6 +48,22 @@ def set_stage(lead_id: int, stage: str, value: float | None = None, note: str = 
         if opportunity_type:
             fields["opportunity_type"] = opportunity_type
         db.set_lead(conn, lead_id, **fields)
+
+        if stage:
+            lead_row = conn.execute("SELECT segment, opportunity_type FROM leads WHERE id=?", (lead_id,)).fetchone()
+            is_intern = (lead_row and ("intern" in str(lead_row["segment"]).lower() or lead_row["opportunity_type"] in ("internship", "intern")))
+            if stage == "call_booked":
+                outcome = "interview" if is_intern else "meeting"
+            elif stage == "proposal_sent":
+                outcome = "project_discussion"
+            elif stage == "won":
+                outcome = "offer" if is_intern else "won_project"
+            elif stage == "lost":
+                outcome = "lost_project"
+            else:
+                outcome = ""
+            if outcome:
+                db.update_message_outcome(conn, lead_id, outcome=outcome, notes=note)
     return f"stage: {STAGE_LABEL.get(stage, 'cleared')}"
 
 
